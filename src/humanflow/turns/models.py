@@ -28,6 +28,7 @@ class TurnSignals:
     background_speech_probability: float = 0.0
     interruption_probability: float = 0.0
     agent_speaking: bool = False
+    provider_endpointed: bool = False
 
     def __post_init__(self) -> None:
         if self.silence_duration_ms < 0 or self.utterance_duration_ms < 0:
@@ -60,4 +61,3 @@ class TurnDecision:
             raise ValueError("reason_codes must not be empty")
         if not self.signals_used:
             raise ValueError("signals_used must not be empty")
-

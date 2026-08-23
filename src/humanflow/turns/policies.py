@@ -109,6 +109,18 @@ class HybridTurnPolicy:
                 signals=("speech_active",),
             )
 
+        if (
+            signals.provider_endpointed
+            and signals.semantic_complete
+            and not signals.agent_speaking
+        ):
+            return _decision(
+                TurnDecisionType.COMPLETE,
+                0.99,
+                "stt_provider_final_endpoint",
+                signals=("provider_endpointed", "semantic_complete"),
+            )
+
         if signals.filler_ending and signals.silence_duration_ms < self.forced_complete_ms:
             return _decision(
                 TurnDecisionType.CONTINUE_LISTENING,
@@ -165,4 +177,3 @@ class HybridTurnPolicy:
             text == phrase or text.startswith(phrase + " ") for phrase in INTERRUPTION_PHRASES
         )
         return phrase_match and probability >= self.interruption_threshold
-

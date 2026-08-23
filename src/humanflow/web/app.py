@@ -400,6 +400,23 @@ async def _handle_json(
         outbound.put_nowait({"type": "error", "code": "invalid_signals"})
         return
     try:
+        source = message.get("source")
+        if source == "browser_stt":
+            transcript_provider = ProviderInfo(
+                role="stt",
+                provider="browser-web-speech-api",
+                model="de-DE",
+                mode=ProviderMode.REAL,
+                runtime="browser",
+            )
+        else:
+            transcript_provider = ProviderInfo(
+                role="stt",
+                provider="diagnostic-text-input",
+                model=str(source or "unspecified"),
+                mode=ProviderMode.MOCK,
+                runtime="client",
+            )
         signals = TurnSignals(
             speech_active=bool(raw_signals.get("speech_active", False)),
             silence_duration_ms=int(raw_signals.get("silence_duration_ms", 350)),
@@ -411,19 +428,14 @@ async def _handle_json(
                 raw_signals.get("background_speech_probability", 0.0)
             ),
             interruption_probability=float(raw_signals.get("interruption_probability", 0.0)),
+            provider_endpointed=bool(raw_signals.get("provider_endpointed", False)),
         )
         decision = await session.submit_transcript(
             TranscriptUpdate(
                 text=text.strip(),
                 is_final=bool(message.get("final", False)),
                 signals=signals,
-                provider=ProviderInfo(
-                    role="stt",
-                    provider="browser-web-speech-api",
-                    model="de-DE",
-                    mode=ProviderMode.REAL,
-                    runtime="browser",
-                ),
+                provider=transcript_provider,
             )
         )
     except (TypeError, ValueError) as error:

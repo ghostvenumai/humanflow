@@ -36,6 +36,41 @@ def test_short_german_acknowledgements_are_backchannels(text: str) -> None:
     assert decision.decision is TurnDecisionType.BACKCHANNEL
 
 
+def test_final_stt_provider_endpoint_completes_without_fabricated_silence() -> None:
+    decision = HybridTurnPolicy().decide(
+        TurnSignals(
+            speech_active=False,
+            silence_duration_ms=0,
+            utterance_duration_ms=742,
+            final_transcript="Was ist 25 mal 17?",
+            semantic_complete=True,
+            acoustic_completion=1.0,
+            provider_endpointed=True,
+        )
+    )
+
+    assert decision.decision is TurnDecisionType.COMPLETE
+    assert decision.reason_codes == ("stt_provider_final_endpoint",)
+    assert decision.signals_used == ("provider_endpointed", "semantic_complete")
+
+
+def test_provider_endpoint_does_not_create_new_turn_while_agent_speaks() -> None:
+    decision = HybridTurnPolicy().decide(
+        TurnSignals(
+            speech_active=False,
+            silence_duration_ms=0,
+            utterance_duration_ms=500,
+            final_transcript="Das könnte die Stimme des Agenten sein",
+            semantic_complete=True,
+            acoustic_completion=1.0,
+            agent_speaking=True,
+            provider_endpointed=True,
+        )
+    )
+
+    assert decision.decision is not TurnDecisionType.COMPLETE
+
+
 @pytest.mark.parametrize("text", ["Moment, stopp", "warte mal", "Nein stopp, ich meinte Freitag"])
 def test_explicit_german_takeover_is_interruption(text: str) -> None:
     decision = HybridTurnPolicy().decide(
@@ -110,4 +145,3 @@ def test_fixed_silence_policy_is_a_reproducible_baseline() -> None:
 def test_signal_probabilities_are_validated() -> None:
     with pytest.raises(ValueError):
         signals(interruption_probability=1.1)
-

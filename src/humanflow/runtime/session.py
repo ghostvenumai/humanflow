@@ -248,7 +248,20 @@ class RealtimeVoiceSession:
             event_type,
             correlation_id=correlation_id,
             reason_code="provider_transcript",
-            payload={"text": update.text, "provider": transcript_provider.to_dict()},
+            payload={
+                "text": update.text,
+                "provider": transcript_provider.to_dict(),
+                "signals": {
+                    "speech_active": update.signals.speech_active,
+                    "silence_duration_ms": update.signals.silence_duration_ms,
+                    "utterance_duration_ms": update.signals.utterance_duration_ms,
+                    "semantic_complete": update.signals.semantic_complete,
+                    "provider_endpointed": update.signals.provider_endpointed,
+                    "interruption_probability": (
+                        update.signals.interruption_probability
+                    ),
+                },
+            },
         )
         agent_speaking = self.state in {
             ConversationState.SPEAKING,

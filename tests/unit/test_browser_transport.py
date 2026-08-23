@@ -92,6 +92,9 @@ def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
     source = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     markup = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     assert "playPcm(buffer" not in source
+    assert "provider_endpointed: result.isFinal" in source
+    assert "silence_duration_ms: Math.round(silenceDuration)" in source
+    assert "utterance_duration_ms: Math.round(utteranceDuration)" in source
     assert "provider-reasoning" in markup
     assert "kein stiller Mock-Fallback" in markup
 

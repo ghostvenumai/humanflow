@@ -47,6 +47,7 @@ def run_turn(connection: websocket.WebSocket, prompt: str) -> dict[str, Any]:
         json.dumps(
             {
                 "type": "transcript",
+                "source": "diagnostic_smoke",
                 "text": prompt,
                 "final": True,
                 "signals": {

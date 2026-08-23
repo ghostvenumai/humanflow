@@ -11,6 +11,8 @@ let processor;
 let frameCount = 0;
 let nextAudioMeta = null;
 let partialTranscriptItem = null;
+let speechStartedAt = null;
+let speechEndedAt = null;
 const activeAudio = new Map();
 const assistantItems = new Map();
 
@@ -135,21 +137,47 @@ function startBrowserStt() {
   recognition.lang = "de-DE";
   recognition.continuous = true;
   recognition.interimResults = true;
+  recognition.onspeechstart = () => {
+    speechStartedAt = performance.now();
+    speechEndedAt = null;
+  };
+  recognition.onspeechend = () => {
+    speechEndedAt = performance.now();
+  };
   recognition.onresult = (event) => {
-    const result = event.results[event.resultIndex];
-    const text = result[0].transcript.trim();
-    showTranscript(text, result.isFinal);
-    send({
-      type: "transcript", text, final: result.isFinal,
-      signals: {
-        speech_active: !result.isFinal,
-        silence_duration_ms: result.isFinal ? 350 : 0,
-        utterance_duration_ms: 600,
-        semantic_complete: result.isFinal,
-        acoustic_completion: result.isFinal ? 0.8 : 0.1,
-        interruption_probability: /^(moment|stopp|warte|nein stopp)/i.test(text) ? 0.98 : 0.0
+    const observedAt = performance.now();
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const result = event.results[index];
+      const text = result[0].transcript.trim();
+      if (!text) continue;
+      const utteranceDuration = speechStartedAt == null ? 0 : Math.max(0, (speechEndedAt || observedAt) - speechStartedAt);
+      const silenceDuration = speechEndedAt == null ? 0 : Math.max(0, observedAt - speechEndedAt);
+      const explicitInterruption = /^(moment|stopp|warte|nein stopp)(\s|$)/i.test(text);
+      showTranscript(text, result.isFinal);
+      send({
+        type: "transcript", source: "browser_stt", text, final: result.isFinal,
+        signals: {
+          speech_active: !result.isFinal,
+          silence_duration_ms: Math.round(silenceDuration),
+          utterance_duration_ms: Math.round(utteranceDuration),
+          semantic_complete: result.isFinal,
+          provider_endpointed: result.isFinal,
+          acoustic_completion: result.isFinal ? 1.0 : 0.0,
+          interruption_probability: explicitInterruption ? 1.0 : 0.0
+        }
+      });
+      if (result.isFinal) {
+        speechStartedAt = null;
+        speechEndedAt = null;
       }
-    });
+    }
+  };
+  recognition.onerror = (event) => {
+    if (event.error === "no-speech") return;
+    ui.status.textContent = `STT-Fehler: ${event.error}`;
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      setProvider("stt", `Browser Web Speech · de-DE · REAL · ${event.error.toUpperCase()}`, "unavailable");
+    }
   };
   recognition.onend = () => { if (socket?.readyState === WebSocket.OPEN) recognition.start(); };
   recognition.start();
@@ -249,12 +277,12 @@ ui.connect.addEventListener("click", async () => {
 
 ui.interrupt.addEventListener("click", () => send({ type: "interrupt" }));
 ui.send.addEventListener("click", () => send({
-  type: "transcript", text: ui.transcript.value, final: true,
+  type: "transcript", source: "manual_diagnostic", text: ui.transcript.value, final: true,
   signals: { speech_active: false, silence_duration_ms: 350, utterance_duration_ms: 900, semantic_complete: true, acoustic_completion: 0.9 }
 }));
 ui.send.addEventListener("click", () => showTranscript(ui.transcript.value, true));
 document.querySelectorAll(".quick button").forEach((button) => button.addEventListener("click", () => send({
-  type: "transcript", text: button.dataset.phrase, final: true,
+  type: "transcript", source: "manual_diagnostic", text: button.dataset.phrase, final: true,
   signals: {
     speech_active: true, silence_duration_ms: 0, utterance_duration_ms: 250,
     semantic_complete: false, acoustic_completion: 0,
