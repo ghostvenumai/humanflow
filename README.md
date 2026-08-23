@@ -21,6 +21,19 @@ make scorecard           # build evidence-linked local quality gates
 
 No GitHub push or deployment is performed automatically.
 
+## Release validation and freeze
+
+Automated readiness is available through `make release-readiness`. The final
+72-hour tag is guarded by a human browser/audio attestation; see
+`docs/MANUAL_VALIDATION.md`. Automation must not create that attestation.
+
+```bash
+./freeze-72h --confirm-freeze
+```
+
+The command re-runs the complete evidence suite and creates only local freeze
+evidence/tagging. It does not push or deploy.
+
 ## Realtime core
 
 `RealtimeVoiceSession` accepts validated PCM16 frames without waiting for agent
