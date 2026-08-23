@@ -36,7 +36,9 @@ def run(command: list[str], *, timeout: int = 300) -> str:
     )
     if completed.returncode != 0:
         fail(f"command failed ({' '.join(command)}):\n{completed.stdout}")
-    return completed.stdout.strip()
+    # Git porcelain status uses a significant leading column. Keep it while
+    # removing only trailing line terminators and command-output whitespace.
+    return completed.stdout.rstrip()
 
 
 def sha256(path: Path) -> str:
