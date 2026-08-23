@@ -77,8 +77,8 @@ all transitions and meaningful timings
 
 ## Next runtime components
 
-1. Resolve the ElevenLabs credit/payment blocker and obtain a passing real-provider smoke.
-2. Human voice-quality validation and controlled KEEP/REVERT evidence.
+1. Human voice-quality validation of the passing ElevenLabs live-provider path.
+2. Controlled KEEP/REVERT evaluation using the submitted human assessment.
 
 ## Controlled quality loop
 
