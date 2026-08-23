@@ -1,4 +1,4 @@
-.PHONY: status test torture-test benchmark turn-tournament
+.PHONY: status test torture-test benchmark turn-tournament checkpoint
 
 status:
 	python3 scripts/status.py
@@ -13,3 +13,6 @@ benchmark:
 	PYTHONPATH=src python3 scripts/benchmark_turns.py
 
 turn-tournament: benchmark
+
+checkpoint:
+	python3 scripts/checkpoint.py
