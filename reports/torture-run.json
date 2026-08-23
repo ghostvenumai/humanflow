@@ -1,0 +1,232 @@
+{
+  "catalog": {
+    "modified": false,
+    "path": "tests/golden/torture_scenarios.json",
+    "scenarios": 20,
+    "sha256": "98b763cb8258362c64ab4875edd7e53b1918efb2cc6f5b92adfb4a52b308318f"
+  },
+  "configured_tool_latency_ms": 4000.0,
+  "generated_at_utc": "2026-08-23T16:01:23.504125Z",
+  "git_commit": "49fb989abfa258f05f3f807466a1a07726fcc711",
+  "results": [
+    {
+      "evidence": {
+        "backchannel_events": 1,
+        "cancellations_during_response": 0,
+        "decision": "BACKCHANNEL"
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T01"
+    },
+    {
+      "evidence": {
+        "backchannel_events": 1,
+        "cancellations_during_response": 0,
+        "decision": "BACKCHANNEL"
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T02"
+    },
+    {
+      "evidence": {
+        "audible_barge_in_latency_ms": 2.548721,
+        "decision": "INTERRUPTION",
+        "ledger_unheard_text": "Ich"
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T03"
+    },
+    {
+      "evidence": {
+        "coherent_turns": 1,
+        "decision": "COMPLETE",
+        "latest_day": "Freitag"
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T04"
+    },
+    {
+      "evidence": {
+        "decision": "CONTINUE_LISTENING",
+        "reason_codes": [
+          "filler_or_unfinished_ending"
+        ]
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T05"
+    },
+    {
+      "evidence": {
+        "decision": "CONTINUE_LISTENING",
+        "reason_codes": [
+          "filler_or_unfinished_ending"
+        ]
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T06"
+    },
+    {
+      "evidence": {
+        "decision": "UNCERTAIN",
+        "false_interruption": false
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T07"
+    },
+    {
+      "evidence": {
+        "resolution": "SPEAKING",
+        "transitions": [
+          "LISTENING",
+          "THINKING",
+          "SPEAKING",
+          "OVERLAP",
+          "SPEAKING"
+        ]
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T08"
+    },
+    {
+      "evidence": {
+        "configured_latency_ms": 4000.0,
+        "event_loop_ticks": 756,
+        "maximum_tick_gap_ms": 20.784146,
+        "measured_elapsed_ms": 4000.764447
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T09"
+    },
+    {
+      "evidence": {
+        "failure_reason": "tool_timeout",
+        "recovery_completed_events": 1,
+        "used_fallback": true
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T10"
+    },
+    {
+      "evidence": {
+        "failure_reason": "invalid_response",
+        "recovery_completed_events": 1,
+        "used_fallback": true
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T11"
+    },
+    {
+      "evidence": {
+        "fabricated_cancellation_metrics": 0,
+        "termination_reason": "safe_handoff_complete",
+        "unconfirmed_ledger_entries": 1
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T12"
+    },
+    {
+      "evidence": {
+        "invalidations": 1,
+        "recovery_completed_events": 1
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T13"
+    },
+    {
+      "evidence": {
+        "cancellations": 2,
+        "latencies_ms": [
+          2.421605,
+          2.829629
+        ],
+        "ledger_valid": true
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T14"
+    },
+    {
+      "evidence": {
+        "decision": "CONTINUE_LISTENING",
+        "reason_codes": [
+          "speech_still_active"
+        ]
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T15"
+    },
+    {
+      "evidence": {
+        "decision": "COMPLETE",
+        "reason_codes": [
+          "semantic_and_acoustic_completion"
+        ],
+        "signals_used": [
+          "semantic_complete",
+          "acoustic_completion",
+          "silence_duration_ms"
+        ]
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T16"
+    },
+    {
+      "evidence": {
+        "coherent_turns": 1,
+        "latest_correction": "Freitagvormittag"
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T17"
+    },
+    {
+      "evidence": {
+        "accepted_provider_call": 2,
+        "stale_rejected_events": 1
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T18"
+    },
+    {
+      "evidence": {
+        "decision": "UNCERTAIN",
+        "fabricated_completion": false
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T19"
+    },
+    {
+      "evidence": {
+        "call_ended_events": 1,
+        "final_state": "IDLE",
+        "termination_reason": "caller_goodbye"
+      },
+      "failure_type": null,
+      "passed": true,
+      "scenario_id": "T20"
+    }
+  ],
+  "schema_version": 1,
+  "summary": {
+    "failed": 0,
+    "passed": 20,
+    "total": 20
+  }
+}

@@ -109,14 +109,20 @@ async def _sample(index: int) -> dict[str, float | int]:
     cancel_event = next(
         event for event in sink.events if event.event_type is EventType.AGENT_AUDIO_CANCELLED
     )
-    event_latency_ms = cancel_event.payload["audible_barge_in_latency_ms"]
-    assert isinstance(event_latency_ms, float)
+    candidate_event = next(
+        event for event in sink.events if event.event_type is EventType.INTERRUPTION_CANDIDATE
+    )
+    event_latency_ms = (
+        cancel_event.monotonic_ns - candidate_event.monotonic_ns
+    ) / 1_000_000.0
     assert isinstance(returned_latency_ms, float)
-    assert abs(event_latency_ms - returned_latency_ms) < 0.001
+    assert event_latency_ms >= 0.0
+    assert returned_latency_ms >= 0.0
     result: dict[str, float | int] = {
         "sample": index,
         "ttfa_ms": (audio_event.monotonic_ns - turn_event.monotonic_ns) / 1_000_000.0,
         "audible_barge_in_latency_ms": event_latency_ms,
+        "audio_sink_request_to_stop_ms": returned_latency_ms,
         "pcm_enqueue_20_frames_ms": enqueue_elapsed_ms,
         "pcm_input_drain_20_frames_ms": input_drain_ms,
         "played_samples_before_stop": int(cancel_event.payload["played_samples"]),

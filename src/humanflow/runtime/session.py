@@ -65,6 +65,7 @@ class RealtimeVoiceSession:
         self._audio_stopped = asyncio.Event()
         self._audio_stopped.set()
         self._cancel_requested_ns: int | None = None
+        self._cancel_correlation_id: str | None = None
         self._last_playback_receipt: PlaybackReceipt | None = None
         self._user_audio_active = False
         self._closed = False
@@ -122,6 +123,7 @@ class RealtimeVoiceSession:
         correlation_id = correlation_id or str(uuid4())
         request_ns = self._clock_ns()
         self._cancel_requested_ns = request_ns
+        self._cancel_correlation_id = correlation_id
         state = self.state
         if state is ConversationState.SPEAKING:
             self.state_machine.transition(
@@ -300,6 +302,7 @@ class RealtimeVoiceSession:
         self._cancel_event = asyncio.Event()
         self._audio_stopped = asyncio.Event()
         self._cancel_requested_ns = None
+        self._cancel_correlation_id = None
         self._last_playback_receipt = None
         self._response_id = str(uuid4())
         self._response_token = self.state_machine.issue_operation(kind="reasoning_and_speech")
@@ -392,7 +395,7 @@ class RealtimeVoiceSession:
                     self._record_cancelled(
                         receipt=receipt,
                         response_id=response_id,
-                        correlation_id=correlation_id,
+                        correlation_id=self._cancel_correlation_id or correlation_id,
                     )
                     break
 

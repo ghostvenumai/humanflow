@@ -14,6 +14,9 @@ authoritative start evidence is written by `./go` and preserved under `sprint/`.
 make status   # elapsed time and remaining sprint window
 make test     # automated tests
 make realtime-benchmark  # measured local controller/queue/cancellation timings
+make torture-test        # tests plus executable T01-T20 contract scenarios
+make replay              # capture and strictly replay raw JSONL telemetry
+make scorecard           # build evidence-linked local quality gates
 ```
 
 No GitHub push or deployment is performed automatically.
@@ -30,6 +33,10 @@ The dependency-free local adapters are intended for deterministic runtime and
 cancellation testing. Reports label these measurements as local event-loop data;
 they are not presented as browser, sound-device, telephony, provider, or real-call
 quality measurements.
+
+The generated scorecard deliberately distinguishes `PASS_LOCAL_EVIDENCE` from a
+production claim. Without a real-call dataset, the production release claim remains
+`NOT_ESTABLISHED_NO_REAL_CALL_DATA`, even when all local engineering gates pass.
 
 ## Browser demo
 

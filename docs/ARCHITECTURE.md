@@ -55,6 +55,10 @@ all transitions and meaningful timings
   PCM into the core. Browser playback acknowledgements establish actual start,
   completion, partial-play and cancellation boundaries; missing stop acknowledgements
   enter safe handoff and never manufacture an audible-stop metric.
+- `humanflow.evaluation`: immutable turn fixtures, executable T01-T20 torture
+  scenarios, strict JSONL timeline replay, and an evidence-linked scorecard.
+  Replay rejects sequence gaps, backwards monotonic time, illegal transitions,
+  mismatched state, and uncorrelated cancellation metrics.
 
 ## Invariants
 
@@ -68,4 +72,4 @@ all transitions and meaningful timings
 
 ## Next runtime components
 
-1. Deterministic event replay, metrics aggregation, and baseline comparison.
+1. Controlled quality-loop candidate evaluation against immutable evidence.

@@ -1,0 +1,158 @@
+{
+  "artifacts": {
+    "config/quality-gates.yaml": {
+      "sha256": "a7f894864ad2616426b4ac78384b416470c24af61668fa5b6386496f3aa50bb1"
+    },
+    "reports/realtime-core-benchmark.json": {
+      "sha256": "366d9b24deafd6dfe6fc6ffac8d02667bdce3e00cc435f48aeea9932393f184c"
+    },
+    "reports/recovery-benchmark.json": {
+      "sha256": "a48c8706cfb28a6f286da4e9c8a803a1fe3695e6a1ddb26dcd3c85b46e4cb86b"
+    },
+    "reports/torture-run.json": {
+      "sha256": "f7771c142151d1a030660b88747ebdc81ba247eb822150a5ddb4a495315d37a7"
+    },
+    "tests/golden/turn_cases.jsonl": {
+      "sha256": "89e2e2c0ae56e2a88c2a7a2cf7a956365b3ed3004b5f7cfffb6fbaf1d6f48e99"
+    }
+  },
+  "gates": {
+    "audible_barge_in_latency_ms": {
+      "observed": 2.685,
+      "operator": "lt",
+      "passed": true,
+      "sample_count": 40,
+      "scope": "local_timed_pcm_sink",
+      "target": 250
+    },
+    "call_completion_rate": {
+      "observed": 1.0,
+      "operator": "gt",
+      "passed": true,
+      "sample_count": 1,
+      "scope": "synthetic_torture_termination_scenario",
+      "target": 0.98
+    },
+    "false_interruption_rate": {
+      "observed": 0.0,
+      "operator": "lt",
+      "passed": true,
+      "sample_count": 42,
+      "scope": "protected_german_fixture_corpus",
+      "target": 0.05
+    },
+    "german_interruption_accuracy": {
+      "observed": 1.0,
+      "operator": "gt",
+      "passed": true,
+      "sample_count": 50,
+      "scope": "protected_german_fixture_corpus_binary_interruption",
+      "target": 0.95
+    },
+    "premature_endpoint_rate": {
+      "observed": 0.0,
+      "operator": "lt",
+      "passed": true,
+      "sample_count": 50,
+      "scope": "protected_german_fixture_corpus",
+      "target": 0.05
+    },
+    "tool_failure_recovery_rate": {
+      "observed": 1.0,
+      "operator": "gt",
+      "passed": true,
+      "sample_count": 60,
+      "scope": "local_deterministic_fault_injection",
+      "target": 0.95
+    },
+    "ttfa_ms": {
+      "observed": 11.419,
+      "operator": "lt",
+      "passed": true,
+      "sample_count": 40,
+      "scope": "local_event_loop_transport",
+      "target": 700
+    },
+    "unexpected_hangups": {
+      "observed": 0,
+      "operator": "eq",
+      "passed": true,
+      "sample_count": 1,
+      "scope": "synthetic_torture_termination_scenario",
+      "target": 0
+    }
+  },
+  "generated_at_utc": "2026-08-23T16:01:28.289042Z",
+  "metrics": {
+    "audible_barge_in_latency_ms": {
+      "sample_count": 40,
+      "scope": "local_timed_pcm_sink",
+      "source": "reports/realtime-core-benchmark.json",
+      "statistic": "p50",
+      "value": 2.685
+    },
+    "call_completion_rate": {
+      "numerator": 1,
+      "sample_count": 1,
+      "scope": "synthetic_torture_termination_scenario",
+      "source": "reports/torture-run.json",
+      "statistic": "rate",
+      "value": 1.0
+    },
+    "false_interruption_rate": {
+      "numerator": 0,
+      "sample_count": 42,
+      "scope": "protected_german_fixture_corpus",
+      "source": "tests/golden/turn_cases.jsonl",
+      "statistic": "rate",
+      "value": 0.0
+    },
+    "german_interruption_accuracy": {
+      "numerator": 50,
+      "sample_count": 50,
+      "scope": "protected_german_fixture_corpus_binary_interruption",
+      "source": "tests/golden/turn_cases.jsonl",
+      "statistic": "accuracy",
+      "value": 1.0
+    },
+    "premature_endpoint_rate": {
+      "numerator": 0,
+      "sample_count": 50,
+      "scope": "protected_german_fixture_corpus",
+      "source": "tests/golden/turn_cases.jsonl",
+      "statistic": "rate",
+      "value": 0.0
+    },
+    "tool_failure_recovery_rate": {
+      "numerator": 60,
+      "sample_count": 60,
+      "scope": "local_deterministic_fault_injection",
+      "source": "reports/recovery-benchmark.json",
+      "statistic": "rate",
+      "value": 1.0
+    },
+    "ttfa_ms": {
+      "sample_count": 40,
+      "scope": "local_event_loop_transport",
+      "source": "reports/realtime-core-benchmark.json",
+      "statistic": "p50",
+      "value": 11.419
+    },
+    "unexpected_hangups": {
+      "sample_count": 1,
+      "scope": "synthetic_torture_termination_scenario",
+      "source": "reports/torture-run.json",
+      "statistic": "count",
+      "value": 0
+    }
+  },
+  "protected_artifacts_unchanged_by_scorecard": true,
+  "schema_version": 1,
+  "summary": {
+    "engineering_evidence_status": "PASS_LOCAL_EVIDENCE",
+    "gates_failed": 0,
+    "gates_passed": 8,
+    "gates_total": 8,
+    "production_release_claim": "NOT_ESTABLISHED_NO_REAL_CALL_DATA"
+  }
+}
