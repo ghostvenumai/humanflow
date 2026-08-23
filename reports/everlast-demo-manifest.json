@@ -1,0 +1,140 @@
+{
+  "artifact_hashes": {
+    "browser-demo-benchmark.json": "91ec0288ecf52ca5f0630e1280f1049eb3ae65557e2f530bb75cd12669c0ab12",
+    "dashboard-capture.json": "31e084d892d0f3d09caf1ba77dedd0e6afc457385f4a4344478b01d09346f989",
+    "dashboard.png": "f1029b540da6d680b02638426889680945c85d7f6bf8cad43d1275d7755052bb",
+    "development-router.json": "81ef9053f9ad90cfacd1be78bf5bdde294ba2eb2475b1b4244d464a125247de7",
+    "realtime-core-benchmark.json": "a862d270c630ebca6dbd10270b8e93ee379e4e31801d67e6a75ce8fcfbf648dd",
+    "recovery-benchmark.json": "313a06ee0be19a539deff13e3f4660cd5638f65d1d82ccc2893934ee33cb9f75",
+    "runtime-quality-eval.json": "3c858ed6a4780acd7b2820fdbc976367e491bc32d90ddc51598aa558f5ae0a43",
+    "scorecard.json": "ec7b9cf73434627b490e70f0387fe01af9fe077bbfcdfe482a324a5e0d47c909",
+    "timeline-replay.json": "aae4eff80242c9b8cc406b8f6213ed65b9c93f4554b2325d40b0b2b275e7d86d",
+    "torture-run.json": "b7594ecfc98b3c05dc069ac3ae1949f0a20c5f821462e4a269271098778b40d4",
+    "tournament-readiness.json": "10f68e657b6c81bae818a9b3f2dd53670eb2358afef330cff809056f197fc92f",
+    "turn-benchmark.json": "8bdfd1e719513aeae3b2b744c69f0046318e2d2771e45f994f571af6d57fa4a5"
+  },
+  "automated_failures": 0,
+  "demo_duration_target_minutes": "3-5",
+  "generated_at_utc": "2026-08-23T16:31:20.153614Z",
+  "git_commit": "1bf6edc5e1fbb5e38931d161e24cd31e061b8374",
+  "manual_requirements": [
+    "Run the browser demo with microphone and audible output",
+    "Validate German browser STT/TTS behavior on an actual supported browser",
+    "Repeat representative calls before release freeze",
+    "Freeze only after manual evidence is accepted"
+  ],
+  "schema_version": 1,
+  "scorecard_status": {
+    "engineering_evidence_status": "PASS_LOCAL_EVIDENCE",
+    "gates_failed": 0,
+    "gates_passed": 8,
+    "gates_total": 8,
+    "production_release_claim": "NOT_ESTABLISHED_NO_REAL_CALL_DATA"
+  },
+  "status": "READY_FOR_MANUAL_VALIDATION_NOT_FROZEN",
+  "steps": [
+    {
+      "evidence": [
+        "/",
+        "reports/browser-demo-benchmark.json"
+      ],
+      "name": "normal_german_browser_conversation",
+      "status": "MANUAL_REQUIRED",
+      "step": 1
+    },
+    {
+      "evidence": [
+        "reports/torture-run.json#T01"
+      ],
+      "name": "backchannel_mhm",
+      "status": "AUTOMATED_PASS",
+      "step": 2
+    },
+    {
+      "evidence": [
+        "reports/torture-run.json#T03",
+        "reports/realtime-core-benchmark.json"
+      ],
+      "name": "intentional_barge_in",
+      "status": "LOCAL_AUTOMATED_PASS_MANUAL_AUDIO_REQUIRED",
+      "step": 3
+    },
+    {
+      "evidence": [
+        "reports/torture-run.json#T04"
+      ],
+      "name": "thursday_to_friday_correction",
+      "status": "AUTOMATED_PASS",
+      "step": 4
+    },
+    {
+      "evidence": [
+        "reports/torture-run.json#T05"
+      ],
+      "name": "unfinished_pause",
+      "status": "AUTOMATED_PASS",
+      "step": 5
+    },
+    {
+      "evidence": [
+        "reports/torture-run.json#T07",
+        "reports/runtime-quality-eval.json"
+      ],
+      "name": "background_speech",
+      "status": "AUTOMATED_PASS",
+      "step": 6
+    },
+    {
+      "evidence": [
+        "reports/torture-run.json#T09"
+      ],
+      "name": "four_second_tool_delay",
+      "status": "AUTOMATED_PASS",
+      "step": 7
+    },
+    {
+      "evidence": [
+        "reports/torture-run.json#T10",
+        "reports/recovery-benchmark.json"
+      ],
+      "name": "tool_failure_recovery",
+      "status": "AUTOMATED_PASS",
+      "step": 8
+    },
+    {
+      "evidence": [
+        "/dashboard",
+        "reports/timeline-replay.json"
+      ],
+      "name": "timeline_kpi_drilldown",
+      "status": "AUTOMATED_PASS",
+      "step": 9
+    },
+    {
+      "evidence": [
+        "reports/scorecard.json",
+        "reports/turn-benchmark.json"
+      ],
+      "name": "baseline_vs_humanflow",
+      "status": "AUTOMATED_PASS",
+      "step": 10
+    },
+    {
+      "evidence": [
+        "reports/quality-loop/iteration-001/decision.json"
+      ],
+      "name": "quality_loop_keep_revert",
+      "status": "AUTOMATED_PASS",
+      "step": 11
+    },
+    {
+      "evidence": [
+        "sprint/start.json",
+        "sprint/checkpoints/"
+      ],
+      "name": "provenance_and_frozen_tag",
+      "status": "FREEZE_PENDING",
+      "step": 12
+    }
+  ]
+}
