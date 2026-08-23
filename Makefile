@@ -1,4 +1,4 @@
-.PHONY: status test torture-test benchmark realtime-benchmark turn-tournament checkpoint
+.PHONY: status test torture-test benchmark realtime-benchmark recovery-benchmark turn-tournament checkpoint
 
 status:
 	python3 scripts/status.py
@@ -14,6 +14,9 @@ benchmark:
 
 realtime-benchmark:
 	PYTHONPATH=src python3 scripts/benchmark_realtime_core.py
+
+recovery-benchmark:
+	PYTHONPATH=src python3 scripts/benchmark_recovery.py
 
 turn-tournament: benchmark
 

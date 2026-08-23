@@ -47,6 +47,10 @@ all transitions and meaningful timings
 - Provider protocols isolate STT, reasoning, TTS, and audio transport. The local
   tone/output adapters exercise timing and cancellation but explicitly make no
   speech-quality or production-provider claim.
+- `humanflow.tools`: bounded, timeout-enforced provider execution with explicit
+  `TOOL_WAIT` and `RECOVERING` transitions. Injected latency, failure, timeout,
+  malformed and duplicate responses cannot write stale state; exhausted attempts
+  use an explicit safe fallback.
 
 ## Invariants
 
@@ -60,7 +64,5 @@ all transitions and meaningful timings
 
 ## Next runtime components
 
-1. Tool router with latency, timeout, malformed, duplicate and failure injection.
-2. Recovery controller with bounded retry, safe fallback, and stale-result rejection.
-3. Browser audio demo through the same provider boundaries.
-4. Deterministic event replay, metrics aggregation, and baseline comparison.
+1. Browser audio demo through the same provider boundaries.
+2. Deterministic event replay, metrics aggregation, and baseline comparison.
