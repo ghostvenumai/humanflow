@@ -1,0 +1,110 @@
+{
+  "dataset": {
+    "cases": 50,
+    "path": "tests/golden/turn_cases.jsonl",
+    "sha256": "89e2e2c0ae56e2a88c2a7a2cf7a956365b3ed3004b5f7cfffb6fbaf1d6f48e99"
+  },
+  "evaluations": [
+    {
+      "accuracy": 0.2,
+      "confusion": {
+        "BACKCHANNEL": {
+          "CONTINUE_LISTENING": 8
+        },
+        "COMPLETE": {
+          "CONTINUE_LISTENING": 8
+        },
+        "CONTINUE_LISTENING": {
+          "COMPLETE": 3,
+          "CONTINUE_LISTENING": 10
+        },
+        "INTERRUPTION": {
+          "CONTINUE_LISTENING": 8
+        },
+        "LIKELY_COMPLETE": {
+          "COMPLETE": 4,
+          "CONTINUE_LISTENING": 3
+        },
+        "UNCERTAIN": {
+          "CONTINUE_LISTENING": 6
+        }
+      },
+      "correct": 10,
+      "failed_case_ids": [
+        "G001",
+        "G002",
+        "G003",
+        "G004",
+        "G005",
+        "G006",
+        "G007",
+        "G008",
+        "G009",
+        "G010",
+        "G011",
+        "G012",
+        "G013",
+        "G014",
+        "G015",
+        "G016",
+        "G017",
+        "G018",
+        "G019",
+        "G020",
+        "G027",
+        "G029",
+        "G032",
+        "G034",
+        "G035",
+        "G036",
+        "G037",
+        "G038",
+        "G039",
+        "G040",
+        "G041",
+        "G042",
+        "G043",
+        "G044",
+        "G045",
+        "G046",
+        "G047",
+        "G048",
+        "G049",
+        "G050"
+      ],
+      "policy_name": "FixedSilencePolicy",
+      "total": 50
+    },
+    {
+      "accuracy": 1.0,
+      "confusion": {
+        "BACKCHANNEL": {
+          "BACKCHANNEL": 8
+        },
+        "COMPLETE": {
+          "COMPLETE": 8
+        },
+        "CONTINUE_LISTENING": {
+          "CONTINUE_LISTENING": 13
+        },
+        "INTERRUPTION": {
+          "INTERRUPTION": 8
+        },
+        "LIKELY_COMPLETE": {
+          "LIKELY_COMPLETE": 7
+        },
+        "UNCERTAIN": {
+          "UNCERTAIN": 6
+        }
+      },
+      "correct": 50,
+      "failed_case_ids": [],
+      "policy_name": "HybridTurnPolicy",
+      "total": 50
+    }
+  ],
+  "generated_utc": "2026-08-23T15:19:32.333782Z",
+  "git_commit": "7ed655765cc4a6af9e2d94cabc1a213092622cc7",
+  "schema_version": 1,
+  "winner": "HybridTurnPolicy"
+}
