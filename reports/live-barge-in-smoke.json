@@ -1,0 +1,23 @@
+{
+  "captured_utc": "2026-08-23T17:22:17.943074Z",
+  "checks": {
+    "cancel_message_seen": true,
+    "followup_answer_contains_56": true,
+    "followup_confirmed_after_cancel": true,
+    "no_canned_acknowledgement": true,
+    "server_cancellation_event_seen": true
+  },
+  "followup": {
+    "response": "Sieben mal acht ist 56.",
+    "speech_chunks": 1,
+    "transcript": "Was ist sieben mal acht?"
+  },
+  "manual_validation": "REQUIRED_NOT_ATTESTED",
+  "metrics": {
+    "controller_stop_ack_latency_ms": 7.24941,
+    "followup_first_model_output_ms": 1066.314033,
+    "reported_played_samples": 0
+  },
+  "schema_version": 1,
+  "scope": "real reasoning plus websocket cancellation; browser/audio device excluded"
+}

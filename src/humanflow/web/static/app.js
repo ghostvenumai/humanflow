@@ -152,7 +152,7 @@ function startBrowserStt() {
       if (!text) continue;
       const utteranceDuration = speechStartedAt == null ? 0 : Math.max(0, (speechEndedAt || observedAt) - speechStartedAt);
       const silenceDuration = speechEndedAt == null ? 0 : Math.max(0, observedAt - speechEndedAt);
-      const explicitInterruption = /^(moment|stopp|warte|nein stopp)(\s|$)/i.test(text);
+      const explicitInterruption = /^(moment|stopp|warte|nein stopp)(\b|[,.!?])/i.test(text);
       showTranscript(text, result.isFinal);
       send({
         type: "transcript", source: "browser_stt", text, final: result.isFinal,

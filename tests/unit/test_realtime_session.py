@@ -35,11 +35,13 @@ class CountingTranscriber:
 class WordReasoner:
     def __init__(self, *, initial_delay_ms: float = 0.0) -> None:
         self.initial_delay_ms = initial_delay_ms
+        self.transcripts: list[str] = []
 
     async def stream_response(
         self, transcript: str, token: OperationToken
     ) -> AsyncIterator[str]:
-        del transcript, token
+        del token
+        self.transcripts.append(transcript)
         if self.initial_delay_ms:
             await asyncio.sleep(self.initial_delay_ms / 1000.0)
         for word in ("Ihr", "Termin", "ist", "Donnerstag", "um", "15", "Uhr"):
@@ -171,6 +173,64 @@ def test_interruption_invalidates_thinking_work_and_is_idempotent() -> None:
         assert sum(
             event.event_type is EventType.OPERATION_INVALIDATED for event in sink.events
         ) == 1
+        await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_final_barge_in_followup_stops_audio_then_starts_contextual_turn() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        reasoner = WordReasoner()
+        session = RealtimeVoiceSession(
+            conversation_id="call-barge-followup",
+            sink=sink,
+            transcriber=CountingTranscriber(),
+            reasoner=reasoner,
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=30),
+            audio_output=TimedPcmOutput(quantum_ms=2),
+        )
+        await session.start()
+        await session.submit_transcript(_complete("Erkläre mir ein ERP-System"))
+        await _wait_for_state(session, ConversationState.SPEAKING)
+
+        decision = await session.submit_transcript(
+            TranscriptUpdate(
+                text="Moment, stopp. Was ist 25 mal 17?",
+                is_final=True,
+                signals=TurnSignals(
+                    speech_active=False,
+                    silence_duration_ms=0,
+                    utterance_duration_ms=1_100,
+                    semantic_complete=True,
+                    acoustic_completion=1.0,
+                    interruption_probability=1.0,
+                    provider_endpointed=True,
+                ),
+            )
+        )
+        await session.wait_for_response()
+
+        assert decision.decision is TurnDecisionType.INTERRUPTION
+        assert reasoner.transcripts == [
+            "Erkläre mir ein ERP-System",
+            "Was ist 25 mal 17?",
+        ]
+        followup = next(
+            event
+            for event in sink.events
+            if event.event_type is EventType.TURN_CONFIRMED
+            and event.reason_code == "barge_in_followup_complete"
+        )
+        assert followup.payload["text"] == "Was ist 25 mal 17?"
+        cancelled_index = next(
+            index
+            for index, event in enumerate(sink.events)
+            if event.event_type is EventType.AGENT_AUDIO_CANCELLED
+        )
+        followup_index = sink.events.index(followup)
+        assert cancelled_index < followup_index
+        assert session.state is ConversationState.LISTENING
         await session.close()
 
     asyncio.run(scenario())

@@ -19,7 +19,7 @@ quality gate.
 | TTS | browser Web Speech `speechSynthesis`, `de-DE` | REAL, BROWSER-DEPENDENT | Speaks each semantic response boundary using the selected system voice. Missing browser TTS is a visible hard failure. |
 | Server TTS envelope | `BrowserSpeechSynthesisAdapter` | TRANSPORT ADAPTER | Produces silent duration/sample envelopes for the transport-neutral ledger. These bytes are never rendered and are not represented as synthesized speech. |
 | Streaming playback | ordered `SpeechSynthesisUtterance` chunks | REAL | Browser start/end/error callbacks acknowledge each chunk. Chunks are ordered by the server output transport. |
-| Interruption / cancellation | turn policy or stop button → `speechSynthesis.cancel()` | REAL WITH CONSERVATIVE BOUNDARY | The browser explicitly acknowledges audible stop. Because Web Speech exposes no exact rendered sample offset, interrupted speech reports zero played samples instead of inventing a partial delivery metric. |
+| Interruption / cancellation | turn policy or stop button → `speechSynthesis.cancel()` | REAL WITH CONSERVATIVE BOUNDARY | The browser explicitly acknowledges audible stop. A final utterance such as `Moment, stopp – was ist ...?` continues as a new contextual turn only after that acknowledgement; a bare stop phrase only cancels. Because Web Speech exposes no exact rendered sample offset, interrupted speech reports zero played samples instead of inventing a partial delivery metric. |
 | Telemetry | state-machine events mirrored over WebSocket | REAL | Includes STT identity, reasoning provider/model/mode, first-output latency, generation duration, provider token usage, TTS identity, playback receipts, turn decisions and recovery events. |
 
 ## Root cause of the failed validation

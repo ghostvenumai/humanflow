@@ -3,7 +3,13 @@ from __future__ import annotations
 import asyncio
 
 from humanflow.audio.models import AudioChunk, AudioFrame
-from humanflow.web.app import PROJECT_ROOT, STATIC_DIR, build_evidence_summary, create_app
+from humanflow.web.app import (
+    PROJECT_ROOT,
+    STATIC_DIR,
+    _acknowledge_transport_message,
+    build_evidence_summary,
+    create_app,
+)
 from humanflow.web.transport import BrowserAcknowledgedAudioOutput
 
 
@@ -69,6 +75,32 @@ def test_browser_completed_ack_is_full_delivery() -> None:
         receipt = await task
         assert not receipt.cancelled
         assert receipt.played_samples == receipt.requested_samples == 1_600
+
+    asyncio.run(scenario())
+
+
+def test_transport_ack_handler_releases_playback_outside_control_worker() -> None:
+    async def scenario() -> None:
+        outbound: asyncio.Queue[dict[str, object] | bytes | None] = asyncio.Queue()
+        output = BrowserAcknowledgedAudioOutput(outbound)
+        task = asyncio.create_task(
+            output.play(_chunk(), cancel_event=asyncio.Event(), on_started=lambda _: None)
+        )
+        await outbound.get()
+        await outbound.get()
+
+        assert _acknowledge_transport_message(
+            '{"type":"playback_started","chunk_id":"chunk-browser"}',
+            output,
+            outbound,
+        )
+        assert _acknowledge_transport_message(
+            '{"type":"playback_completed","chunk_id":"chunk-browser"}',
+            output,
+            outbound,
+        )
+        receipt = await asyncio.wait_for(task, timeout=0.2)
+        assert not receipt.cancelled
 
     asyncio.run(scenario())
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import replace
 from time import monotonic_ns
 from typing import Callable
@@ -24,6 +25,13 @@ from .providers import (
     StreamingTranscriber,
     TranscriptUpdate,
     provider_info,
+)
+
+
+_BARGE_IN_PREFIX = re.compile(
+    r"^\s*(?:(?:nein\s+)?stopp|moment(?:\s*,?\s*(?:stopp|warte))?|"
+    r"warte(?:\s+mal)?|halt)\b[\s,.:;!?\-]*(?P<followup>.*)$",
+    re.IGNORECASE,
 )
 
 
@@ -314,6 +322,21 @@ class RealtimeVoiceSession:
             )
         elif decision.decision is TurnDecisionType.INTERRUPTION:
             await self.interrupt(correlation_id=correlation_id)
+            followup = _barge_in_followup(update.text) if update.is_final else ""
+            if followup:
+                await self.wait_for_response()
+                self.state_machine.record(
+                    EventType.TURN_CONFIRMED,
+                    correlation_id=correlation_id,
+                    reason_code="barge_in_followup_complete",
+                    payload={
+                        "text": followup,
+                        "original_text": update.text,
+                        "confidence": decision.confidence,
+                        "stt_provider": transcript_provider.to_dict(),
+                    },
+                )
+                await self._begin_response(followup, correlation_id=correlation_id)
         elif decision.decision is TurnDecisionType.COMPLETE and update.is_final:
             self.state_machine.record(
                 EventType.TURN_CONFIRMED,
@@ -609,3 +632,14 @@ class RealtimeVoiceSession:
                 "unheard_text": self.ledger.unheard_text(response_id=response_id),
             },
         )
+
+
+def _barge_in_followup(text: str) -> str:
+    """Return substantive text following an explicit German stop phrase."""
+
+    match = _BARGE_IN_PREFIX.match(text)
+    if match is None:
+        return ""
+    followup = match.group("followup").strip()
+    words = re.findall(r"[a-zäöüß0-9]+", followup.casefold())
+    return followup if len(words) >= 2 else ""

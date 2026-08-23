@@ -222,6 +222,7 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             audio_output=audio_output,
         )
         sequence = 0
+        controls: asyncio.Queue[str] = asyncio.Queue()
 
         async def send_loop() -> None:
             while True:
@@ -236,7 +237,18 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                 finally:
                     outbound.task_done()
 
+        async def control_loop() -> None:
+            while True:
+                payload = await controls.get()
+                try:
+                    await _handle_json(payload, session, audio_output, outbound)
+                finally:
+                    controls.task_done()
+
         sender = asyncio.create_task(send_loop(), name="humanflow-browser-sender")
+        controller = asyncio.create_task(
+            control_loop(), name="humanflow-browser-controller"
+        )
         await session.start()
         outbound.put_nowait(
             {
@@ -273,13 +285,15 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                 payload = message.get("text")
                 if payload is None:
                     continue
-                await _handle_json(payload, session, audio_output, outbound)
+                if not _acknowledge_transport_message(payload, audio_output, outbound):
+                    controls.put_nowait(payload)
         except WebSocketDisconnect:
             pass
         finally:
             audio_output.disconnect()
+            controller.cancel()
             sender.cancel()
-            await asyncio.gather(sender, return_exceptions=True)
+            await asyncio.gather(controller, sender, return_exceptions=True)
             await session.close(reason_code="browser_disconnected")
 
     return application
@@ -336,6 +350,34 @@ def build_evidence_summary(root: Path) -> dict[str, Any]:
             for name in report_names
         },
     }
+
+
+def _acknowledge_transport_message(
+    payload: str,
+    audio_output: BrowserAcknowledgedAudioOutput,
+    outbound: asyncio.Queue[OutboundItem | None],
+) -> bool:
+    """Handle playback receipts outside the ordered control worker.
+
+    An interruption waits for the audible-stop receipt, so processing that
+    receipt in the same serialized worker would deadlock until timeout.
+    """
+
+    try:
+        message = json.loads(payload)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(message, dict):
+        return False
+    if message.get("type") not in {
+        "playback_started",
+        "playback_completed",
+        "playback_stopped",
+    }:
+        return False
+    if not audio_output.acknowledge(message):
+        outbound.put_nowait({"type": "error", "code": "stale_playback_ack"})
+    return True
 
 
 async def _handle_json(
