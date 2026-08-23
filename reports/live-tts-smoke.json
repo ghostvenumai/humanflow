@@ -1,0 +1,24 @@
+{
+  "audio_generated_seconds": 0.0,
+  "cost_usd": "NOT_REPORTED",
+  "failure": {
+    "exception_type": "ElevenLabsProviderError",
+    "provider_error_code": "voice_not_found",
+    "provider_http_status": 404
+  },
+  "manual_voice_quality_attested": false,
+  "observed_utc": "2026-08-23T19:56:12.472977Z",
+  "provider": {
+    "mode": "REAL",
+    "model": "eleven_flash_v2_5",
+    "provider": "elevenlabs-text-to-speech-stream",
+    "role": "tts",
+    "runtime": "server"
+  },
+  "request": {
+    "language_code": "de",
+    "output_format": "pcm_16000",
+    "text_characters": 36
+  },
+  "status": "FAIL"
+}

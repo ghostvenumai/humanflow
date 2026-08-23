@@ -23,6 +23,8 @@ class LedgerEntrySnapshot:
     chunk_id: str
     response_id: str
     text: str
+    semantic_id: str
+    semantic_text: str
     total_samples: int
     played_samples: int
     sample_rate_hz: int
@@ -43,7 +45,7 @@ class LedgerEntrySnapshot:
 
     @property
     def unheard_text(self) -> str:
-        return "" if self.fully_delivered else self.text
+        return "" if self.fully_delivered else self.semantic_text
 
 
 class PlayedAudioLedger:
@@ -64,6 +66,8 @@ class PlayedAudioLedger:
                 chunk_id=chunk.chunk_id,
                 response_id=chunk.response_id,
                 text=chunk.text.strip(),
+                semantic_id=chunk.semantic_id,
+                semantic_text=chunk.semantic_text,
                 total_samples=chunk.frame.samples_per_channel,
                 played_samples=0,
                 sample_rate_hz=chunk.frame.sample_rate_hz,
@@ -154,11 +158,24 @@ class PlayedAudioLedger:
 
     def unheard_text(self, *, response_id: str | None = None) -> str:
         entries = self.entries
-        return " ".join(
-            entry.text
+        relevant = [
+            entry
             for entry in entries
-            if entry.unheard_text and (response_id is None or entry.response_id == response_id)
-        )
+            if response_id is None or entry.response_id == response_id
+        ]
+        delivered_semantics = {
+            entry.semantic_id
+            for entry in relevant
+            if entry.text and entry.fully_delivered
+        }
+        seen: set[str] = set()
+        unheard: list[str] = []
+        for entry in relevant:
+            if entry.semantic_id in delivered_semantics or entry.semantic_id in seen:
+                continue
+            seen.add(entry.semantic_id)
+            unheard.append(entry.semantic_text)
+        return " ".join(unheard)
 
     def assert_invariants(self) -> None:
         for entry in self.entries:

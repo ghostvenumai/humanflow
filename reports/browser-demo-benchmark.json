@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-08-23T17:06:52.477624Z",
+  "generated_at_utc": "2026-08-23T19:58:47.954586Z",
   "measurement_scope": {
     "audio_device_executed": false,
     "browser_executed": false,
@@ -10,28 +10,28 @@
   },
   "metrics": {
     "dashboard_api_request_ms": {
-      "max": 2.496,
-      "mean": 1.969,
-      "min": 1.349,
-      "n": 3,
-      "p50": 2.062,
-      "p90": 2.409,
-      "p95": 2.452,
-      "p99": 2.487
+      "max": 5.047,
+      "mean": 2.865,
+      "min": 1.53,
+      "n": 4,
+      "p50": 2.442,
+      "p90": 4.287,
+      "p95": 4.667,
+      "p99": 4.971
     },
-    "dashboard_request_ms": 1.753,
+    "dashboard_request_ms": 1.984,
     "health_request_ms": {
-      "max": 1.994,
-      "mean": 1.129,
-      "min": 0.925,
+      "max": 2.359,
+      "mean": 1.228,
+      "min": 0.893,
       "n": 30,
-      "p50": 1.002,
-      "p90": 1.515,
-      "p95": 1.641,
-      "p99": 1.901
+      "p50": 1.014,
+      "p90": 1.945,
+      "p95": 2.034,
+      "p99": 2.272
     },
-    "index_request_ms": 9.443,
-    "server_startup_to_health_ms": 777.172
+    "index_request_ms": 14.714,
+    "server_startup_to_health_ms": 798.703
   },
   "schema_version": 1
 }

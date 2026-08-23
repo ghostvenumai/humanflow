@@ -21,6 +21,9 @@ class _PendingPlayback:
     chunk: AudioChunk
     started: asyncio.Future[int]
     stopped: asyncio.Future[tuple[int, int, bool]]
+    sink_base_latency_ms: float | None = None
+    sink_output_latency_ms: float | None = None
+    player_stop_callback_latency_ms: float | None = None
 
 
 class BrowserTelemetrySink(InMemoryTelemetrySink):
@@ -76,7 +79,13 @@ class BrowserAcknowledgedAudioOutput:
                 "sample_rate_hz": chunk.frame.sample_rate_hz,
                 "channels": chunk.frame.channels,
                 "samples": chunk.frame.samples_per_channel,
-                "text_boundary": chunk.text,
+                "playback_mode": chunk.playback_mode.value,
+                "text_boundary": chunk.display_text,
+                "ledger_boundary": chunk.text,
+                "semantic_boundary": chunk.semantic_boundary,
+                "pause_after_ms": chunk.pause_after_ms,
+                "speaking_rate": chunk.speaking_rate,
+                "tts_provider": dict(chunk.provider),
             }
         )
         self._outbound.put_nowait(chunk.frame.pcm16)
@@ -127,6 +136,11 @@ class BrowserAcknowledgedAudioOutput:
                 playback_started_ns=started_ns,
                 playback_stopped_ns=max(started_ns, stopped_ns),
                 cancelled=cancelled,
+                sink_base_latency_ms=pending.sink_base_latency_ms,
+                sink_output_latency_ms=pending.sink_output_latency_ms,
+                player_stop_callback_latency_ms=(
+                    pending.player_stop_callback_latency_ms
+                ),
             )
         finally:
             cancel_wait.cancel()
@@ -139,6 +153,12 @@ class BrowserAcknowledgedAudioOutput:
         message_type = message.get("type")
         now_ns = self._clock_ns()
         if message_type == "playback_started" and not pending.started.done():
+            pending.sink_base_latency_ms = _nonnegative_float(
+                message.get("browser_audio_context_base_latency_ms")
+            )
+            pending.sink_output_latency_ms = _nonnegative_float(
+                message.get("browser_audio_context_output_latency_ms")
+            )
             pending.started.set_result(now_ns)
             return True
         if message_type in {"playback_completed", "playback_stopped"}:
@@ -156,6 +176,9 @@ class BrowserAcknowledgedAudioOutput:
                     return False
                 played_samples = max(0, min(total, raw_samples))
                 cancelled = True
+                pending.player_stop_callback_latency_ms = _nonnegative_float(
+                    message.get("player_stop_callback_latency_ms")
+                )
             pending.stopped.set_result((now_ns, played_samples, cancelled))
             return True
         return False
@@ -170,3 +193,10 @@ class BrowserAcknowledgedAudioOutput:
             pending.started.set_result(now_ns)
         if not pending.stopped.done():
             pending.stopped.set_result((now_ns, 0, True))
+
+
+def _nonnegative_float(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    converted = float(value)
+    return converted if converted >= 0 else None

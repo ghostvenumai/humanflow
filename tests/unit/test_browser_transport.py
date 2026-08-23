@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 
 from humanflow.audio.models import AudioChunk, AudioFrame
 from humanflow.web.app import (
@@ -8,7 +10,9 @@ from humanflow.web.app import (
     STATIC_DIR,
     _acknowledge_transport_message,
     build_evidence_summary,
+    build_voice_quality_summary,
     create_app,
+    validate_voice_quality_assessment,
 )
 from humanflow.web.transport import BrowserAcknowledgedAudioOutput
 
@@ -39,8 +43,17 @@ def test_browser_acknowledgement_defines_partial_playback_receipt() -> None:
         metadata = await outbound.get()
         pcm = await outbound.get()
         assert isinstance(metadata, dict) and metadata["type"] == "audio_chunk"
+        assert metadata["playback_mode"] == "pcm"
+        assert metadata["semantic_boundary"] is True
         assert isinstance(pcm, bytes) and len(pcm) == 3_200
-        assert output.acknowledge({"type": "playback_started", "chunk_id": "chunk-browser"})
+        assert output.acknowledge(
+            {
+                "type": "playback_started",
+                "chunk_id": "chunk-browser",
+                "browser_audio_context_base_latency_ms": 5.2,
+                "browser_audio_context_output_latency_ms": 11.4,
+            }
+        )
         cancel.set()
         cancel_message = await outbound.get()
         assert cancel_message == {"type": "cancel_audio", "chunk_id": "chunk-browser"}
@@ -49,6 +62,7 @@ def test_browser_acknowledgement_defines_partial_playback_receipt() -> None:
                 "type": "playback_stopped",
                 "chunk_id": "chunk-browser",
                 "played_samples": 640,
+                "player_stop_callback_latency_ms": 2.7,
             }
         )
         receipt = await task
@@ -56,6 +70,9 @@ def test_browser_acknowledgement_defines_partial_playback_receipt() -> None:
         assert len(starts) == 1
         assert receipt.cancelled
         assert receipt.played_samples == 640
+        assert receipt.sink_base_latency_ms == 5.2
+        assert receipt.sink_output_latency_ms == 11.4
+        assert receipt.player_stop_callback_latency_ms == 2.7
         assert receipt.playback_stopped_ns >= receipt.playback_started_ns
 
     asyncio.run(scenario())
@@ -115,6 +132,7 @@ def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
         "/api/scorecard",
         "/api/evidence",
         "/api/timeline",
+        "/api/voice-quality",
         "/ws",
         "/static",
     }.issubset(paths)
@@ -123,12 +141,42 @@ def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
     assert (STATIC_DIR / "dashboard.html").is_file()
     source = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     markup = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    assert "playPcm(buffer" not in source
+    assert "function playPcm(buffer, meta)" in source
+    assert 'meta.playback_mode === "pcm"' in source
+    assert 'meta.playback_mode !== "browser_speech"' in source
     assert "provider_endpointed: result.isFinal" in source
     assert "silence_duration_ms: Math.round(silenceDuration)" in source
     assert "utterance_duration_ms: Math.round(utteranceDuration)" in source
     assert "provider-reasoning" in markup
+    assert "provider-tts-fallback" in markup
     assert "kein stiller Mock-Fallback" in markup
+
+
+def test_voice_quality_summary_only_uses_actual_human_submissions(tmp_path: Path) -> None:
+    path = tmp_path / "voice.jsonl"
+    assert build_voice_quality_summary(path)["sample_count"] == 0
+
+    payload = {
+        "candidate": "candidate-a",
+        "ratings": {
+            "naturalness": 4,
+            "prosody": 4,
+            "pacing": 3,
+            "voice_pleasantness": 5,
+            "turn_timing": 4,
+            "interruption_feel": 3,
+            "non_mechanical_impression": 4,
+            "overall_conversational_realism": 4,
+        },
+        "notes": "Von einem Menschen im Test eingetragen.",
+    }
+    assessment = validate_voice_quality_assessment(payload)
+    path.write_text(json.dumps(assessment) + "\n", encoding="utf-8")
+
+    summary = build_voice_quality_summary(path)
+    assert summary["sample_count"] == 1
+    assert summary["averages"]["naturalness"] == 4.0
+    assert summary["agent_attestation"] is False
 
 
 def test_dashboard_evidence_summary_links_real_reports() -> None:

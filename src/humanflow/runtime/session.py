@@ -10,7 +10,7 @@ from typing import Callable
 from uuid import uuid4
 
 from humanflow.audio.ledger import PlayedAudioLedger
-from humanflow.audio.models import AudioFrame, PlaybackReceipt
+from humanflow.audio.models import AudioChunk, AudioFrame, PlaybackReceipt
 from humanflow.controller.state_machine import ConversationStateMachine
 from humanflow.domain.conversation import ConversationState, OperationToken
 from humanflow.telemetry.events import EventType
@@ -20,12 +20,14 @@ from humanflow.turns.policies import HybridTurnPolicy
 
 from .providers import (
     AudioOutput,
+    SpeechSynthesisRequest,
     StreamingReasoner,
-    StreamingSpeechSynthesizer,
+    StreamingTTSProvider,
     StreamingTranscriber,
     TranscriptUpdate,
     provider_info,
 )
+from .prosody import ProsodyPlanner
 
 
 _BARGE_IN_PREFIX = re.compile(
@@ -45,9 +47,10 @@ class RealtimeVoiceSession:
         sink: TelemetrySink,
         transcriber: StreamingTranscriber,
         reasoner: StreamingReasoner,
-        synthesizer: StreamingSpeechSynthesizer,
+        synthesizer: StreamingTTSProvider,
         audio_output: AudioOutput,
         turn_policy: HybridTurnPolicy | None = None,
+        prosody_planner: ProsodyPlanner | None = None,
         input_queue_size: int = 256,
         clock_ns: Callable[[], int] = monotonic_ns,
     ) -> None:
@@ -64,6 +67,7 @@ class RealtimeVoiceSession:
         self._synthesizer = synthesizer
         self._audio_output = audio_output
         self._turn_policy = turn_policy or HybridTurnPolicy()
+        self._prosody_planner = prosody_planner or ProsodyPlanner()
         self._input_queue: asyncio.Queue[AudioFrame | None] = asyncio.Queue(input_queue_size)
         self._clock_ns = clock_ns
         self._input_task: asyncio.Task[None] | None = None
@@ -388,8 +392,11 @@ class RealtimeVoiceSession:
     ) -> None:
         first_model_output = True
         first_audio = True
-        chunk_sequence = 0
+        audio_chunk_sequence = 0
+        semantic_chunk_sequence = 0
+        speech_segment_count = 0
         output_characters = 0
+        previous_spoken_text = ""
         generation_started_ns = self._clock_ns()
         reasoning_provider = provider_info(self._reasoner, role="reasoning")
         speech_provider = provider_info(self._synthesizer, role="tts")
@@ -408,77 +415,208 @@ class RealtimeVoiceSession:
                     token, correlation_id=correlation_id
                 ):
                     break
+                semantic_ready_ns = self._clock_ns()
                 if first_model_output:
                     first_model_output = False
-                    first_output_ns = self._clock_ns()
                     self.state_machine.record(
                         EventType.FIRST_MODEL_OUTPUT,
                         correlation_id=correlation_id,
-                        reason_code="first_stream_fragment",
+                        reason_code="first_semantic_chunk_ready",
                         payload={
                             "response_id": response_id,
                             "provider": reasoning_provider.to_dict(),
                             "provider_latency_ms": max(
                                 0.0,
-                                (first_output_ns - generation_started_ns) / 1_000_000.0,
+                                (semantic_ready_ns - generation_started_ns) / 1_000_000.0,
                             ),
                         },
                     )
                 output_characters += len(text)
-                chunk = await self._synthesizer.synthesize(
-                    text, response_id=response_id, sequence=chunk_sequence
+                self.state_machine.record(
+                    EventType.SEMANTIC_CHUNK_READY,
+                    correlation_id=correlation_id,
+                    reason_code="stable_reasoner_boundary",
+                    payload={
+                        "response_id": response_id,
+                        "semantic_chunk_sequence": semantic_chunk_sequence,
+                        "characters": len(text),
+                        "provider": reasoning_provider.to_dict(),
+                    },
                 )
-                chunk_sequence += 1
-                generated_ns = self._clock_ns()
-                self.ledger.register_generated(chunk, generated_ns=generated_ns)
-                self.ledger.mark_queued(chunk.chunk_id, queued_ns=self._clock_ns())
-                if self._cancel_event.is_set() or not self.state_machine.accept_result(
-                    token, correlation_id=correlation_id
-                ):
-                    self.ledger.cancel_unplayed(
-                        response_id=response_id, cancelled_ns=self._clock_ns()
+                semantic_chunk_sequence += 1
+
+                for segment in self._prosody_planner.plan(text):
+                    if self._cancel_event.is_set():
+                        break
+                    speech_segment_count += 1
+                    request = SpeechSynthesisRequest(
+                        text=segment.text,
+                        response_id=response_id,
+                        sequence_start=audio_chunk_sequence,
+                        language_code="de",
+                        speaking_rate=segment.speaking_rate,
+                        stability=segment.stability,
+                        similarity_boost=segment.similarity_boost,
+                        style=segment.style,
+                        use_speaker_boost=segment.use_speaker_boost,
+                        pause_after_ms=segment.pause_after_ms,
+                        intent=segment.intent.value,
+                        previous_text=previous_spoken_text,
                     )
-                    break
-                if first_audio:
-                    first_audio = False
+                    tts_request_started_ns = self._clock_ns()
                     self.state_machine.record(
-                        EventType.FIRST_AUDIO_CHUNK,
+                        EventType.TTS_REQUEST_STARTED,
                         correlation_id=correlation_id,
-                        reason_code="first_tts_chunk_ready",
+                        reason_code="prosody_segment_submitted",
                         payload={
                             "response_id": response_id,
-                            "chunk_id": chunk.chunk_id,
                             "provider": speech_provider.to_dict(),
+                            "intent": segment.intent.value,
+                            "characters": len(segment.text),
+                            "speaking_rate": segment.speaking_rate,
+                            "pause_after_ms": segment.pause_after_ms,
                         },
                     )
-                    if self.state is ConversationState.THINKING:
-                        self.state_machine.transition(
-                            ConversationState.SPEAKING,
-                            reason_code="playback_ready",
-                            correlation_id=correlation_id,
-                        )
+                    stream = self._synthesizer.stream_speech(
+                        request, cancel_event=self._cancel_event
+                    )
+                    segment_audio_emitted = False
+                    fallback_recorded = False
+                    try:
+                        async for chunk in stream:
+                            if self._cancel_event.is_set() or not self.state_machine.accept_result(
+                                token, correlation_id=correlation_id
+                            ):
+                                break
+                            segment_audio_emitted = True
+                            actual_speech_provider = (
+                                dict(chunk.provider)
+                                if chunk.provider
+                                else speech_provider.to_dict()
+                            )
+                            if (
+                                not fallback_recorded
+                                and actual_speech_provider.get("provider")
+                                != speech_provider.provider
+                            ):
+                                fallback_recorded = True
+                                self.state_machine.record(
+                                    EventType.TTS_PROVIDER_FALLBACK,
+                                    correlation_id=correlation_id,
+                                    reason_code="primary_failed_before_audio",
+                                    payload={
+                                        "response_id": response_id,
+                                        "primary": speech_provider.to_dict(),
+                                        "active": actual_speech_provider,
+                                    },
+                                )
+                            audio_chunk_sequence = max(
+                                audio_chunk_sequence, chunk.frame.sequence + 1
+                            )
+                            generated_ns = self._clock_ns()
+                            self.ledger.register_generated(chunk, generated_ns=generated_ns)
+                            self.ledger.mark_queued(
+                                chunk.chunk_id, queued_ns=self._clock_ns()
+                            )
+                            if self._cancel_event.is_set() or not self.state_machine.accept_result(
+                                token, correlation_id=correlation_id
+                            ):
+                                self.ledger.cancel_unplayed(
+                                    response_id=response_id,
+                                    cancelled_ns=self._clock_ns(),
+                                )
+                                break
+                            if first_audio:
+                                first_audio = False
+                                self.state_machine.record(
+                                    EventType.FIRST_AUDIO_CHUNK,
+                                    correlation_id=correlation_id,
+                                    reason_code="first_streaming_tts_pcm_ready",
+                                    payload={
+                                        "response_id": response_id,
+                                        "chunk_id": chunk.chunk_id,
+                                        "provider": actual_speech_provider,
+                                        "tts_request_to_first_audio_ms": max(
+                                            0.0,
+                                            (
+                                                generated_ns
+                                                - tts_request_started_ns
+                                            )
+                                            / 1_000_000.0,
+                                        ),
+                                    },
+                                )
+                                if self.state is ConversationState.THINKING:
+                                    self.state_machine.transition(
+                                        ConversationState.SPEAKING,
+                                        reason_code="playback_ready",
+                                        correlation_id=correlation_id,
+                                    )
 
-                receipt = await self._audio_output.play(
-                    chunk,
-                    cancel_event=self._cancel_event,
-                    on_started=lambda started_ns, chunk_id=chunk.chunk_id: self._playback_started(
-                        chunk_id=chunk_id,
-                        started_ns=started_ns,
-                        response_id=response_id,
-                        correlation_id=correlation_id,
-                    ),
-                )
-                self._last_playback_receipt = receipt
-                self.ledger.record_playback(receipt)
-                if receipt.cancelled:
-                    self.ledger.cancel_unplayed(
-                        response_id=response_id, cancelled_ns=receipt.playback_stopped_ns
+                            receipt = await self._audio_output.play(
+                                chunk,
+                                cancel_event=self._cancel_event,
+                                on_started=lambda started_ns, chunk=chunk, generated_ns=generated_ns: self._playback_started(
+                                    chunk=chunk,
+                                    started_ns=started_ns,
+                                    audio_ready_ns=generated_ns,
+                                    semantic_ready_ns=semantic_ready_ns,
+                                    tts_request_started_ns=tts_request_started_ns,
+                                    response_id=response_id,
+                                    correlation_id=correlation_id,
+                                ),
+                            )
+                            self._last_playback_receipt = receipt
+                            self.ledger.record_playback(receipt)
+                            if (
+                                receipt.sink_base_latency_ms is not None
+                                or receipt.sink_output_latency_ms is not None
+                                or receipt.player_stop_callback_latency_ms is not None
+                            ):
+                                self.state_machine.record(
+                                    EventType.PLAYBACK_SINK_METRICS,
+                                    correlation_id=correlation_id,
+                                    reason_code="browser_reported_audio_context",
+                                    payload={
+                                        "response_id": response_id,
+                                        "chunk_id": chunk.chunk_id,
+                                        "sink_base_latency_ms": (
+                                            receipt.sink_base_latency_ms
+                                        ),
+                                        "sink_output_latency_ms": (
+                                            receipt.sink_output_latency_ms
+                                        ),
+                                        "player_stop_callback_latency_ms": (
+                                            receipt.player_stop_callback_latency_ms
+                                        ),
+                                    },
+                                )
+                            if receipt.cancelled:
+                                self.ledger.cancel_unplayed(
+                                    response_id=response_id,
+                                    cancelled_ns=receipt.playback_stopped_ns,
+                                )
+                                self._record_cancelled(
+                                    receipt=receipt,
+                                    response_id=response_id,
+                                    correlation_id=(
+                                        self._cancel_correlation_id or correlation_id
+                                    ),
+                                )
+                                break
+                    finally:
+                        close_stream = getattr(stream, "aclose", None)
+                        if close_stream is not None:
+                            await close_stream()
+                    if not segment_audio_emitted and not self._cancel_event.is_set():
+                        raise RuntimeError("tts_provider_returned_no_chunks")
+                    if self._cancel_event.is_set():
+                        break
+                    previous_spoken_text = (
+                        f"{previous_spoken_text} {segment.text}".strip()[-1_000:]
                     )
-                    self._record_cancelled(
-                        receipt=receipt,
-                        response_id=response_id,
-                        correlation_id=self._cancel_correlation_id or correlation_id,
-                    )
+
+                if self._cancel_event.is_set():
                     break
 
             if not self._cancel_event.is_set():
@@ -496,7 +634,9 @@ class RealtimeVoiceSession:
                             (self._clock_ns() - generation_started_ns) / 1_000_000.0,
                         ),
                         "output_characters": output_characters,
-                        "speech_chunks": chunk_sequence,
+                        "semantic_chunks": semantic_chunk_sequence,
+                        "speech_segments": speech_segment_count,
+                        "audio_chunks": audio_chunk_sequence,
                         "usage": usage_payload,
                     },
                 )
@@ -529,7 +669,8 @@ class RealtimeVoiceSession:
                 payload={
                     "response_id": response_id,
                     "exception_type": type(error).__name__,
-                    "provider": reasoning_provider.to_dict(),
+                    "reasoning_provider": reasoning_provider.to_dict(),
+                    "tts_provider": speech_provider.to_dict(),
                 },
             )
             if self.state in {ConversationState.THINKING, ConversationState.SPEAKING}:
@@ -586,20 +727,33 @@ class RealtimeVoiceSession:
     def _playback_started(
         self,
         *,
-        chunk_id: str,
+        chunk: AudioChunk,
         started_ns: int,
+        audio_ready_ns: int,
+        semantic_ready_ns: int,
+        tts_request_started_ns: int,
         response_id: str,
         correlation_id: str,
     ) -> None:
-        self.ledger.mark_playback_started(chunk_id, started_ns=started_ns)
+        self.ledger.mark_playback_started(chunk.chunk_id, started_ns=started_ns)
         self.state_machine.record(
             EventType.AGENT_AUDIO_STARTED,
             correlation_id=correlation_id,
             reason_code="audio_sink_started",
             payload={
                 "response_id": response_id,
-                "chunk_id": chunk_id,
+                "chunk_id": chunk.chunk_id,
                 "playback_started_ns": started_ns,
+                "provider": dict(chunk.provider),
+                "semantic_to_playback_start_ms": max(
+                    0.0, (started_ns - semantic_ready_ns) / 1_000_000.0
+                ),
+                "tts_request_to_playback_start_ms": max(
+                    0.0, (started_ns - tts_request_started_ns) / 1_000_000.0
+                ),
+                "audio_ready_to_playback_start_ms": max(
+                    0.0, (started_ns - audio_ready_ns) / 1_000_000.0
+                ),
             },
         )
 
@@ -628,6 +782,10 @@ class RealtimeVoiceSession:
                 "playback_stopped_ns": receipt.playback_stopped_ns,
                 "cancel_requested_ns": requested_ns,
                 "audible_barge_in_latency_ms": latency_ms,
+                "player_stop_callback_latency_ms": (
+                    receipt.player_stop_callback_latency_ms
+                ),
+                "sink_output_latency_ms": receipt.sink_output_latency_ms,
                 "delivered_text": self.ledger.delivered_text(response_id=response_id),
                 "unheard_text": self.ledger.unheard_text(response_id=response_id),
             },

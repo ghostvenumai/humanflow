@@ -53,11 +53,13 @@ all transitions and meaningful timings
   use an explicit safe fallback.
 - `humanflow.web`: a loopback FastAPI/WebSocket demo streams browser microphone
   PCM into the core and accepts real `de-DE` Web Speech hypotheses. A modular,
-  fail-closed Anthropic reasoner retains per-session multi-turn context. Mandatory
-  browser speech synthesis returns playback start/completion/cancellation receipts;
-  missing stop acknowledgements enter safe handoff. Since Web Speech exposes no
-  exact interrupted sample offset, the browser conservatively reports zero rather
-  than manufacturing a partial-delivery metric.
+  fail-closed Anthropic reasoner retains per-session multi-turn context. A
+  vendor-neutral streaming TTS contract uses ElevenLabs Flash v2.5 as the primary
+  PCM provider and Web Speech as an explicit fallback for transient failures only.
+  A wording-preserving prosody planner supplies rate, style and pause controls.
+  Web Audio returns playback start/completion/cancellation receipts and measured
+  player callback/AudioContext latency; missing stop acknowledgements enter safe
+  handoff. Perceived audible stop and naturalness still require human assessment.
 - `humanflow.evaluation`: immutable turn fixtures, executable T01-T20 torture
   scenarios, strict JSONL timeline replay, and an evidence-linked scorecard.
   Replay rejects sequence gaps, backwards monotonic time, illegal transitions,
@@ -75,7 +77,8 @@ all transitions and meaningful timings
 
 ## Next runtime components
 
-1. Controlled quality-loop candidate evaluation against immutable evidence.
+1. Resolve the configured ElevenLabs voice and obtain a passing real-provider smoke.
+2. Human voice-quality validation and controlled KEEP/REVERT evidence.
 
 ## Controlled quality loop
 

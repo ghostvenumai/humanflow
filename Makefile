@@ -38,6 +38,11 @@ release-readiness:
 	PYTHONPATH=src python3 scripts/release_readiness.py
 
 demo:
+	@set -a; \
+	if [ -f "$$HOME/.config/humanflow/runtime.env" ]; then \
+		. "$$HOME/.config/humanflow/runtime.env"; \
+	fi; \
+	set +a; \
 	PYTHONPATH=src uvicorn humanflow.web.app:app --host 127.0.0.1 --port 8765
 
 demo-benchmark:

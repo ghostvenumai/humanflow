@@ -111,6 +111,14 @@ def main() -> None:
                 ),
                 None,
             )
+            tts = next(
+                (
+                    provider
+                    for provider in payload.get("providers", [])
+                    if provider.get("role") == "tts"
+                ),
+                None,
+            )
             if (
                 status != 200
                 or payload.get("production_claim") is not False
@@ -118,6 +126,10 @@ def main() -> None:
                 or reasoning is None
                 or reasoning.get("mode") != "REAL"
                 or reasoning.get("availability") != "CONFIGURED"
+                or tts is None
+                or tts.get("provider") != "elevenlabs-text-to-speech-stream"
+                or tts.get("mode") != "REAL"
+                or tts.get("availability") != "CONFIGURED"
             ):
                 raise RuntimeError("health contract failed")
             health_latencies.append(latency_ms)
@@ -130,7 +142,12 @@ def main() -> None:
         if dashboard_status != 200 or b"HumanFlow Evidence Dashboard" not in dashboard_body:
             raise RuntimeError("dashboard index contract failed")
         api_latencies: list[float] = []
-        for path in ("/api/scorecard", "/api/evidence", "/api/timeline"):
+        for path in (
+            "/api/scorecard",
+            "/api/evidence",
+            "/api/timeline",
+            "/api/voice-quality",
+        ):
             latency_ms, status, body = _request(base_url + path)
             if status != 200 or not isinstance(json.loads(body), dict):
                 raise RuntimeError(f"dashboard API contract failed: {path}")

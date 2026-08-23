@@ -11,7 +11,7 @@
       <header>
         <p class="eyebrow">HumanFlow · Realtime Engineering Lab</p>
         <h1>Gesprächsmechanik, live sichtbar.</h1>
-        <p class="lead">Echte deutsche Browser-Sprache, adaptiver Turn-Controller und ein live angebundener Reasoning-Provider mit Gesprächskontext.</p>
+        <p class="lead">HumanFlow ist ein KI-Assistent. Die Demo verbindet deutsche Browser-Spracherkennung, adaptiven Turn-Controller, reales Reasoning mit Gesprächskontext und echtes Streaming-TTS.</p>
         <p><a href="/dashboard">Evidence Dashboard öffnen →</a></p>
       </header>
 
@@ -21,6 +21,7 @@
           <div><span>STT</span><strong id="provider-stt">wird geprüft</strong></div>
           <div><span>Reasoning</span><strong id="provider-reasoning">wird geladen</strong></div>
           <div><span>TTS</span><strong id="provider-tts">wird geprüft</strong></div>
+          <div><span>TTS-Fallback</span><strong id="provider-tts-fallback">wird geprüft</strong></div>
         </div>
       </section>
 
@@ -47,6 +48,17 @@
         <ol id="conversation"></ol>
       </section>
 
+      <section class="manual" aria-label="Menschliche Voice-Qualitätsbewertung">
+        <h2>Menschliche Voice-Qualität · getrennt von Korrektheit</h2>
+        <p class="note">Bitte erst nach echtem Hören bewerten. Die Skala reicht von eins (schwach) bis fünf (sehr gut). HumanFlow erzeugt oder bestätigt diese Werte nicht selbst.</p>
+        <p><strong>Aktiver Kandidat:</strong> <span id="voice-candidate">noch nicht gehört</span> · <strong>gespeicherte menschliche Stichproben:</strong> <span id="voice-sample-count">0</span></p>
+        <div id="voice-ratings" class="provider-grid"></div>
+        <label for="voice-notes">Beobachtungen, Vergleich oder getestetes Szenario</label>
+        <textarea id="voice-notes" rows="3" maxlength="2000"></textarea>
+        <button id="save-voice-rating" disabled>Menschliche Bewertung speichern</button>
+        <span id="voice-rating-status"></span>
+      </section>
+
       <section class="grid">
         <article>
           <h2>Aktueller Zustand</h2>
@@ -61,7 +73,7 @@
           <h2>Played Audio Ledger</h2>
           <p><strong>Gehört:</strong> <span id="delivered">—</span></p>
           <p><strong>Nicht gehört:</strong> <span id="unheard">—</span></p>
-          <p class="note">Die Demo nutzt echte deutsche Browser-Sprachausgabe. Die Ledger-Grenze stammt aus den tatsächlichen Start-/Ende-/Stopp-Quittungen des Browsers; manuelle Qualitätsvalidierung bleibt erforderlich.</p>
+          <p class="note">Die Demo spielt echtes PCM-Streaming-TTS; Browser Web Speech ist nur der sichtbar ausgewiesene Fallback. Die Ledger-Grenze stammt aus Start-/Ende-/Stopp-Quittungen des Browsers. Hörqualität und tatsächlich wahrgenommener Stopp müssen weiterhin manuell validiert werden.</p>
         </article>
       </section>
 

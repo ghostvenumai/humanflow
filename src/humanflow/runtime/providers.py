@@ -7,13 +7,18 @@ import inspect
 import math
 from array import array
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from time import monotonic_ns
 from typing import Protocol
 from uuid import uuid4
 
-from humanflow.audio.models import AudioChunk, AudioFrame, PlaybackReceipt
+from humanflow.audio.models import (
+    AudioChunk,
+    AudioFrame,
+    AudioPlaybackMode,
+    PlaybackReceipt,
+)
 from humanflow.domain.conversation import OperationToken
 from humanflow.turns.models import TurnSignals
 
@@ -86,10 +91,52 @@ class StreamingReasoner(Protocol):
     ) -> AsyncIterator[str]: ...
 
 
-class StreamingSpeechSynthesizer(Protocol):
-    async def synthesize(
-        self, text: str, *, response_id: str, sequence: int
-    ) -> AudioChunk: ...
+@dataclass(frozen=True, slots=True)
+class SpeechSynthesisRequest:
+    """Vendor-neutral request for one stable, speech-ready semantic segment."""
+
+    text: str
+    response_id: str
+    sequence_start: int
+    language_code: str = "de"
+    voice: str | None = None
+    speaking_rate: float = 1.0
+    stability: float | None = None
+    similarity_boost: float | None = None
+    style: float | None = None
+    use_speaker_boost: bool | None = None
+    pause_after_ms: int = 0
+    intent: str = "information"
+    previous_text: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.text.strip() or not self.response_id.strip():
+            raise ValueError("text and response_id must not be empty")
+        if self.sequence_start < 0:
+            raise ValueError("sequence_start must be non-negative")
+        if not 0.5 <= self.speaking_rate <= 2.0:
+            raise ValueError("speaking_rate must be between 0.5 and 2.0")
+        for name in ("stability", "similarity_boost", "style"):
+            value = getattr(self, name)
+            if value is not None and not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be between zero and one")
+        if self.pause_after_ms < 0:
+            raise ValueError("pause_after_ms must be non-negative")
+
+
+class StreamingTTSProvider(Protocol):
+    """A cancellable provider that yields playable audio before synthesis ends."""
+
+    def stream_speech(
+        self,
+        request: SpeechSynthesisRequest,
+        *,
+        cancel_event: asyncio.Event,
+    ) -> AsyncIterator[AudioChunk]: ...
+
+
+# Compatibility name for integrations that imported the original boundary.
+StreamingSpeechSynthesizer = StreamingTTSProvider
 
 
 PlaybackStarted = Callable[[int], None]
@@ -203,6 +250,27 @@ class ToneSpeechSynthesizer:
             response_id=response_id,
             text=text.strip(),
             frame=frame,
+            provider=self.provider_info.to_dict(),
+        )
+
+    async def stream_speech(
+        self,
+        request: SpeechSynthesisRequest,
+        *,
+        cancel_event: asyncio.Event,
+    ) -> AsyncIterator[AudioChunk]:
+        if cancel_event.is_set():
+            return
+        chunk = await self.synthesize(
+            request.text,
+            response_id=request.response_id,
+            sequence=request.sequence_start,
+        )
+        yield replace(
+            chunk,
+            display_text=request.text,
+            pause_after_ms=request.pause_after_ms,
+            speaking_rate=request.speaking_rate,
         )
 
 
@@ -255,6 +323,28 @@ class BrowserSpeechSynthesisAdapter:
             response_id=response_id,
             text=clean_text,
             frame=frame,
+            playback_mode=AudioPlaybackMode.BROWSER_SPEECH,
+            provider=self.provider_info.to_dict(),
+        )
+
+    async def stream_speech(
+        self,
+        request: SpeechSynthesisRequest,
+        *,
+        cancel_event: asyncio.Event,
+    ) -> AsyncIterator[AudioChunk]:
+        if cancel_event.is_set():
+            return
+        chunk = await self.synthesize(
+            request.text,
+            response_id=request.response_id,
+            sequence=request.sequence_start,
+        )
+        yield replace(
+            chunk,
+            display_text=request.text,
+            pause_after_ms=request.pause_after_ms,
+            speaking_rate=request.speaking_rate,
         )
 
 

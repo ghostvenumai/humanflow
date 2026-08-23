@@ -3,31 +3,24 @@
 This step must be performed by a human with a real microphone and audible output.
 Automation must not create or approve this evidence.
 
+Prerequisite: `reports/live-tts-smoke.json` must show `PASS` for the configured
+ElevenLabs voice. A failed smoke must not be replaced by Browser Web Speech.
+
 1. Start the loopback demo with `make demo`.
 2. Open `http://127.0.0.1:8765` in a supported Chrome browser.
-3. Allow microphone access and complete at least three representative calls.
-4. Verify audible German browser speech, `mhm` without cancellation, audible
-   stop after `Moment, stopp`, and tool-failure recovery without a hangup.
-5. Inspect `/dashboard`, including event timestamps and evidence scopes.
-6. Record the human attestation:
+3. Confirm that the provider panel shows ElevenLabs Flash v2.5 as `ACTIVE` and
+   `REAL`, not the browser fallback.
+4. Test normal informal German conversation.
+5. Request a longer explanation and then a short question/answer.
+6. Correct an appointment from one date or time to another.
+7. Say `mhm` while HumanFlow speaks; playback should continue.
+8. Say `Moment, stopp` while HumanFlow speaks; judge the actually heard stop,
+   not merely the telemetry acknowledgement.
+9. Test an empathetic sentence plus numbers, dates and times.
+10. Continue a contextual conversation for several minutes.
+11. Rate all eight voice-quality dimensions in the browser form. Only this
+    human submission creates a sample; automation leaves the sample count at zero.
+12. Inspect `/dashboard`, event timing and provider identity.
 
-```bash
-python3 scripts/record_manual_validation.py \
-  --browser "Google Chrome <version>" \
-  --calls 3 \
-  --confirm-microphone \
-  --confirm-german-speech \
-  --confirm-backchannel \
-  --confirm-audible-barge-in \
-  --confirm-tool-recovery
-```
-
-Review `sprint/manual-validation.json`, commit it, and then run:
-
-```bash
-./freeze-72h --confirm-freeze
-```
-
-The freeze command refuses to run without this attestation, after the 72-hour
-deadline, with a dirty worktree, with failed tests/gates, or when already frozen.
-It performs no remote push.
+For the current naturalness milestone, do not create the release attestation and
+do not freeze the sprint. Human feedback determines the next KEEP/REVERT decision.

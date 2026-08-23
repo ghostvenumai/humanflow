@@ -1,7 +1,9 @@
 const ui = Object.fromEntries([
   "connect", "interrupt", "status", "transcript", "send", "state", "decision",
   "latency", "frames", "delivered", "unheard", "events", "clear", "conversation",
-  "provider-stt", "provider-reasoning", "provider-tts"
+  "provider-stt", "provider-reasoning", "provider-tts", "provider-tts-fallback",
+  "voice-candidate", "voice-sample-count", "voice-ratings", "voice-notes",
+  "save-voice-rating", "voice-rating-status"
 ].map((id) => [id, document.getElementById(id)]));
 
 let socket;
@@ -15,6 +17,27 @@ let speechStartedAt = null;
 let speechEndedAt = null;
 const activeAudio = new Map();
 const assistantItems = new Map();
+let activeTtsCandidate = "noch nicht gehört";
+const voiceRatingFields = {
+  naturalness: "Natürlichkeit", prosody: "Prosodie", pacing: "Sprechtempo",
+  voice_pleasantness: "Stimmklang", turn_timing: "Turn-Timing",
+  interruption_feel: "Unterbrechungsgefühl",
+  non_mechanical_impression: "Nicht-mechanischer Eindruck",
+  overall_conversational_realism: "Gesprächsrealismus"
+};
+
+function initializeVoiceRatings() {
+  for (const [field, labelText] of Object.entries(voiceRatingFields)) {
+    const wrapper = document.createElement("label");
+    wrapper.textContent = labelText;
+    const select = document.createElement("select");
+    select.dataset.voiceRating = field;
+    select.innerHTML = '<option value="">—</option>' + [1, 2, 3, 4, 5]
+      .map((value) => `<option value="${value}">${value}</option>`).join("");
+    wrapper.append(select);
+    ui["voice-ratings"].append(wrapper);
+  }
+}
 
 function browserCapabilities() {
   return {
@@ -38,7 +61,7 @@ function renderProviders(providers) {
   }
   const capabilities = browserCapabilities();
   setProvider("stt", `Browser Web Speech · de-DE · REAL · ${capabilities.stt ? "AVAILABLE" : "UNAVAILABLE"}`, capabilities.stt ? "real" : "unavailable");
-  setProvider("tts", `Browser Web Speech · Systemstimme · REAL · ${capabilities.tts ? "AVAILABLE" : "UNAVAILABLE"}`, capabilities.tts ? "real" : "unavailable");
+  setProvider("tts-fallback", `Browser Web Speech · Systemstimme · REAL · ${capabilities.tts ? "AVAILABLE" : "UNAVAILABLE"}`, capabilities.tts ? "real" : "unavailable");
 }
 
 function addConversation(role, text, extraClass = "") {
@@ -66,6 +89,7 @@ function showTranscript(text, isFinal) {
 }
 
 function showAssistantChunk(meta) {
+  if (!meta.text_boundary) return;
   let item = assistantItems.get(meta.response_id);
   if (!item) {
     item = addConversation("assistant", meta.text_boundary);
@@ -186,26 +210,96 @@ function startBrowserStt() {
 function playSpeech(meta) {
   const utterance = new SpeechSynthesisUtterance(meta.text_boundary);
   utterance.lang = "de-DE";
-  utterance.rate = 1.02;
-  const playback = { utterance, cancelled: false, samples: meta.samples, mode: "speech" };
+  utterance.rate = meta.speaking_rate || 1.0;
+  const playback = {
+    utterance, cancelled: false, finished: false, samples: meta.samples,
+    mode: "speech", pauseTimer: null
+  };
   activeAudio.set(meta.chunk_id, playback);
   utterance.onstart = () => send({ type: "playback_started", chunk_id: meta.chunk_id });
   utterance.onend = () => {
-    if (!playback.cancelled) send({ type: "playback_completed", chunk_id: meta.chunk_id });
-    activeAudio.delete(meta.chunk_id);
+    if (playback.cancelled) return;
+    const complete = () => finishPlayback(meta.chunk_id, false, meta.samples);
+    playback.pauseTimer = window.setTimeout(complete, meta.pause_after_ms || 0);
   };
   utterance.onerror = () => {
-    if (!playback.cancelled) send({ type: "playback_stopped", chunk_id: meta.chunk_id, played_samples: 0 });
-    activeAudio.delete(meta.chunk_id);
+    if (!playback.cancelled) finishPlayback(meta.chunk_id, true, 0);
   };
   window.speechSynthesis.speak(utterance);
 }
 
+function finishPlayback(chunkId, cancelled, playedSamples, stopCallbackLatencyMs = null) {
+  const playback = activeAudio.get(chunkId);
+  if (!playback || playback.finished) return;
+  playback.finished = true;
+  if (playback.pauseTimer != null) window.clearTimeout(playback.pauseTimer);
+  if (playback.stopFallbackTimer != null) window.clearTimeout(playback.stopFallbackTimer);
+  activeAudio.delete(chunkId);
+  if (cancelled) {
+    send({
+      type: "playback_stopped", chunk_id: chunkId, played_samples: playedSamples,
+      player_stop_callback_latency_ms: stopCallbackLatencyMs
+    });
+  } else {
+    send({ type: "playback_completed", chunk_id: chunkId });
+  }
+}
+
+function playPcm(buffer, meta) {
+  audioContext ||= new AudioContext({ latencyHint: "interactive" });
+  const input = new Int16Array(buffer);
+  const channels = Math.max(1, meta.channels || 1);
+  const frames = Math.floor(input.length / channels);
+  const decoded = audioContext.createBuffer(channels, frames, meta.sample_rate_hz);
+  for (let channel = 0; channel < channels; channel += 1) {
+    const output = decoded.getChannelData(channel);
+    for (let frame = 0; frame < frames; frame += 1) {
+      output[frame] = input[frame * channels + channel] / 32768;
+    }
+  }
+  const source = audioContext.createBufferSource();
+  source.buffer = decoded;
+  source.connect(audioContext.destination);
+  const playback = {
+    source, cancelled: false, finished: false, samples: meta.samples,
+    sampleRate: meta.sample_rate_hz, startedAt: audioContext.currentTime,
+    mode: "pcm", pauseTimer: null, sourceEnded: false,
+    stopRequestedAt: null, stopFallbackTimer: null, playedSamplesAtStop: 0
+  };
+  activeAudio.set(meta.chunk_id, playback);
+  source.onended = () => {
+    playback.sourceEnded = true;
+    if (playback.cancelled) {
+      const latency = playback.stopRequestedAt == null
+        ? null : Math.max(0, performance.now() - playback.stopRequestedAt);
+      finishPlayback(meta.chunk_id, true, playback.playedSamplesAtStop, latency);
+      return;
+    }
+    const complete = () => finishPlayback(meta.chunk_id, false, meta.samples);
+    playback.pauseTimer = window.setTimeout(complete, meta.pause_after_ms || 0);
+  };
+  source.start();
+  send({
+    type: "playback_started",
+    chunk_id: meta.chunk_id,
+    browser_audio_context_base_latency_ms: (audioContext.baseLatency || 0) * 1000,
+    browser_audio_context_output_latency_ms: (audioContext.outputLatency || 0) * 1000
+  });
+}
+
 function playOutput(buffer, meta) {
-  void buffer;
+  if (meta.playback_mode === "pcm") {
+    playPcm(buffer, meta);
+    return;
+  }
+  if (meta.playback_mode !== "browser_speech") {
+    send({ type: "playback_stopped", chunk_id: meta.chunk_id, played_samples: 0 });
+    ui.status.textContent = `Fehler: unbekannter Audio-Modus ${meta.playback_mode}`;
+    return;
+  }
   if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
     send({ type: "playback_stopped", chunk_id: meta.chunk_id, played_samples: 0 });
-    ui.status.textContent = "Fehler: echtes Browser-TTS fehlt";
+    ui.status.textContent = "Fehler: Browser-TTS-Fallback fehlt";
     return;
   }
   playSpeech(meta);
@@ -218,9 +312,27 @@ function cancelAudio(chunkId) {
     return;
   }
   playback.cancelled = true;
-  window.speechSynthesis.cancel();
-  activeAudio.delete(chunkId);
-  send({ type: "playback_stopped", chunk_id: chunkId, played_samples: 0 });
+  if (playback.pauseTimer != null) window.clearTimeout(playback.pauseTimer);
+  let playedSamples = 0;
+  if (playback.mode === "pcm") {
+    const elapsed = Math.max(0, audioContext.currentTime - playback.startedAt);
+    playedSamples = Math.min(playback.samples, Math.floor(elapsed * playback.sampleRate));
+    playback.playedSamplesAtStop = playedSamples;
+    playback.stopRequestedAt = performance.now();
+    if (playback.sourceEnded) {
+      finishPlayback(chunkId, true, playedSamples, 0);
+      return;
+    }
+    try { playback.source.stop(); } catch (_) { /* source already ended */ }
+    playback.stopFallbackTimer = window.setTimeout(() => {
+      const latency = Math.max(0, performance.now() - playback.stopRequestedAt);
+      finishPlayback(chunkId, true, playedSamples, latency);
+    }, 250);
+    return;
+  } else {
+    window.speechSynthesis.cancel();
+  }
+  window.setTimeout(() => finishPlayback(chunkId, true, playedSamples), 0);
 }
 
 function addEvent(event) {
@@ -243,7 +355,7 @@ ui.connect.addEventListener("click", async () => {
   try {
     const capabilities = browserCapabilities();
     renderProviders([]);
-    if (!capabilities.stt || !capabilities.tts) throw new Error("Echter Browser-STT/TTS-Provider fehlt");
+    if (!capabilities.stt) throw new Error("Echter Browser-STT-Provider fehlt");
     await startMicrophone();
     const scheme = location.protocol === "https:" ? "wss" : "ws";
     socket = new WebSocket(`${scheme}://${location.host}/ws`);
@@ -265,6 +377,13 @@ ui.connect.addEventListener("click", async () => {
       else if (payload.type === "audio_chunk") {
         nextAudioMeta = payload;
         showAssistantChunk(payload);
+        if (payload.tts_provider?.provider) {
+          const provider = payload.tts_provider;
+          setProvider("tts", `${provider.provider} · ${provider.model} · ${provider.mode} · ACTIVE`, provider.mode === "REAL" ? "real" : "unavailable");
+          activeTtsCandidate = `${provider.provider} · ${provider.model}`;
+          ui["voice-candidate"].textContent = activeTtsCandidate;
+          ui["save-voice-rating"].disabled = false;
+        }
       }
       else if (payload.type === "cancel_audio") cancelAudio(payload.chunk_id);
       else if (payload.type === "telemetry") addEvent(payload.event);
@@ -290,5 +409,30 @@ document.querySelectorAll(".quick button").forEach((button) => button.addEventLi
   }
 })));
 ui.clear.addEventListener("click", () => ui.events.replaceChildren());
+ui["save-voice-rating"].addEventListener("click", async () => {
+  const ratings = {};
+  for (const select of ui["voice-ratings"].querySelectorAll("select")) {
+    if (!select.value) {
+      ui["voice-rating-status"].textContent = "Bitte alle acht Felder bewerten.";
+      return;
+    }
+    ratings[select.dataset.voiceRating] = Number(select.value);
+  }
+  try {
+    const response = await fetch("/api/voice-quality", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        candidate: activeTtsCandidate, ratings, notes: ui["voice-notes"].value
+      })
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const summary = await response.json();
+    ui["voice-sample-count"].textContent = summary.sample_count;
+    ui["voice-rating-status"].textContent = "Bewertung gespeichert.";
+  } catch (error) {
+    ui["voice-rating-status"].textContent = `Speichern fehlgeschlagen: ${error.message}`;
+  }
+});
+initializeVoiceRatings();
 renderProviders([]);
 setConnected(false);

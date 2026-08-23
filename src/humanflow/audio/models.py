@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import StrEnum
+from types import MappingProxyType
+from typing import Mapping
 
 
 PCM16_BYTES_PER_SAMPLE = 2
+
+
+class AudioPlaybackMode(StrEnum):
+    """How a transport must render an audio chunk."""
+
+    PCM = "pcm"
+    BROWSER_SPEECH = "browser_speech"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,18 +55,45 @@ class AudioFrame:
 
 @dataclass(frozen=True, slots=True)
 class AudioChunk:
-    """A generated speech chunk whose text is an atomic semantic boundary."""
+    """A generated speech chunk with conservative semantic-delivery metadata.
+
+    Streaming providers may emit several PCM chunks for one semantic segment.
+    Only the final chunk carries ``text`` and therefore advances the played-text
+    ledger. ``display_text`` is transport UI metadata and is never counted as
+    delivered speech.
+    """
 
     chunk_id: str
     response_id: str
     text: str
     frame: AudioFrame
+    semantic_id: str = ""
+    semantic_text: str = ""
+    playback_mode: AudioPlaybackMode = AudioPlaybackMode.PCM
+    semantic_boundary: bool = True
+    display_text: str = ""
+    pause_after_ms: int = 0
+    speaking_rate: float = 1.0
+    provider: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.chunk_id.strip() or not self.response_id.strip():
             raise ValueError("chunk_id and response_id must not be empty")
-        if not self.text.strip():
-            raise ValueError("text must not be empty")
+        if self.semantic_boundary and not self.text.strip():
+            raise ValueError("semantic boundary text must not be empty")
+        if not self.semantic_boundary and self.text.strip():
+            raise ValueError("non-boundary chunks must not carry ledger text")
+        semantic_id = self.semantic_id.strip() or self.chunk_id
+        semantic_text = self.semantic_text.strip() or self.text.strip()
+        if not semantic_text:
+            raise ValueError("semantic_text must not be empty")
+        object.__setattr__(self, "semantic_id", semantic_id)
+        object.__setattr__(self, "semantic_text", semantic_text)
+        if self.pause_after_ms < 0:
+            raise ValueError("pause_after_ms must be non-negative")
+        if not 0.5 <= self.speaking_rate <= 2.0:
+            raise ValueError("speaking_rate must be between 0.5 and 2.0")
+        object.__setattr__(self, "provider", MappingProxyType(dict(self.provider)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +106,9 @@ class PlaybackReceipt:
     playback_started_ns: int
     playback_stopped_ns: int
     cancelled: bool
+    sink_base_latency_ms: float | None = None
+    sink_output_latency_ms: float | None = None
+    player_stop_callback_latency_ms: float | None = None
 
     def __post_init__(self) -> None:
         if not self.chunk_id.strip():
@@ -83,3 +123,11 @@ class PlaybackReceipt:
             raise ValueError("playback_stopped_ns must not precede playback_started_ns")
         if not self.cancelled and self.played_samples != self.requested_samples:
             raise ValueError("non-cancelled playback must consume every requested sample")
+        for name in (
+            "sink_base_latency_ms",
+            "sink_output_latency_ms",
+            "player_stop_callback_latency_ms",
+        ):
+            value = getattr(self, name)
+            if value is not None and value < 0:
+                raise ValueError(f"{name} must be non-negative")

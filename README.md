@@ -60,13 +60,16 @@ python3 -m pip install -e '.[demo]'
 make demo
 ```
 
-Set `ANTHROPIC_API_KEY`, then open `http://127.0.0.1:8765`. The browser sends live
+Set `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` in
+`$HOME/.config/humanflow/runtime.env`, then open `http://127.0.0.1:8765`. `make
+demo` loads that file without printing its contents. The browser sends live
 PCM16 microphone frames while Browser Web Speech emits real German partial/final
 transcripts. A session-scoped Anthropic reasoner streams context-aware German
-answers into mandatory browser `speechSynthesis`. Playback start, completion and
-cancellation are acknowledged by the browser and define the demo ledger's played
-boundary. Missing credentials, browser STT or browser TTS fail visibly; the live
-demo never substitutes the deterministic echo/tone adapters used by tests. This
+answers into a modular ElevenLabs Flash v2.5 PCM stream. Browser Web Speech remains
+a visibly reported fallback for transient provider failures; invalid credentials
+or voice configuration fail closed. Playback start, completion and cancellation
+are acknowledged by the browser and define the demo ledger's played boundary. The
+live demo never substitutes deterministic echo/tone adapters used by tests. This
 remains local browser evidence until the separate human validation passes.
 
 See `docs/LIVE_BROWSER_PIPELINE.md` for the real/mock boundary at every stage.

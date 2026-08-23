@@ -11,7 +11,7 @@ main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 56px 0 80
 .eyebrow { color: #5ee6ad; letter-spacing: .14em; text-transform: uppercase; font-size: .75rem; font-weight: 800; }
 h1 { max-width: 760px; margin: 10px 0 12px; font-size: clamp(2.5rem, 7vw, 5.5rem); line-height: .95; letter-spacing: -.055em; }
 .lead { max-width: 720px; color: #a9c8bc; font-size: 1.08rem; line-height: 1.6; }
-button, input { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button { border: 1px solid #39705d; border-radius: 999px; padding: 10px 16px; color: #e9fff6; background: #10251e; cursor: pointer; }
 button:hover:not(:disabled) { border-color: #5ee6ad; background: #18382d; }
 button:disabled { opacity: .38; cursor: not-allowed; }
@@ -29,6 +29,10 @@ button:disabled { opacity: .38; cursor: not-allowed; }
 .provider-grid strong.real { color: #74f2bc; }
 .provider-grid strong.unavailable { color: #ff8f82; }
 .manual label { display: block; color: #a9c8bc; margin-bottom: 10px; }
+.conversation + .manual { margin-top: 18px; }
+.manual .provider-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 16px; }
+.manual .provider-grid label { border: 1px solid #193a2f; border-radius: 14px; padding: 12px; }
+select, textarea { width: 100%; margin-top: 7px; border: 1px solid #315d4e; border-radius: 10px; background: #06110e; color: #fff; padding: 9px; }
 .input-row { display: flex; gap: 10px; }
 input { min-width: 0; flex: 1; border: 1px solid #315d4e; border-radius: 14px; background: #06110e; color: #fff; padding: 12px 14px; }
 .quick { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -49,4 +53,4 @@ dt { color: #829f94; } dd { margin: 0; text-align: right; }
 .timeline-head { display: flex; justify-content: space-between; align-items: center; }
 #events { margin: 0; padding-left: 24px; max-height: 360px; overflow: auto; font-family: ui-monospace, monospace; font-size: .78rem; color: #a9c8bc; }
 #events li { padding: 7px 0; border-bottom: 1px solid #153329; }
-@media (max-width: 720px) { .grid, .provider-grid { grid-template-columns: 1fr; } .input-row { flex-direction: column; } main { padding-top: 30px; } }
+@media (max-width: 720px) { .grid, .provider-grid, .manual .provider-grid { grid-template-columns: 1fr; } .input-row { flex-direction: column; } main { padding-top: 30px; } }

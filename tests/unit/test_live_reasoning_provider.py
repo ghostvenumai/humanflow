@@ -6,7 +6,8 @@ from types import SimpleNamespace
 from typing import Any
 
 from humanflow.domain.conversation import OperationToken
-from humanflow.runtime.anthropic_provider import AnthropicReasoner
+from humanflow.runtime.anthropic_provider import DEFAULT_SYSTEM_PROMPT, AnthropicReasoner
+from humanflow.runtime.elevenlabs_provider import FallbackStreamingTTSProvider
 from humanflow.runtime.providers import ProviderMode
 from humanflow.web.app import load_demo_runtime_config
 
@@ -110,14 +111,34 @@ def test_demo_fails_closed_without_real_reasoning_credentials() -> None:
 
 
 def test_demo_factory_can_only_build_declared_real_reasoner() -> None:
-    runtime = load_demo_runtime_config({"ANTHROPIC_API_KEY": "test-key-never-sent"})
+    runtime = load_demo_runtime_config(
+        {
+            "ANTHROPIC_API_KEY": "test-key-never-sent",
+            "ELEVENLABS_API_KEY": "test-eleven-key-never-sent",
+            "ELEVENLABS_VOICE_ID": "test-voice-id-never-sent",
+        }
+    )
 
     assert runtime.ready
     assert runtime.reasoner_factory is not None
     reasoner = runtime.reasoner_factory()
+    assert runtime.synthesizer_factory is not None
+    synthesizer = runtime.synthesizer_factory()
     assert isinstance(reasoner, AnthropicReasoner)
+    assert isinstance(synthesizer, FallbackStreamingTTSProvider)
     assert reasoner.provider_info.mode is ProviderMode.REAL
     assert all(status.info.mode is ProviderMode.REAL for status in runtime.providers)
+
+
+def test_demo_fails_closed_when_high_quality_tts_configuration_is_missing() -> None:
+    runtime = load_demo_runtime_config({"ANTHROPIC_API_KEY": "test-key-never-sent"})
+
+    assert not runtime.ready
+    assert runtime.synthesizer_factory is None
+    tts = next(item for item in runtime.providers if item.info.role == "tts")
+    assert tts.info.provider == "elevenlabs-text-to-speech-stream"
+    assert tts.info.mode is ProviderMode.REAL
+    assert tts.availability == "MISSING_CONFIGURATION"
 
 
 def test_unsupported_provider_does_not_fall_back_to_acknowledgement_stub() -> None:
@@ -131,3 +152,10 @@ def test_unsupported_provider_does_not_fall_back_to_acknowledgement_stub() -> No
     assert not runtime.ready
     assert runtime.reasoner_factory is None
     assert runtime.blocker == "unsupported reasoning provider: echo"
+
+
+def test_live_prompt_requires_ai_disclosure_and_rejects_canned_acknowledgement() -> None:
+    assert "Ich bin HumanFlow, ein KI-Assistent" in DEFAULT_SYSTEM_PROMPT
+    assert "niemals behaupten, ein Mensch zu sein" in DEFAULT_SYSTEM_PROMPT
+    assert "Beginne nicht mit einer generischen Empfangsbestätigung" in DEFAULT_SYSTEM_PROMPT
+    assert "Ich habe Sie verstanden" in DEFAULT_SYSTEM_PROMPT

@@ -59,3 +59,51 @@ def test_audio_frame_duration_uses_samples_per_channel() -> None:
     )
     assert frame.samples_per_channel == 160
     assert frame.duration_ms == 10.0
+
+
+def test_streamed_pcm_semantic_is_unheard_until_its_final_boundary_finishes() -> None:
+    ledger = PlayedAudioLedger()
+    first = AudioChunk(
+        chunk_id="stream-1",
+        response_id="response-1",
+        text="",
+        semantic_id="segment-1",
+        semantic_text="Freitag passt für mich.",
+        semantic_boundary=False,
+        frame=AudioFrame(
+            stream_id="response-1",
+            sequence=1,
+            pcm16=b"\x00\x00" * 160,
+        ),
+    )
+    final = AudioChunk(
+        chunk_id="stream-2",
+        response_id="response-1",
+        text="Freitag passt für mich.",
+        semantic_id="segment-1",
+        semantic_text="Freitag passt für mich.",
+        semantic_boundary=True,
+        frame=AudioFrame(
+            stream_id="response-1",
+            sequence=2,
+            pcm16=b"\x00\x00" * 160,
+        ),
+    )
+    for index, chunk in enumerate((first, final), start=1):
+        ledger.register_generated(chunk, generated_ns=index * 10)
+        ledger.mark_queued(chunk.chunk_id, queued_ns=index * 10 + 1)
+        ledger.mark_playback_started(chunk.chunk_id, started_ns=index * 10 + 2)
+        played = 160 if chunk is first else 80
+        ledger.record_playback(
+            PlaybackReceipt(
+                chunk.chunk_id,
+                160,
+                played,
+                index * 10 + 2,
+                index * 10 + 3,
+                cancelled=chunk is final,
+            )
+        )
+
+    assert ledger.delivered_text(response_id="response-1") == ""
+    assert ledger.unheard_text(response_id="response-1") == "Freitag passt für mich."

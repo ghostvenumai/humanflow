@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+from datetime import UTC, datetime
 from collections.abc import AsyncIterator
 from collections.abc import Callable, Mapping
 from contextlib import asynccontextmanager
@@ -16,7 +17,7 @@ from time import monotonic_ns
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -25,12 +26,19 @@ from humanflow.runtime.anthropic_provider import (
     DEFAULT_ANTHROPIC_MODEL,
     AnthropicReasoner,
 )
+from humanflow.runtime.elevenlabs_provider import (
+    DEFAULT_ELEVENLABS_MODEL,
+    ElevenLabsStreamingTTSProvider,
+    FallbackStreamingTTSProvider,
+    SynthesisBudget,
+)
 from humanflow.runtime.providers import (
     BrowserSpeechSynthesisAdapter,
     NullTranscriber,
     ProviderInfo,
     ProviderMode,
     StreamingReasoner,
+    StreamingTTSProvider,
     TranscriptUpdate,
 )
 from humanflow.runtime.session import RealtimeVoiceSession
@@ -47,7 +55,18 @@ from .transport import (
 STATIC_DIR = Path(__file__).with_name("static")
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 REPORTS_DIR = PROJECT_ROOT / "reports"
+VOICE_ASSESSMENTS_PATH = REPORTS_DIR / "human-voice-quality-assessments.jsonl"
 LOGGER = logging.getLogger(__name__)
+VOICE_RATING_FIELDS = (
+    "naturalness",
+    "prosody",
+    "pacing",
+    "voice_pleasantness",
+    "turn_timing",
+    "interruption_feel",
+    "non_mechanical_impression",
+    "overall_conversational_realism",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,12 +81,17 @@ class ProviderStatus:
 @dataclass(frozen=True, slots=True)
 class DemoRuntimeConfig:
     reasoner_factory: Callable[[], StreamingReasoner] | None
+    synthesizer_factory: Callable[[], StreamingTTSProvider] | None
     providers: tuple[ProviderStatus, ...]
     blocker: str | None = None
 
     @property
     def ready(self) -> bool:
-        return self.reasoner_factory is not None and self.blocker is None
+        return (
+            self.reasoner_factory is not None
+            and self.synthesizer_factory is not None
+            and self.blocker is None
+        )
 
     def provider_payload(self) -> list[dict[str, str]]:
         return [status.to_dict() for status in self.providers]
@@ -91,9 +115,35 @@ def load_demo_runtime_config(
         ),
         "BROWSER_CHECK_REQUIRED",
     )
-    tts = ProviderStatus(
-        BrowserSpeechSynthesisAdapter.provider_info,
+    tts_model = values.get("HUMANFLOW_TTS_MODEL", DEFAULT_ELEVENLABS_MODEL).strip()
+    tts_info = ProviderInfo(
+        role="tts",
+        provider="elevenlabs-text-to-speech-stream",
+        model=tts_model or DEFAULT_ELEVENLABS_MODEL,
+        mode=ProviderMode.REAL,
+        runtime="server",
+    )
+    tts_fallback_info = ProviderInfo(
+        role="tts-fallback",
+        provider=BrowserSpeechSynthesisAdapter.provider_info.provider,
+        model=BrowserSpeechSynthesisAdapter.provider_info.model,
+        mode=ProviderMode.REAL,
+        runtime="browser",
+    )
+    tts_fallback = ProviderStatus(
+        tts_fallback_info,
         "BROWSER_CHECK_REQUIRED",
+    )
+    tts_api_key = values.get("ELEVENLABS_API_KEY", "")
+    tts_voice_id = values.get("ELEVENLABS_VOICE_ID", "")
+    tts_missing = []
+    if not tts_api_key.strip():
+        tts_missing.append("ELEVENLABS_API_KEY")
+    if not tts_voice_id.strip():
+        tts_missing.append("ELEVENLABS_VOICE_ID")
+    tts_status = ProviderStatus(
+        tts_info,
+        "CONFIGURED" if not tts_missing else "MISSING_CONFIGURATION",
     )
     if selected != "anthropic":
         reasoning = ProviderStatus(
@@ -108,7 +158,8 @@ def load_demo_runtime_config(
         )
         return DemoRuntimeConfig(
             reasoner_factory=None,
-            providers=(stt, reasoning, tts),
+            synthesizer_factory=None,
+            providers=(stt, reasoning, tts_status, tts_fallback),
             blocker=f"unsupported reasoning provider: {selected or 'empty'}",
         )
     api_key = values.get("ANTHROPIC_API_KEY", "")
@@ -122,12 +173,31 @@ def load_demo_runtime_config(
     if not api_key.strip():
         return DemoRuntimeConfig(
             reasoner_factory=None,
+            synthesizer_factory=None,
             providers=(
                 stt,
                 ProviderStatus(reasoning_info, "MISSING_API_KEY"),
-                tts,
+                tts_status,
+                tts_fallback,
             ),
-            blocker="ANTHROPIC_API_KEY is not configured",
+            blocker=(
+                "ANTHROPIC_API_KEY is not configured"
+                if not tts_missing
+                else "ANTHROPIC_API_KEY and ElevenLabs TTS configuration are required"
+            ),
+        )
+
+    if tts_missing:
+        return DemoRuntimeConfig(
+            reasoner_factory=None,
+            synthesizer_factory=None,
+            providers=(
+                stt,
+                ProviderStatus(reasoning_info, "CONFIGURED"),
+                tts_status,
+                tts_fallback,
+            ),
+            blocker=f"missing TTS configuration: {', '.join(tts_missing)}",
         )
 
     def create_reasoner() -> StreamingReasoner:
@@ -136,14 +206,35 @@ def load_demo_runtime_config(
             model=model or DEFAULT_ANTHROPIC_MODEL,
         )
 
+    tts_budget = SynthesisBudget()
+
+    def create_synthesizer() -> StreamingTTSProvider:
+        primary = ElevenLabsStreamingTTSProvider(
+            api_key=tts_api_key,
+            voice_id=tts_voice_id,
+            model=tts_model or DEFAULT_ELEVENLABS_MODEL,
+            budget=tts_budget,
+        )
+        return FallbackStreamingTTSProvider(
+            primary=primary,
+            fallback=BrowserSpeechSynthesisAdapter(),
+        )
+
     return DemoRuntimeConfig(
         reasoner_factory=create_reasoner,
-        providers=(stt, ProviderStatus(reasoning_info, "CONFIGURED"), tts),
+        synthesizer_factory=create_synthesizer,
+        providers=(
+            stt,
+            ProviderStatus(reasoning_info, "CONFIGURED"),
+            tts_status,
+            tts_fallback,
+        ),
     )
 
 
 def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
     runtime = runtime_config or load_demo_runtime_config()
+    assessment_lock = asyncio.Lock()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -199,10 +290,26 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         }
 
+    @application.get("/api/voice-quality")
+    async def voice_quality() -> dict[str, Any]:
+        return build_voice_quality_summary(VOICE_ASSESSMENTS_PATH)
+
+    @application.post("/api/voice-quality")
+    async def record_voice_quality(payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            assessment = validate_voice_quality_assessment(payload)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        async with assessment_lock:
+            VOICE_ASSESSMENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with VOICE_ASSESSMENTS_PATH.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(assessment, ensure_ascii=False, sort_keys=True) + "\n")
+            return build_voice_quality_summary(VOICE_ASSESSMENTS_PATH)
+
     @application.websocket("/ws")
     async def websocket_session(websocket: WebSocket) -> None:
         await websocket.accept()
-        if runtime.reasoner_factory is None:
+        if runtime.reasoner_factory is None or runtime.synthesizer_factory is None:
             await websocket.send_json(
                 {"type": "error", "code": "real_reasoning_provider_unavailable"}
             )
@@ -218,7 +325,7 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             sink=sink,
             transcriber=NullTranscriber(),
             reasoner=runtime.reasoner_factory(),
-            synthesizer=BrowserSpeechSynthesisAdapter(),
+            synthesizer=runtime.synthesizer_factory(),
             audio_output=audio_output,
         )
         sequence = 0
@@ -255,10 +362,10 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                 "type": "ready",
                 "conversation_id": session.state_machine.conversation_id,
                 "input_format": {"encoding": "pcm_s16le", "sample_rate_hz": 16000, "channels": 1},
-                "output_mode": "mandatory_browser_speech_synthesis",
+                "output_mode": "streaming_pcm_with_visible_browser_speech_fallback",
                 "providers": runtime.provider_payload(),
                 "manual_validation": "REQUIRED_NOT_ATTESTED",
-                "demo_limit": "Browser STT/TTS plus real network reasoning; no Web- oder Kalender-Tool.",
+                "demo_limit": "Browser STT, echtes ElevenLabs Streaming-TTS und reales Reasoning; kein Web- oder Kalender-Tool.",
             }
         )
         try:
@@ -305,6 +412,58 @@ def _load_report(name: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"report is not an object: {name}")
     return payload
+
+
+def validate_voice_quality_assessment(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate a human-submitted assessment; never synthesize subjective scores."""
+
+    ratings = payload.get("ratings")
+    if not isinstance(ratings, Mapping):
+        raise ValueError("ratings object required")
+    validated: dict[str, int] = {}
+    for field in VOICE_RATING_FIELDS:
+        value = ratings.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 5:
+            raise ValueError(f"{field} must be an integer between 1 and 5")
+        validated[field] = value
+    candidate = payload.get("candidate", "live-candidate")
+    notes = payload.get("notes", "")
+    if not isinstance(candidate, str) or not candidate.strip() or len(candidate) > 160:
+        raise ValueError("candidate must be a short non-empty string")
+    if not isinstance(notes, str) or len(notes) > 2_000:
+        raise ValueError("notes must be a string with at most 2000 characters")
+    return {
+        "assessment_id": str(uuid4()),
+        "submitted_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "source": "human_browser_submission",
+        "candidate": candidate.strip(),
+        "ratings": validated,
+        "notes": notes.strip(),
+        "manual_validation": "HUMAN_SUBMITTED_NOT_AGENT_ATTESTED",
+    }
+
+
+def build_voice_quality_summary(path: Path) -> dict[str, Any]:
+    assessments: list[dict[str, Any]] = []
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                item = json.loads(line)
+                if isinstance(item, dict):
+                    assessments.append(item)
+    averages: dict[str, float] = {}
+    if assessments:
+        for field in VOICE_RATING_FIELDS:
+            values = [item["ratings"][field] for item in assessments]
+            averages[field] = round(sum(values) / len(values), 3)
+    return {
+        "status": "HUMAN_ASSESSMENTS_RECORDED" if assessments else "AWAITING_HUMAN_ASSESSMENT",
+        "sample_count": len(assessments),
+        "scale": {"minimum": 1, "maximum": 5},
+        "fields": list(VOICE_RATING_FIELDS),
+        "averages": averages,
+        "agent_attestation": False,
+    }
 
 
 def build_evidence_summary(root: Path) -> dict[str, Any]:
@@ -404,9 +563,9 @@ async def _handle_json(
             EventType.PROVIDER_STATUS,
             correlation_id=str(uuid4()),
             reason_code=(
-                "browser_voice_providers_available"
+                "browser_stt_and_tts_fallback_available"
                 if stt_available and tts_available
-                else "browser_voice_provider_missing"
+                else "browser_capability_missing"
             ),
             payload={
                 "stt": {
@@ -414,7 +573,7 @@ async def _handle_json(
                     "mode": "REAL",
                     "available": stt_available,
                 },
-                "tts": {
+                "tts_fallback": {
                     "provider": "browser-web-speech-api",
                     "mode": "REAL",
                     "available": tts_available,
