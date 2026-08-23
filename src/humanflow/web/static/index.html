@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HumanFlow Realtime Lab</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">HumanFlow · Realtime Engineering Lab</p>
+        <h1>Gesprächsmechanik, live sichtbar.</h1>
+        <p class="lead">Full-Duplex-PCM, adaptive Turns, Backchannels, Barge-in und Played-Audio-Wahrheit in einer lokalen Demo.</p>
+      </header>
+
+      <section class="controls" aria-label="Demo-Steuerung">
+        <button id="connect">Verbinden & Mikrofon starten</button>
+        <button id="interrupt" disabled>Agent stoppen</button>
+        <span id="status" class="pill offline">offline</span>
+      </section>
+
+      <section class="manual">
+        <label for="transcript">Manuelles Transkript (Fallback ohne Browser-STT)</label>
+        <div class="input-row">
+          <input id="transcript" value="Ich brauche bitte einen Termin" maxlength="4096">
+          <button id="send" disabled>Turn senden</button>
+        </div>
+        <div class="quick">
+          <button data-phrase="mhm" disabled>mhm · Backchannel</button>
+          <button data-phrase="Moment, stopp" disabled>Moment, stopp · Barge-in</button>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article>
+          <h2>Aktueller Zustand</h2>
+          <div id="state" class="state">IDLE</div>
+          <dl>
+            <div><dt>Turn-Entscheidung</dt><dd id="decision">—</dd></div>
+            <div><dt>Stop-Latenz</dt><dd id="latency">—</dd></div>
+            <div><dt>PCM Eingang</dt><dd id="frames">0 Frames</dd></div>
+          </dl>
+        </article>
+        <article>
+          <h2>Played Audio Ledger</h2>
+          <p><strong>Gehört:</strong> <span id="delivered">—</span></p>
+          <p><strong>Nicht gehört:</strong> <span id="unheard">—</span></p>
+          <p class="note">Die Demo spielt kontrollierbare PCM-Töne. Sie belegt Controller-/Transportverhalten, nicht TTS-Sprachqualität oder Produktions-SLAs.</p>
+        </article>
+      </section>
+
+      <section class="timeline">
+        <div class="timeline-head">
+          <h2>Telemetry Timeline</h2>
+          <button id="clear">Leeren</button>
+        </div>
+        <ol id="events"></ol>
+      </section>
+    </main>
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

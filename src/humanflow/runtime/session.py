@@ -159,12 +159,9 @@ class RealtimeVoiceSession:
         self._cancel_event.set()
         await self._audio_stopped.wait()
         receipt = self._last_playback_receipt
-        actual_stop_ns = (
-            receipt.playback_stopped_ns
-            if receipt is not None and receipt.cancelled
-            else self._clock_ns()
-        )
-        return max(0.0, (actual_stop_ns - request_ns) / 1_000_000.0)
+        if receipt is None or not receipt.cancelled:
+            return None
+        return max(0.0, (receipt.playback_stopped_ns - request_ns) / 1_000_000.0)
 
     async def wait_for_response(self) -> None:
         task = self._response_task
@@ -415,6 +412,60 @@ class RealtimeVoiceSession:
                         reason_code="agent_response_complete",
                         correlation_id=correlation_id,
                     )
+        except Exception as error:
+            failure_ns = self._clock_ns()
+            self._cancel_event.set()
+            self.state_machine.invalidate_operations(
+                reason_code="response_pipeline_failed",
+                correlation_id=correlation_id,
+            )
+            self.state_machine.record(
+                EventType.RECOVERY_STARTED,
+                correlation_id=correlation_id,
+                reason_code="response_pipeline_failure",
+                payload={
+                    "response_id": response_id,
+                    "exception_type": type(error).__name__,
+                },
+            )
+            if self.state in {ConversationState.THINKING, ConversationState.SPEAKING}:
+                self.state_machine.transition(
+                    ConversationState.RECOVERING,
+                    reason_code="response_pipeline_failure",
+                    correlation_id=correlation_id,
+                )
+            playback_unconfirmed = self.ledger.mark_playback_unconfirmed(
+                response_id=response_id
+            )
+            self.ledger.cancel_unplayed(response_id=response_id, cancelled_ns=failure_ns)
+            if playback_unconfirmed:
+                self.state_machine.record(
+                    EventType.AGENT_AUDIO_STOP_UNCONFIRMED,
+                    correlation_id=correlation_id,
+                    reason_code="audio_sink_ack_missing",
+                    payload={"response_id": response_id},
+                )
+                if self.state is ConversationState.RECOVERING:
+                    self.state_machine.transition(
+                        ConversationState.HANDOFF,
+                        reason_code="audible_state_unknown",
+                        correlation_id=correlation_id,
+                    )
+                recovery_reason = "safe_handoff_after_unconfirmed_audio"
+            else:
+                if self.state is ConversationState.RECOVERING:
+                    self.state_machine.transition(
+                        ConversationState.LISTENING,
+                        reason_code="response_failure_before_playback",
+                        correlation_id=correlation_id,
+                    )
+                recovery_reason = "continued_listening_after_provider_failure"
+            self.state_machine.record(
+                EventType.RECOVERY_COMPLETED,
+                correlation_id=correlation_id,
+                reason_code=recovery_reason,
+                payload={"response_id": response_id},
+            )
         finally:
             if self._cancel_event.is_set():
                 stopped_ns = self._clock_ns()

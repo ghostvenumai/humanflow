@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-08-23T15:38:25.305779Z",
+  "generated_at_utc": "2026-08-23T15:53:24.210451Z",
   "measurement_scope": {
     "audio_input": "20 real in-memory PCM16 frames per sample",
     "audio_output": "TimedPcmOutput paced by monotonic event-loop sleeps",
@@ -12,44 +12,44 @@
   },
   "metrics": {
     "audible_barge_in_latency_ms": {
-      "max": 5.695,
-      "mean": 2.81,
-      "min": 0.214,
+      "max": 5.554,
+      "mean": 2.872,
+      "min": 0.162,
       "n": 40,
-      "p50": 2.713,
-      "p90": 4.741,
-      "p95": 5.365,
-      "p99": 5.661
+      "p50": 2.519,
+      "p90": 4.67,
+      "p95": 4.818,
+      "p99": 5.511
     },
     "pcm_enqueue_20_frames_ms": {
-      "max": 0.391,
-      "mean": 0.16,
-      "min": 0.057,
+      "max": 0.345,
+      "mean": 0.119,
+      "min": 0.059,
       "n": 40,
-      "p50": 0.16,
-      "p90": 0.252,
-      "p95": 0.3,
-      "p99": 0.364
+      "p50": 0.106,
+      "p90": 0.167,
+      "p95": 0.256,
+      "p99": 0.332
     },
     "pcm_input_drain_20_frames_ms": {
-      "max": 1.087,
-      "mean": 0.382,
-      "min": 0.137,
+      "max": 0.556,
+      "mean": 0.256,
+      "min": 0.135,
       "n": 40,
-      "p50": 0.377,
-      "p90": 0.511,
-      "p95": 0.793,
-      "p99": 0.98
+      "p50": 0.226,
+      "p90": 0.395,
+      "p95": 0.487,
+      "p99": 0.531
     },
     "ttfa_ms": {
-      "max": 15.204,
-      "mean": 11.498,
-      "min": 9.397,
+      "max": 15.058,
+      "mean": 10.655,
+      "min": 9.158,
       "n": 40,
-      "p50": 11.712,
-      "p90": 13.093,
-      "p95": 13.271,
-      "p99": 14.663
+      "p50": 10.202,
+      "p90": 12.015,
+      "p95": 12.471,
+      "p99": 14.335
     }
   },
   "runtime": {
@@ -64,324 +64,324 @@
   },
   "samples": [
     {
-      "audible_barge_in_latency_ms": 1.479191,
-      "pcm_enqueue_20_frames_ms": 0.108162,
-      "pcm_input_drain_20_frames_ms": 0.150612,
+      "audible_barge_in_latency_ms": 2.31836,
+      "pcm_enqueue_20_frames_ms": 0.073152,
+      "pcm_input_drain_20_frames_ms": 0.17258,
       "played_samples_before_stop": 0,
       "sample": 0,
-      "ttfa_ms": 10.285156
+      "ttfa_ms": 9.395166
     },
     {
-      "audible_barge_in_latency_ms": 5.351888,
-      "pcm_enqueue_20_frames_ms": 0.059018,
-      "pcm_input_drain_20_frames_ms": 0.137292,
+      "audible_barge_in_latency_ms": 5.443805,
+      "pcm_enqueue_20_frames_ms": 0.060896,
+      "pcm_input_drain_20_frames_ms": 0.138645,
       "played_samples_before_stop": 80,
       "sample": 1,
-      "ttfa_ms": 9.448745
+      "ttfa_ms": 9.629241
     },
     {
-      "audible_barge_in_latency_ms": 3.392027,
-      "pcm_enqueue_20_frames_ms": 0.080297,
-      "pcm_input_drain_20_frames_ms": 0.181398,
+      "audible_barge_in_latency_ms": 2.444476,
+      "pcm_enqueue_20_frames_ms": 0.064752,
+      "pcm_input_drain_20_frames_ms": 0.144168,
       "played_samples_before_stop": 80,
       "sample": 2,
-      "ttfa_ms": 9.483509
+      "ttfa_ms": 10.2388
     },
     {
-      "audible_barge_in_latency_ms": 1.32106,
-      "pcm_enqueue_20_frames_ms": 0.057236,
-      "pcm_input_drain_20_frames_ms": 0.137056,
+      "audible_barge_in_latency_ms": 3.435589,
+      "pcm_enqueue_20_frames_ms": 0.087808,
+      "pcm_input_drain_20_frames_ms": 0.2181,
       "played_samples_before_stop": 80,
       "sample": 3,
-      "ttfa_ms": 9.580769
+      "ttfa_ms": 10.156613
     },
     {
-      "audible_barge_in_latency_ms": 3.400066,
-      "pcm_enqueue_20_frames_ms": 0.067048,
-      "pcm_input_drain_20_frames_ms": 0.162531,
+      "audible_barge_in_latency_ms": 4.517906,
+      "pcm_enqueue_20_frames_ms": 0.102975,
+      "pcm_input_drain_20_frames_ms": 0.249127,
       "played_samples_before_stop": 160,
       "sample": 4,
-      "ttfa_ms": 10.670396
+      "ttfa_ms": 10.495181
     },
     {
-      "audible_barge_in_latency_ms": 2.69466,
-      "pcm_enqueue_20_frames_ms": 0.128616,
-      "pcm_input_drain_20_frames_ms": 0.322191,
+      "audible_barge_in_latency_ms": 1.678228,
+      "pcm_enqueue_20_frames_ms": 0.157575,
+      "pcm_input_drain_20_frames_ms": 0.352253,
       "played_samples_before_stop": 160,
       "sample": 5,
-      "ttfa_ms": 10.612728
+      "ttfa_ms": 11.993586
     },
     {
-      "audible_barge_in_latency_ms": 5.694814,
-      "pcm_enqueue_20_frames_ms": 0.16692,
-      "pcm_input_drain_20_frames_ms": 0.397455,
+      "audible_barge_in_latency_ms": 4.631597,
+      "pcm_enqueue_20_frames_ms": 0.150977,
+      "pcm_input_drain_20_frames_ms": 0.377666,
       "played_samples_before_stop": 240,
       "sample": 6,
-      "ttfa_ms": 11.622241
+      "ttfa_ms": 11.200573
     },
     {
-      "audible_barge_in_latency_ms": 4.732932,
-      "pcm_enqueue_20_frames_ms": 0.154794,
-      "pcm_input_drain_20_frames_ms": 0.366758,
+      "audible_barge_in_latency_ms": 3.471467,
+      "pcm_enqueue_20_frames_ms": 0.139227,
+      "pcm_input_drain_20_frames_ms": 0.346111,
       "played_samples_before_stop": 240,
       "sample": 7,
-      "ttfa_ms": 11.01642
+      "ttfa_ms": 11.957
     },
     {
-      "audible_barge_in_latency_ms": 1.666673,
-      "pcm_enqueue_20_frames_ms": 0.390937,
-      "pcm_input_drain_20_frames_ms": 0.508418,
+      "audible_barge_in_latency_ms": 0.33832,
+      "pcm_enqueue_20_frames_ms": 0.152772,
+      "pcm_input_drain_20_frames_ms": 0.352181,
       "played_samples_before_stop": 0,
       "sample": 8,
-      "ttfa_ms": 13.242632
+      "ttfa_ms": 11.126456
     },
     {
-      "audible_barge_in_latency_ms": 4.814821,
-      "pcm_enqueue_20_frames_ms": 0.321294,
-      "pcm_input_drain_20_frames_ms": 0.792154,
+      "audible_barge_in_latency_ms": 4.670944,
+      "pcm_enqueue_20_frames_ms": 0.14416,
+      "pcm_input_drain_20_frames_ms": 0.337332,
       "played_samples_before_stop": 80,
       "sample": 9,
-      "ttfa_ms": 13.089823
+      "ttfa_ms": 11.76043
     },
     {
-      "audible_barge_in_latency_ms": 3.722728,
-      "pcm_enqueue_20_frames_ms": 0.190856,
-      "pcm_input_drain_20_frames_ms": 0.428508,
+      "audible_barge_in_latency_ms": 2.702811,
+      "pcm_enqueue_20_frames_ms": 0.147114,
+      "pcm_input_drain_20_frames_ms": 0.369139,
       "played_samples_before_stop": 80,
       "sample": 10,
-      "ttfa_ms": 11.701369
+      "ttfa_ms": 11.627642
     },
     {
-      "audible_barge_in_latency_ms": 0.819656,
-      "pcm_enqueue_20_frames_ms": 0.169293,
-      "pcm_input_drain_20_frames_ms": 0.380007,
+      "audible_barge_in_latency_ms": 1.584196,
+      "pcm_enqueue_20_frames_ms": 0.25271,
+      "pcm_input_drain_20_frames_ms": 0.55588,
       "played_samples_before_stop": 80,
       "sample": 11,
-      "ttfa_ms": 11.869814
+      "ttfa_ms": 12.432222
     },
     {
-      "audible_barge_in_latency_ms": 2.731045,
-      "pcm_enqueue_20_frames_ms": 0.190349,
-      "pcm_input_drain_20_frames_ms": 1.087094,
+      "audible_barge_in_latency_ms": 4.669661,
+      "pcm_enqueue_20_frames_ms": 0.137466,
+      "pcm_input_drain_20_frames_ms": 0.308319,
       "played_samples_before_stop": 160,
       "sample": 12,
-      "ttfa_ms": 12.111137
+      "ttfa_ms": 11.532669
     },
     {
-      "audible_barge_in_latency_ms": 1.626918,
-      "pcm_enqueue_20_frames_ms": 0.187337,
-      "pcm_input_drain_20_frames_ms": 0.380878,
+      "audible_barge_in_latency_ms": 1.676462,
+      "pcm_enqueue_20_frames_ms": 0.157259,
+      "pcm_input_drain_20_frames_ms": 0.341967,
       "played_samples_before_stop": 160,
       "sample": 13,
-      "ttfa_ms": 11.730346
+      "ttfa_ms": 11.505907
     },
     {
-      "audible_barge_in_latency_ms": 0.462428,
-      "pcm_enqueue_20_frames_ms": 0.154339,
-      "pcm_input_drain_20_frames_ms": 0.371816,
+      "audible_barge_in_latency_ms": 0.226724,
+      "pcm_enqueue_20_frames_ms": 0.196069,
+      "pcm_input_drain_20_frames_ms": 0.490979,
       "played_samples_before_stop": 160,
       "sample": 14,
-      "ttfa_ms": 11.502117
+      "ttfa_ms": 13.204854
     },
     {
-      "audible_barge_in_latency_ms": 3.705524,
-      "pcm_enqueue_20_frames_ms": 0.173859,
-      "pcm_input_drain_20_frames_ms": 0.416849,
+      "audible_barge_in_latency_ms": 2.4347,
+      "pcm_enqueue_20_frames_ms": 0.105511,
+      "pcm_input_drain_20_frames_ms": 0.212983,
       "played_samples_before_stop": 240,
       "sample": 15,
-      "ttfa_ms": 12.142433
+      "ttfa_ms": 10.702179
     },
     {
-      "audible_barge_in_latency_ms": 1.757162,
-      "pcm_enqueue_20_frames_ms": 0.171811,
-      "pcm_input_drain_20_frames_ms": 0.451545,
+      "audible_barge_in_latency_ms": 2.257733,
+      "pcm_enqueue_20_frames_ms": 0.058758,
+      "pcm_input_drain_20_frames_ms": 0.135428,
       "played_samples_before_stop": 0,
       "sample": 16,
-      "ttfa_ms": 12.028492
+      "ttfa_ms": 9.601896
     },
     {
-      "audible_barge_in_latency_ms": 4.527979,
-      "pcm_enqueue_20_frames_ms": 0.198949,
-      "pcm_input_drain_20_frames_ms": 0.377183,
+      "audible_barge_in_latency_ms": 4.428494,
+      "pcm_enqueue_20_frames_ms": 0.063116,
+      "pcm_input_drain_20_frames_ms": 0.145099,
       "played_samples_before_stop": 80,
       "sample": 17,
-      "ttfa_ms": 11.822761
+      "ttfa_ms": 9.98219
     },
     {
-      "audible_barge_in_latency_ms": 2.609792,
-      "pcm_enqueue_20_frames_ms": 0.174581,
-      "pcm_input_drain_20_frames_ms": 0.446834,
+      "audible_barge_in_latency_ms": 2.58606,
+      "pcm_enqueue_20_frames_ms": 0.118172,
+      "pcm_input_drain_20_frames_ms": 0.204321,
       "played_samples_before_stop": 80,
       "sample": 18,
-      "ttfa_ms": 11.7486
+      "ttfa_ms": 10.099118
     },
     {
-      "audible_barge_in_latency_ms": 0.414791,
-      "pcm_enqueue_20_frames_ms": 0.164422,
-      "pcm_input_drain_20_frames_ms": 0.422195,
+      "audible_barge_in_latency_ms": 1.647527,
+      "pcm_enqueue_20_frames_ms": 0.101597,
+      "pcm_input_drain_20_frames_ms": 0.2343,
       "played_samples_before_stop": 80,
       "sample": 19,
-      "ttfa_ms": 11.838349
+      "ttfa_ms": 10.160494
     },
     {
-      "audible_barge_in_latency_ms": 4.049314,
-      "pcm_enqueue_20_frames_ms": 0.15735,
-      "pcm_input_drain_20_frames_ms": 0.375033,
+      "audible_barge_in_latency_ms": 4.78556,
+      "pcm_enqueue_20_frames_ms": 0.145388,
+      "pcm_input_drain_20_frames_ms": 0.33392,
       "played_samples_before_stop": 160,
       "sample": 20,
-      "ttfa_ms": 11.288505
+      "ttfa_ms": 11.161271
     },
     {
-      "audible_barge_in_latency_ms": 2.659661,
-      "pcm_enqueue_20_frames_ms": 0.156927,
-      "pcm_input_drain_20_frames_ms": 0.432898,
+      "audible_barge_in_latency_ms": 0.635419,
+      "pcm_enqueue_20_frames_ms": 0.30973,
+      "pcm_input_drain_20_frames_ms": 0.46173,
       "played_samples_before_stop": 160,
       "sample": 21,
-      "ttfa_ms": 13.125265
+      "ttfa_ms": 12.21123
     },
     {
-      "audible_barge_in_latency_ms": 4.627812,
-      "pcm_enqueue_20_frames_ms": 0.164085,
-      "pcm_input_drain_20_frames_ms": 0.384875,
+      "audible_barge_in_latency_ms": 4.358595,
+      "pcm_enqueue_20_frames_ms": 0.345486,
+      "pcm_input_drain_20_frames_ms": 0.487015,
       "played_samples_before_stop": 240,
       "sample": 22,
-      "ttfa_ms": 13.81653
+      "ttfa_ms": 15.058288
     },
     {
-      "audible_barge_in_latency_ms": 2.329514,
-      "pcm_enqueue_20_frames_ms": 0.299198,
-      "pcm_input_drain_20_frames_ms": 0.811925,
+      "audible_barge_in_latency_ms": 2.45205,
+      "pcm_enqueue_20_frames_ms": 0.140482,
+      "pcm_input_drain_20_frames_ms": 0.275954,
       "played_samples_before_stop": 240,
       "sample": 23,
-      "ttfa_ms": 12.689807
+      "ttfa_ms": 11.188547
     },
     {
-      "audible_barge_in_latency_ms": 2.325309,
-      "pcm_enqueue_20_frames_ms": 0.086261,
-      "pcm_input_drain_20_frames_ms": 0.208783,
+      "audible_barge_in_latency_ms": 2.371719,
+      "pcm_enqueue_20_frames_ms": 0.059036,
+      "pcm_input_drain_20_frames_ms": 0.136464,
       "played_samples_before_stop": 0,
       "sample": 24,
-      "ttfa_ms": 9.978717
+      "ttfa_ms": 9.271728
     },
     {
-      "audible_barge_in_latency_ms": 4.548133,
-      "pcm_enqueue_20_frames_ms": 0.091739,
-      "pcm_input_drain_20_frames_ms": 0.208465,
+      "audible_barge_in_latency_ms": 4.298024,
+      "pcm_enqueue_20_frames_ms": 0.123491,
+      "pcm_input_drain_20_frames_ms": 0.253122,
       "played_samples_before_stop": 80,
       "sample": 25,
-      "ttfa_ms": 10.498051
+      "ttfa_ms": 10.891498
     },
     {
-      "audible_barge_in_latency_ms": 3.601868,
-      "pcm_enqueue_20_frames_ms": 0.15422,
-      "pcm_input_drain_20_frames_ms": 0.365249,
+      "audible_barge_in_latency_ms": 3.299447,
+      "pcm_enqueue_20_frames_ms": 0.06069,
+      "pcm_input_drain_20_frames_ms": 0.148152,
       "played_samples_before_stop": 80,
       "sample": 26,
-      "ttfa_ms": 11.666684
+      "ttfa_ms": 9.378554
     },
     {
-      "audible_barge_in_latency_ms": 0.755385,
-      "pcm_enqueue_20_frames_ms": 0.166869,
-      "pcm_input_drain_20_frames_ms": 0.404354,
+      "audible_barge_in_latency_ms": 1.289549,
+      "pcm_enqueue_20_frames_ms": 0.13618,
+      "pcm_input_drain_20_frames_ms": 0.242481,
       "played_samples_before_stop": 80,
       "sample": 27,
-      "ttfa_ms": 11.769737
+      "ttfa_ms": 9.935452
     },
     {
-      "audible_barge_in_latency_ms": 4.729654,
-      "pcm_enqueue_20_frames_ms": 0.154266,
-      "pcm_input_drain_20_frames_ms": 0.365783,
+      "audible_barge_in_latency_ms": 4.395559,
+      "pcm_enqueue_20_frames_ms": 0.059919,
+      "pcm_input_drain_20_frames_ms": 0.140604,
       "played_samples_before_stop": 160,
       "sample": 28,
-      "ttfa_ms": 11.805702
+      "ttfa_ms": 9.205558
     },
     {
-      "audible_barge_in_latency_ms": 2.736351,
-      "pcm_enqueue_20_frames_ms": 0.173217,
-      "pcm_input_drain_20_frames_ms": 0.497152,
+      "audible_barge_in_latency_ms": 2.289718,
+      "pcm_enqueue_20_frames_ms": 0.072075,
+      "pcm_input_drain_20_frames_ms": 0.17119,
       "played_samples_before_stop": 160,
       "sample": 29,
-      "ttfa_ms": 11.955934
+      "ttfa_ms": 9.884948
     },
     {
-      "audible_barge_in_latency_ms": 0.438141,
-      "pcm_enqueue_20_frames_ms": 0.194702,
-      "pcm_input_drain_20_frames_ms": 0.377628,
+      "audible_barge_in_latency_ms": 0.325961,
+      "pcm_enqueue_20_frames_ms": 0.059396,
+      "pcm_input_drain_20_frames_ms": 0.151728,
       "played_samples_before_stop": 160,
       "sample": 30,
-      "ttfa_ms": 11.712842
+      "ttfa_ms": 9.966811
     },
     {
-      "audible_barge_in_latency_ms": 3.335263,
-      "pcm_enqueue_20_frames_ms": 0.250152,
-      "pcm_input_drain_20_frames_ms": 0.399051,
+      "audible_barge_in_latency_ms": 4.322028,
+      "pcm_enqueue_20_frames_ms": 0.163587,
+      "pcm_input_drain_20_frames_ms": 0.387702,
       "played_samples_before_stop": 240,
       "sample": 31,
-      "ttfa_ms": 15.20398
+      "ttfa_ms": 10.941898
     },
     {
-      "audible_barge_in_latency_ms": 2.360979,
-      "pcm_enqueue_20_frames_ms": 0.08748,
-      "pcm_input_drain_20_frames_ms": 0.333947,
+      "audible_barge_in_latency_ms": 2.383261,
+      "pcm_enqueue_20_frames_ms": 0.062153,
+      "pcm_input_drain_20_frames_ms": 0.151897,
       "played_samples_before_stop": 0,
       "sample": 32,
-      "ttfa_ms": 9.850686
+      "ttfa_ms": 11.212017
     },
     {
-      "audible_barge_in_latency_ms": 5.607769,
-      "pcm_enqueue_20_frames_ms": 0.086429,
-      "pcm_input_drain_20_frames_ms": 0.240938,
+      "audible_barge_in_latency_ms": 5.554216,
+      "pcm_enqueue_20_frames_ms": 0.061469,
+      "pcm_input_drain_20_frames_ms": 0.152716,
       "played_samples_before_stop": 80,
       "sample": 33,
-      "ttfa_ms": 9.907644
+      "ttfa_ms": 9.869447
     },
     {
-      "audible_barge_in_latency_ms": 3.43563,
-      "pcm_enqueue_20_frames_ms": 0.120938,
-      "pcm_input_drain_20_frames_ms": 0.226874,
+      "audible_barge_in_latency_ms": 3.453444,
+      "pcm_enqueue_20_frames_ms": 0.110803,
+      "pcm_input_drain_20_frames_ms": 0.218306,
       "played_samples_before_stop": 80,
       "sample": 34,
-      "ttfa_ms": 10.183875
+      "ttfa_ms": 10.164398
     },
     {
-      "audible_barge_in_latency_ms": 1.611638,
-      "pcm_enqueue_20_frames_ms": 0.268081,
-      "pcm_input_drain_20_frames_ms": 0.539032,
+      "audible_barge_in_latency_ms": 1.306224,
+      "pcm_enqueue_20_frames_ms": 0.062249,
+      "pcm_input_drain_20_frames_ms": 0.1514,
       "played_samples_before_stop": 80,
       "sample": 35,
-      "ttfa_ms": 12.840583
+      "ttfa_ms": 9.311181
     },
     {
-      "audible_barge_in_latency_ms": 4.309941,
-      "pcm_enqueue_20_frames_ms": 0.062845,
-      "pcm_input_drain_20_frames_ms": 0.144643,
+      "audible_barge_in_latency_ms": 4.395039,
+      "pcm_enqueue_20_frames_ms": 0.06355,
+      "pcm_input_drain_20_frames_ms": 0.147072,
       "played_samples_before_stop": 160,
       "sample": 36,
-      "ttfa_ms": 9.396518
+      "ttfa_ms": 9.202161
     },
     {
-      "audible_barge_in_latency_ms": 1.546992,
-      "pcm_enqueue_20_frames_ms": 0.162821,
-      "pcm_input_drain_20_frames_ms": 0.404651,
+      "audible_barge_in_latency_ms": 2.340422,
+      "pcm_enqueue_20_frames_ms": 0.106626,
+      "pcm_input_drain_20_frames_ms": 0.25041,
       "played_samples_before_stop": 160,
       "sample": 37,
-      "ttfa_ms": 11.729734
+      "ttfa_ms": 10.053032
     },
     {
-      "audible_barge_in_latency_ms": 0.21354,
-      "pcm_enqueue_20_frames_ms": 0.133091,
-      "pcm_input_drain_20_frames_ms": 0.357397,
+      "audible_barge_in_latency_ms": 0.162053,
+      "pcm_enqueue_20_frames_ms": 0.061726,
+      "pcm_input_drain_20_frames_ms": 0.141626,
       "played_samples_before_stop": 160,
       "sample": 38,
-      "ttfa_ms": 11.710907
+      "ttfa_ms": 9.157537
     },
     {
-      "audible_barge_in_latency_ms": 0.261298,
-      "pcm_enqueue_20_frames_ms": 0.133725,
-      "pcm_input_drain_20_frames_ms": 0.288015,
+      "audible_barge_in_latency_ms": 3.31136,
+      "pcm_enqueue_20_frames_ms": 0.08135,
+      "pcm_input_drain_20_frames_ms": 0.16011,
       "played_samples_before_stop": 240,
       "sample": 39,
-      "ttfa_ms": 11.230697
+      "ttfa_ms": 9.318361
     }
   ],
   "schema_version": 1

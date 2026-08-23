@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from time import monotonic_ns
 
+from humanflow.audio.ledger import LedgerState
 from humanflow.audio.models import AudioFrame
 from humanflow.domain.conversation import ConversationState, OperationToken
 from humanflow.runtime.providers import (
@@ -162,7 +164,7 @@ def test_interruption_invalidates_thinking_work_and_is_idempotent() -> None:
         await session.wait_for_response()
         second_latency = await session.interrupt()
 
-        assert first_latency is not None
+        assert first_latency is None
         assert second_latency is None
         assert session.state is ConversationState.LISTENING
         assert not session.ledger.entries
@@ -170,5 +172,40 @@ def test_interruption_invalidates_thinking_work_and_is_idempotent() -> None:
             event.event_type is EventType.OPERATION_INVALIDATED for event in sink.events
         ) == 1
         await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_missing_audio_stop_ack_enters_safe_handoff_without_fake_metric() -> None:
+    class BrokenOutput:
+        async def play(self, chunk, *, cancel_event, on_started):  # type: ignore[no-untyped-def]
+            del cancel_event
+            on_started(monotonic_ns())
+            raise TimeoutError("sink_ack_missing")
+
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        session = RealtimeVoiceSession(
+            conversation_id="call-audio-unknown",
+            sink=sink,
+            transcriber=CountingTranscriber(),
+            reasoner=WordReasoner(),
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=20),
+            audio_output=BrokenOutput(),
+        )
+        await session.start()
+        await session.submit_transcript(_complete())
+        await session.wait_for_response()
+
+        assert session.state is ConversationState.HANDOFF
+        assert session.ledger.entries[0].state is LedgerState.PLAYBACK_UNCONFIRMED
+        assert any(
+            event.event_type is EventType.AGENT_AUDIO_STOP_UNCONFIRMED
+            for event in sink.events
+        )
+        assert not any(
+            event.event_type is EventType.AGENT_AUDIO_CANCELLED for event in sink.events
+        )
+        await session.close(reason_code="handoff_complete")
 
     asyncio.run(scenario())

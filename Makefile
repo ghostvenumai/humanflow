@@ -1,4 +1,4 @@
-.PHONY: status test torture-test benchmark realtime-benchmark recovery-benchmark turn-tournament checkpoint
+.PHONY: status test torture-test benchmark realtime-benchmark recovery-benchmark demo demo-benchmark turn-tournament checkpoint
 
 status:
 	python3 scripts/status.py
@@ -17,6 +17,12 @@ realtime-benchmark:
 
 recovery-benchmark:
 	PYTHONPATH=src python3 scripts/benchmark_recovery.py
+
+demo:
+	PYTHONPATH=src uvicorn humanflow.web.app:app --host 127.0.0.1 --port 8765
+
+demo-benchmark:
+	PYTHONPATH=src python3 scripts/benchmark_browser_demo.py
 
 turn-tournament: benchmark
 

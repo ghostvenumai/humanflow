@@ -51,6 +51,10 @@ all transitions and meaningful timings
   `TOOL_WAIT` and `RECOVERING` transitions. Injected latency, failure, timeout,
   malformed and duplicate responses cannot write stale state; exhausted attempts
   use an explicit safe fallback.
+- `humanflow.web`: a loopback FastAPI/WebSocket demo streams browser microphone
+  PCM into the core. Browser playback acknowledgements establish actual start,
+  completion, partial-play and cancellation boundaries; missing stop acknowledgements
+  enter safe handoff and never manufacture an audible-stop metric.
 
 ## Invariants
 
@@ -64,5 +68,4 @@ all transitions and meaningful timings
 
 ## Next runtime components
 
-1. Browser audio demo through the same provider boundaries.
-2. Deterministic event replay, metrics aggregation, and baseline comparison.
+1. Deterministic event replay, metrics aggregation, and baseline comparison.

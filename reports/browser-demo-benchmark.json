@@ -1,0 +1,26 @@
+{
+  "generated_at_utc": "2026-08-23T15:53:29.351183Z",
+  "measurement_scope": {
+    "audio_device_executed": false,
+    "browser_executed": false,
+    "claim_limit": "Measures process readiness and HTTP loopback only. Browser microphone, WebAudio scheduling and websocket playback require the manual demo.",
+    "host": "127.0.0.1",
+    "kind": "real_uvicorn_loopback_http_benchmark",
+    "websocket_route_present": true
+  },
+  "metrics": {
+    "health_request_ms": {
+      "max": 1.712,
+      "mean": 1.078,
+      "min": 0.921,
+      "n": 30,
+      "p50": 0.981,
+      "p90": 1.297,
+      "p95": 1.519,
+      "p99": 1.694
+    },
+    "index_request_ms": 9.372,
+    "server_startup_to_health_ms": 746.341
+  },
+  "schema_version": 1
+}

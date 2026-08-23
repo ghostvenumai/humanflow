@@ -30,3 +30,18 @@ The dependency-free local adapters are intended for deterministic runtime and
 cancellation testing. Reports label these measurements as local event-loop data;
 they are not presented as browser, sound-device, telephony, provider, or real-call
 quality measurements.
+
+## Browser demo
+
+Install the local demo extra and start the loopback-only server:
+
+```bash
+python3 -m pip install -e '.[demo]'
+make demo
+```
+
+Then open `http://127.0.0.1:8765`. The browser sends live PCM16 microphone frames
+while the agent output is active. Playback start/completion/cancellation is
+acknowledged by the browser; those acknowledgements define the demo ledger's
+played boundary. The included synthesizer emits timed tones and is clearly labeled
+as a mock provider rather than production speech.

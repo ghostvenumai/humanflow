@@ -15,6 +15,7 @@ class LedgerState(StrEnum):
     PLAYING = "PLAYING"
     PLAYED = "PLAYED"
     CANCELLED = "CANCELLED"
+    PLAYBACK_UNCONFIRMED = "PLAYBACK_UNCONFIRMED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +124,19 @@ class PlayedAudioLedger:
                     self._entries[chunk_id] = replace(
                         entry, cancelled_ns=cancelled_ns, state=LedgerState.CANCELLED
                     )
+
+    def mark_playback_unconfirmed(self, *, response_id: str) -> bool:
+        """Preserve uncertainty when a sink disappears without an audible-stop ack."""
+        changed = False
+        with self._lock:
+            for chunk_id in self._order:
+                entry = self._entries[chunk_id]
+                if entry.response_id == response_id and entry.state is LedgerState.PLAYING:
+                    self._entries[chunk_id] = replace(
+                        entry, state=LedgerState.PLAYBACK_UNCONFIRMED
+                    )
+                    changed = True
+        return changed
 
     @property
     def entries(self) -> tuple[LedgerEntrySnapshot, ...]:
