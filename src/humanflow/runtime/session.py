@@ -277,6 +277,24 @@ class RealtimeVoiceSession:
                 reason_code="non_interrupting_acknowledgement",
                 payload={"text": update.text},
             )
+        elif (
+            decision.decision is TurnDecisionType.UNCERTAIN
+            and agent_speaking
+            and signals.background_speech_probability >= 0.75
+        ):
+            self.state_machine.transition(
+                ConversationState.OVERLAP,
+                reason_code="probable_background_speech_overlap",
+                correlation_id=correlation_id,
+                payload={
+                    "background_speech_probability": signals.background_speech_probability
+                },
+            )
+            self.state_machine.transition(
+                ConversationState.SPEAKING,
+                reason_code="non_interrupting_overlap_resolved",
+                correlation_id=correlation_id,
+            )
         elif decision.decision is TurnDecisionType.INTERRUPTION:
             await self.interrupt(correlation_id=correlation_id)
         elif decision.decision is TurnDecisionType.COMPLETE and update.is_final:

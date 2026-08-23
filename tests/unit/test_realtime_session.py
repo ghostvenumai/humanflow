@@ -209,3 +209,49 @@ def test_missing_audio_stop_ack_enters_safe_handoff_without_fake_metric() -> Non
         await session.close(reason_code="handoff_complete")
 
     asyncio.run(scenario())
+
+
+def test_background_speech_uses_explicit_non_interrupting_overlap_lifecycle() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        session = RealtimeVoiceSession(
+            conversation_id="call-background-overlap",
+            sink=sink,
+            transcriber=CountingTranscriber(),
+            reasoner=WordReasoner(),
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=40),
+            audio_output=TimedPcmOutput(quantum_ms=2),
+        )
+        await session.start()
+        await session.submit_transcript(_complete())
+        await _wait_for_state(session, ConversationState.SPEAKING)
+        decision = await session.submit_transcript(
+            TranscriptUpdate(
+                text="Nachrichten im Hintergrund",
+                is_final=True,
+                signals=TurnSignals(
+                    speech_active=True,
+                    silence_duration_ms=0,
+                    utterance_duration_ms=500,
+                    background_speech_probability=0.95,
+                    interruption_probability=0.05,
+                ),
+            )
+        )
+        await session.wait_for_response()
+
+        transitions = [
+            event.payload["to_state"]
+            for event in sink.events
+            if event.event_type is EventType.STATE_TRANSITIONED
+        ]
+        overlap_index = transitions.index("OVERLAP")
+        assert decision.decision is TurnDecisionType.UNCERTAIN
+        assert transitions[overlap_index : overlap_index + 2] == ["OVERLAP", "SPEAKING"]
+        assert not any(
+            event.event_type is EventType.AGENT_AUDIO_CANCELLED for event in sink.events
+        )
+        assert session.state is ConversationState.LISTENING
+        await session.close()
+
+    asyncio.run(scenario())
