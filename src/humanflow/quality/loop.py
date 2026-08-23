@@ -71,7 +71,13 @@ def _protected_hashes(root: Path) -> dict[str, str]:
     for relative in configured:
         path = root / relative
         if path.is_dir():
-            for child in sorted(candidate for candidate in path.rglob("*") if candidate.is_file()):
+            for child in sorted(
+                candidate
+                for candidate in path.rglob("*")
+                if candidate.is_file()
+                and "__pycache__" not in candidate.parts
+                and candidate.suffix not in {".pyc", ".pyo"}
+            ):
                 hashes[str(child.relative_to(root))] = _sha256(child)
         elif path.is_file():
             hashes[str(path.relative_to(root))] = _sha256(path)
