@@ -11,7 +11,7 @@ from typing import Any, Callable
 import yaml
 
 from humanflow.turns.models import TurnDecisionType
-from humanflow.turns.policies import HybridTurnPolicy
+from humanflow.turns.policies import FixedSilencePolicy, HybridTurnPolicy
 
 from .replay import load_turn_cases
 
@@ -49,6 +49,9 @@ def build_scorecard(root: Path) -> dict[str, Any]:
     cases = load_turn_cases(corpus_path)
     policy = HybridTurnPolicy()
     predictions = [(case, policy.decide(case.signals).decision) for case in cases]
+    baseline_predictions = [
+        (case, FixedSilencePolicy().decide(case.signals).decision) for case in cases
+    ]
     non_interruptions = [item for item in predictions if item[0].expected is not TurnDecisionType.INTERRUPTION]
     false_interruptions = sum(
         actual is TurnDecisionType.INTERRUPTION for _, actual in non_interruptions
@@ -63,6 +66,24 @@ def build_scorecard(root: Path) -> dict[str, Any]:
         == (actual is TurnDecisionType.INTERRUPTION)
         for case, actual in predictions
     )
+    baseline_non_interruptions = [
+        item
+        for item in baseline_predictions
+        if item[0].expected is not TurnDecisionType.INTERRUPTION
+    ]
+    baseline_false_interruptions = sum(
+        actual is TurnDecisionType.INTERRUPTION for _, actual in baseline_non_interruptions
+    )
+    baseline_premature = sum(
+        case.expected in {TurnDecisionType.CONTINUE_LISTENING, TurnDecisionType.UNCERTAIN}
+        and actual in {TurnDecisionType.COMPLETE, TurnDecisionType.LIKELY_COMPLETE}
+        for case, actual in baseline_predictions
+    )
+    baseline_binary_interruption_correct = sum(
+        (case.expected is TurnDecisionType.INTERRUPTION)
+        == (actual is TurnDecisionType.INTERRUPTION)
+        for case, actual in baseline_predictions
+    )
     t20 = next(result for result in torture["results"] if result["scenario_id"] == "T20")
     expected_calls = 1
     completed_calls = int(
@@ -72,6 +93,7 @@ def build_scorecard(root: Path) -> dict[str, Any]:
     metrics: dict[str, dict[str, Any]] = {
         "ttfa_ms": {
             "value": realtime["metrics"]["ttfa_ms"]["p50"],
+            "baseline_value": None,
             "statistic": "p50",
             "sample_count": realtime["metrics"]["ttfa_ms"]["n"],
             "scope": "local_event_loop_transport",
@@ -79,6 +101,7 @@ def build_scorecard(root: Path) -> dict[str, Any]:
         },
         "audible_barge_in_latency_ms": {
             "value": realtime["metrics"]["audible_barge_in_latency_ms"]["p50"],
+            "baseline_value": None,
             "statistic": "p50",
             "sample_count": realtime["metrics"]["audible_barge_in_latency_ms"]["n"],
             "scope": "local_timed_pcm_sink",
@@ -86,6 +109,7 @@ def build_scorecard(root: Path) -> dict[str, Any]:
         },
         "false_interruption_rate": {
             "value": false_interruptions / len(non_interruptions),
+            "baseline_value": baseline_false_interruptions / len(baseline_non_interruptions),
             "statistic": "rate",
             "numerator": false_interruptions,
             "sample_count": len(non_interruptions),
@@ -94,6 +118,7 @@ def build_scorecard(root: Path) -> dict[str, Any]:
         },
         "premature_endpoint_rate": {
             "value": premature / len(cases),
+            "baseline_value": baseline_premature / len(cases),
             "statistic": "rate",
             "numerator": premature,
             "sample_count": len(cases),
@@ -102,6 +127,7 @@ def build_scorecard(root: Path) -> dict[str, Any]:
         },
         "call_completion_rate": {
             "value": completed_calls / expected_calls,
+            "baseline_value": None,
             "statistic": "rate",
             "numerator": completed_calls,
             "sample_count": expected_calls,
@@ -110,6 +136,7 @@ def build_scorecard(root: Path) -> dict[str, Any]:
         },
         "tool_failure_recovery_rate": {
             "value": recovery["metrics"]["tool_failure_recovery_rate"]["rate"],
+            "baseline_value": None,
             "statistic": "rate",
             "numerator": recovery["metrics"]["tool_failure_recovery_rate"][
                 "recovery_completed"
@@ -122,6 +149,7 @@ def build_scorecard(root: Path) -> dict[str, Any]:
         },
         "unexpected_hangups": {
             "value": expected_calls - completed_calls,
+            "baseline_value": None,
             "statistic": "count",
             "sample_count": expected_calls,
             "scope": "synthetic_torture_termination_scenario",
@@ -129,6 +157,7 @@ def build_scorecard(root: Path) -> dict[str, Any]:
         },
         "german_interruption_accuracy": {
             "value": binary_interruption_correct / len(cases),
+            "baseline_value": baseline_binary_interruption_correct / len(cases),
             "statistic": "accuracy",
             "numerator": binary_interruption_correct,
             "sample_count": len(cases),

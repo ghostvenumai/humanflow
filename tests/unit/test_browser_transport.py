@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from humanflow.audio.models import AudioChunk, AudioFrame
-from humanflow.web.app import STATIC_DIR, create_app
+from humanflow.web.app import PROJECT_ROOT, STATIC_DIR, build_evidence_summary, create_app
 from humanflow.web.transport import BrowserAcknowledgedAudioOutput
 
 
@@ -76,6 +76,24 @@ def test_browser_completed_ack_is_full_delivery() -> None:
 def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
     application = create_app()
     paths = {route.path for route in application.routes}
-    assert {"/", "/health", "/ws", "/static"}.issubset(paths)
+    assert {
+        "/",
+        "/dashboard",
+        "/health",
+        "/api/scorecard",
+        "/api/evidence",
+        "/api/timeline",
+        "/ws",
+        "/static",
+    }.issubset(paths)
     assert (STATIC_DIR / "index.html").is_file()
     assert (STATIC_DIR / "app.js").is_file()
+    assert (STATIC_DIR / "dashboard.html").is_file()
+
+
+def test_dashboard_evidence_summary_links_real_reports() -> None:
+    summary = build_evidence_summary(PROJECT_ROOT)
+    assert summary["torture"] == {"failed": 0, "passed": 20, "total": 20}
+    assert summary["quality_loop"]["decision"] == "KEEP"
+    assert summary["tournament"]["external_agent_calls_made"] == 0
+    assert all(len(artifact["sha256"]) == 64 for artifact in summary["artifacts"].values())

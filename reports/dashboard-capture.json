@@ -1,0 +1,18 @@
+{
+  "browser": "/usr/bin/google-chrome",
+  "claim_limit": "Visual dashboard render; microphone and audible output are not exercised.",
+  "generated_at_utc": "2026-08-23T16:29:52.818818Z",
+  "headless": true,
+  "render_ms": 2726.552,
+  "schema_version": 1,
+  "screenshot": {
+    "bytes": 465312,
+    "path": "reports/dashboard.png",
+    "sha256": "f1029b540da6d680b02638426889680945c85d7f6bf8cad43d1275d7755052bb"
+  },
+  "url": "/dashboard",
+  "viewport": {
+    "height": 1400,
+    "width": 1440
+  }
+}

@@ -1,4 +1,4 @@
-.PHONY: status test torture-test benchmark realtime-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report demo demo-benchmark turn-tournament checkpoint
+.PHONY: status test torture-test benchmark realtime-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report demo demo-benchmark demo-package dashboard-capture challenge-demo dashboard turn-tournament checkpoint
 
 status:
 	python3 scripts/status.py
@@ -39,6 +39,16 @@ demo:
 
 demo-benchmark:
 	PYTHONPATH=src python3 scripts/benchmark_browser_demo.py
+
+demo-package:
+	PYTHONPATH=src python3 scripts/build_everlast_demo.py
+
+dashboard-capture:
+	PYTHONPATH=src python3 scripts/capture_dashboard.py
+
+challenge-demo: demo-package demo
+
+dashboard: demo
 
 turn-tournament: benchmark
 

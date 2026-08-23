@@ -109,6 +109,17 @@ def main() -> None:
         index_latency_ms, index_status, index_body = _request(base_url + "/")
         if index_status != 200 or b"HumanFlow Realtime Lab" not in index_body:
             raise RuntimeError("demo index contract failed")
+        dashboard_latency_ms, dashboard_status, dashboard_body = _request(
+            base_url + "/dashboard"
+        )
+        if dashboard_status != 200 or b"HumanFlow Evidence Dashboard" not in dashboard_body:
+            raise RuntimeError("dashboard index contract failed")
+        api_latencies: list[float] = []
+        for path in ("/api/scorecard", "/api/evidence", "/api/timeline"):
+            latency_ms, status, body = _request(base_url + path)
+            if status != 200 or not isinstance(json.loads(body), dict):
+                raise RuntimeError(f"dashboard API contract failed: {path}")
+            api_latencies.append(latency_ms)
     finally:
         process.terminate()
         try:
@@ -135,6 +146,8 @@ def main() -> None:
             "server_startup_to_health_ms": round(startup_ms, 3),
             "health_request_ms": _summary(health_latencies),
             "index_request_ms": round(index_latency_ms, 3),
+            "dashboard_request_ms": round(dashboard_latency_ms, 3),
+            "dashboard_api_request_ms": _summary(api_latencies),
         },
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HumanFlow Evidence Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/dashboard.css">
+  </head>
+  <body>
+    <main>
+      <nav><a href="/">← Realtime Lab</a></nav>
+      <header class="dashboard-hero">
+        <p class="eyebrow">HumanFlow · Evidence Dashboard</p>
+        <h1>Jede Aussage führt zu Messwerten.</h1>
+        <p class="lead">Baseline, aktueller Stand, Ziel, Stichprobe und Scope – inklusive sichtbarer Grenzen der Evidenz.</p>
+        <div id="release-status" class="release-status">lädt …</div>
+      </header>
+
+      <section>
+        <h2>Quality Scorecard</h2>
+        <div id="gates" class="gate-grid"></div>
+      </section>
+
+      <section class="grid evidence-grid">
+        <article>
+          <h2>Quality Loop · Iteration 001</h2>
+          <div id="quality-loop"></div>
+        </article>
+        <article>
+          <h2>Torture / Replay</h2>
+          <div id="torture"></div>
+        </article>
+        <article>
+          <h2>Development Router</h2>
+          <div id="router"></div>
+        </article>
+        <article>
+          <h2>72h Provenienz</h2>
+          <div id="provenance"></div>
+        </article>
+      </section>
+
+      <section class="timeline">
+        <div class="timeline-head"><h2>Drill-down: rohe Timeline</h2><button id="load-timeline">Events laden</button></div>
+        <p class="note">Die gespeicherte Timeline stammt aus synthetischen lokalen Sessions und ist entsprechend gekennzeichnet.</p>
+        <ol id="dashboard-events"></ol>
+      </section>
+
+      <section class="timeline">
+        <h2>Evidence-Artefakte</h2>
+        <ul id="artifacts" class="artifacts"></ul>
+      </section>
+    </main>
+    <script type="module" src="/static/dashboard.js"></script>
+  </body>
+</html>

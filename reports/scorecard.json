@@ -4,13 +4,13 @@
       "sha256": "a7f894864ad2616426b4ac78384b416470c24af61668fa5b6386496f3aa50bb1"
     },
     "reports/realtime-core-benchmark.json": {
-      "sha256": "2fcc75fa87fe383c6dba65983c65c73654aae75e8f5fa1c440e0d25f2349fc55"
+      "sha256": "a862d270c630ebca6dbd10270b8e93ee379e4e31801d67e6a75ce8fcfbf648dd"
     },
     "reports/recovery-benchmark.json": {
-      "sha256": "a48c8706cfb28a6f286da4e9c8a803a1fe3695e6a1ddb26dcd3c85b46e4cb86b"
+      "sha256": "313a06ee0be19a539deff13e3f4660cd5638f65d1d82ccc2893934ee33cb9f75"
     },
     "reports/torture-run.json": {
-      "sha256": "b8e19db3acc9c5aaed64db8495a3ce9818494064b7b42490abc049c2e9d12ed7"
+      "sha256": "b7594ecfc98b3c05dc069ac3ae1949f0a20c5f821462e4a269271098778b40d4"
     },
     "tests/golden/turn_cases.jsonl": {
       "sha256": "89e2e2c0ae56e2a88c2a7a2cf7a956365b3ed3004b5f7cfffb6fbaf1d6f48e99"
@@ -18,7 +18,7 @@
   },
   "gates": {
     "audible_barge_in_latency_ms": {
-      "observed": 2.604,
+      "observed": 2.534,
       "operator": "lt",
       "passed": true,
       "sample_count": 40,
@@ -66,7 +66,7 @@
       "target": 0.95
     },
     "ttfa_ms": {
-      "observed": 11.136,
+      "observed": 10.802,
       "operator": "lt",
       "passed": true,
       "sample_count": 40,
@@ -82,16 +82,18 @@
       "target": 0
     }
   },
-  "generated_at_utc": "2026-08-23T16:08:29.457869Z",
+  "generated_at_utc": "2026-08-23T16:30:47.932275Z",
   "metrics": {
     "audible_barge_in_latency_ms": {
+      "baseline_value": null,
       "sample_count": 40,
       "scope": "local_timed_pcm_sink",
       "source": "reports/realtime-core-benchmark.json",
       "statistic": "p50",
-      "value": 2.604
+      "value": 2.534
     },
     "call_completion_rate": {
+      "baseline_value": null,
       "numerator": 1,
       "sample_count": 1,
       "scope": "synthetic_torture_termination_scenario",
@@ -100,6 +102,7 @@
       "value": 1.0
     },
     "false_interruption_rate": {
+      "baseline_value": 0.0,
       "numerator": 0,
       "sample_count": 42,
       "scope": "protected_german_fixture_corpus",
@@ -108,6 +111,7 @@
       "value": 0.0
     },
     "german_interruption_accuracy": {
+      "baseline_value": 0.84,
       "numerator": 50,
       "sample_count": 50,
       "scope": "protected_german_fixture_corpus_binary_interruption",
@@ -116,6 +120,7 @@
       "value": 1.0
     },
     "premature_endpoint_rate": {
+      "baseline_value": 0.06,
       "numerator": 0,
       "sample_count": 50,
       "scope": "protected_german_fixture_corpus",
@@ -124,6 +129,7 @@
       "value": 0.0
     },
     "tool_failure_recovery_rate": {
+      "baseline_value": null,
       "numerator": 60,
       "sample_count": 60,
       "scope": "local_deterministic_fault_injection",
@@ -132,13 +138,15 @@
       "value": 1.0
     },
     "ttfa_ms": {
+      "baseline_value": null,
       "sample_count": 40,
       "scope": "local_event_loop_transport",
       "source": "reports/realtime-core-benchmark.json",
       "statistic": "p50",
-      "value": 11.136
+      "value": 10.802
     },
     "unexpected_hangups": {
+      "baseline_value": null,
       "sample_count": 1,
       "scope": "synthetic_torture_termination_scenario",
       "source": "reports/torture-run.json",

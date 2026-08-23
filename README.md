@@ -50,5 +50,6 @@ make demo
 Then open `http://127.0.0.1:8765`. The browser sends live PCM16 microphone frames
 while the agent output is active. Playback start/completion/cancellation is
 acknowledged by the browser; those acknowledgements define the demo ledger's
-played boundary. The included synthesizer emits timed tones and is clearly labeled
-as a mock provider rather than production speech.
+played boundary. Supported browsers use German `speechSynthesis` with a timed PCM
+fallback. This is a real local browser voice path, but remains clearly labeled as
+local browser evidence rather than production-provider speech quality.

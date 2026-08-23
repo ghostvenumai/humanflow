@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+from collections.abc import AsyncIterator
 from pathlib import Path
 from time import monotonic_ns
 from typing import Any
@@ -13,8 +16,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from humanflow.audio.models import AudioFrame
+from humanflow.domain.conversation import OperationToken
 from humanflow.runtime.providers import (
-    EchoReasoner,
     NullTranscriber,
     ToneSpeechSynthesizer,
     TranscriptUpdate,
@@ -30,6 +33,18 @@ from .transport import (
 
 
 STATIC_DIR = Path(__file__).with_name("static")
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+REPORTS_DIR = PROJECT_ROOT / "reports"
+
+
+class GermanDemoReasoner:
+    """One local response chunk gives browser speech one semantic boundary."""
+
+    async def stream_response(
+        self, transcript: str, token: OperationToken
+    ) -> AsyncIterator[str]:
+        del token
+        yield f"Ich habe Sie verstanden. Sie sagten: {transcript.strip()}."
 
 
 def create_app() -> FastAPI:
@@ -40,27 +55,51 @@ def create_app() -> FastAPI:
     async def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
 
+    @application.get("/dashboard", include_in_schema=False)
+    async def dashboard() -> FileResponse:
+        return FileResponse(STATIC_DIR / "dashboard.html")
+
     @application.get("/health")
     async def health() -> dict[str, Any]:
         return {
             "status": "ok",
             "runtime": "humanflow-local-demo",
-            "speech_provider": "pcm-tone-mock",
+            "speech_provider": "browser-speech-synthesis-with-pcm-fallback",
             "production_claim": False,
+        }
+
+    @application.get("/api/scorecard")
+    async def scorecard() -> dict[str, Any]:
+        return _load_report("scorecard.json")
+
+    @application.get("/api/evidence")
+    async def evidence() -> dict[str, Any]:
+        return build_evidence_summary(PROJECT_ROOT)
+
+    @application.get("/api/timeline")
+    async def timeline() -> dict[str, Any]:
+        path = REPORTS_DIR / "realtime-timeline.jsonl"
+        events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+        return {
+            "synthetic": True,
+            "events": events,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         }
 
     @application.websocket("/ws")
     async def websocket_session(websocket: WebSocket) -> None:
         await websocket.accept()
         outbound: asyncio.Queue[OutboundItem | None] = asyncio.Queue()
-        audio_output = BrowserAcknowledgedAudioOutput(outbound)
+        audio_output = BrowserAcknowledgedAudioOutput(
+            outbound, acknowledgement_timeout_s=15.0
+        )
         sink = BrowserTelemetrySink(outbound)
         session = RealtimeVoiceSession(
             conversation_id=str(uuid4()),
             sink=sink,
             transcriber=NullTranscriber(),
-            reasoner=EchoReasoner(first_token_delay_ms=25, chunk_delay_ms=5),
-            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=90),
+            reasoner=GermanDemoReasoner(),
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=1_500),
             audio_output=audio_output,
         )
         sequence = 0
@@ -85,7 +124,8 @@ def create_app() -> FastAPI:
                 "type": "ready",
                 "conversation_id": session.state_machine.conversation_id,
                 "input_format": {"encoding": "pcm_s16le", "sample_rate_hz": 16000, "channels": 1},
-                "demo_limit": "Local tone/mock provider; not a production voice-quality claim.",
+                "output_mode": "browser_speech_synthesis_with_pcm_fallback",
+                "demo_limit": "Local browser STT/TTS; not a production-provider quality claim.",
             }
         )
         try:
@@ -122,6 +162,59 @@ def create_app() -> FastAPI:
             await sender
 
     return application
+
+
+def _load_report(name: str) -> dict[str, Any]:
+    path = REPORTS_DIR / name
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"report is not an object: {name}")
+    return payload
+
+
+def build_evidence_summary(root: Path) -> dict[str, Any]:
+    reports = root / "reports"
+    sprint = json.loads((root / "sprint" / "start.json").read_text(encoding="utf-8"))
+    torture = json.loads((reports / "torture-run.json").read_text(encoding="utf-8"))
+    router = json.loads((reports / "development-router.json").read_text(encoding="utf-8"))
+    tournament = json.loads((reports / "tournament-readiness.json").read_text(encoding="utf-8"))
+    quality = json.loads(
+        (reports / "quality-loop" / "iteration-001" / "decision.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    replay = json.loads((reports / "timeline-replay.json").read_text(encoding="utf-8"))
+    report_names = (
+        "scorecard.json",
+        "torture-run.json",
+        "timeline-replay.json",
+        "development-router.json",
+        "tournament-readiness.json",
+        "browser-demo-benchmark.json",
+    )
+    return {
+        "sprint": {
+            "start_utc": sprint["sprint"]["start_utc"],
+            "deadline_utc": sprint["sprint"]["deadline_utc"],
+            "tag": sprint["sprint"]["start_tag"],
+            "baseline_commit": sprint["sprint"]["baseline_commit"],
+        },
+        "torture": torture["summary"],
+        "quality_loop": quality,
+        "router": router["summary"],
+        "tournament": {
+            "status": tournament["status"],
+            "external_agent_calls_made": tournament["external_agent_calls_made"],
+        },
+        "timeline": replay["replay"],
+        "artifacts": {
+            name: {
+                "sha256": hashlib.sha256((reports / name).read_bytes()).hexdigest(),
+                "path": f"reports/{name}",
+            }
+            for name in report_names
+        },
+    }
 
 
 async def _handle_json(

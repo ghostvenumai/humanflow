@@ -100,7 +100,7 @@ function playPcm(buffer, meta) {
   const source = audioContext.createBufferSource();
   source.buffer = audioBuffer;
   source.connect(audioContext.destination);
-  const playback = { source, startedAt: audioContext.currentTime, cancelled: false, samples: meta.samples, rate: meta.sample_rate_hz };
+  const playback = { source, startedAt: audioContext.currentTime, cancelled: false, samples: meta.samples, rate: meta.sample_rate_hz, mode: "pcm" };
   activeAudio.set(meta.chunk_id, playback);
   source.onended = () => {
     if (!playback.cancelled) send({ type: "playback_completed", chunk_id: meta.chunk_id });
@@ -110,6 +110,29 @@ function playPcm(buffer, meta) {
   send({ type: "playback_started", chunk_id: meta.chunk_id });
 }
 
+function playSpeech(meta) {
+  const utterance = new SpeechSynthesisUtterance(meta.text_boundary);
+  utterance.lang = "de-DE";
+  utterance.rate = 1.02;
+  const playback = { utterance, cancelled: false, samples: meta.samples, mode: "speech" };
+  activeAudio.set(meta.chunk_id, playback);
+  utterance.onstart = () => send({ type: "playback_started", chunk_id: meta.chunk_id });
+  utterance.onend = () => {
+    if (!playback.cancelled) send({ type: "playback_completed", chunk_id: meta.chunk_id });
+    activeAudio.delete(meta.chunk_id);
+  };
+  utterance.onerror = () => {
+    if (!playback.cancelled) send({ type: "playback_stopped", chunk_id: meta.chunk_id, played_samples: 0 });
+    activeAudio.delete(meta.chunk_id);
+  };
+  window.speechSynthesis.speak(utterance);
+}
+
+function playOutput(buffer, meta) {
+  if ("speechSynthesis" in window && "SpeechSynthesisUtterance" in window) playSpeech(meta);
+  else playPcm(buffer, meta);
+}
+
 function cancelAudio(chunkId) {
   const playback = activeAudio.get(chunkId);
   if (!playback) {
@@ -117,9 +140,13 @@ function cancelAudio(chunkId) {
     return;
   }
   playback.cancelled = true;
-  const elapsed = Math.max(0, audioContext.currentTime - playback.startedAt);
-  const played = Math.min(playback.samples, Math.floor(elapsed * playback.rate));
-  try { playback.source.stop(); } catch (_) { /* already stopped */ }
+  let played = 0;
+  if (playback.mode === "speech") window.speechSynthesis.cancel();
+  else {
+    const elapsed = Math.max(0, audioContext.currentTime - playback.startedAt);
+    played = Math.min(playback.samples, Math.floor(elapsed * playback.rate));
+    try { playback.source.stop(); } catch (_) { /* already stopped */ }
+  }
   activeAudio.delete(chunkId);
   send({ type: "playback_stopped", chunk_id: chunkId, played_samples: played });
 }
@@ -149,7 +176,7 @@ ui.connect.addEventListener("click", async () => {
     socket.onclose = () => setConnected(false);
     socket.onmessage = (message) => {
       if (message.data instanceof ArrayBuffer) {
-        if (nextAudioMeta) playPcm(message.data, nextAudioMeta);
+        if (nextAudioMeta) playOutput(message.data, nextAudioMeta);
         nextAudioMeta = null;
         return;
       }
