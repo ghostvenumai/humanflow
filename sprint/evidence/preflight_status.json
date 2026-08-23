@@ -1,0 +1,12 @@
+{
+  "run_id": "20260823_164921",
+  "status": "TECHNICAL_GO",
+  "cycle": 1,
+  "pass": 68,
+  "warn": 5,
+  "fail": 0,
+  "manual": 11,
+  "report": "/home/serverserver/HumanFlow-PreStart/supervisor_runs/20260823_164921/preflight_reports/preflight_20260823_164922.md",
+  "fable_test_requested": 0,
+  "challenge_was_started": false
+}
