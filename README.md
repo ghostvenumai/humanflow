@@ -60,9 +60,13 @@ python3 -m pip install -e '.[demo]'
 make demo
 ```
 
-Then open `http://127.0.0.1:8765`. The browser sends live PCM16 microphone frames
-while the agent output is active. Playback start/completion/cancellation is
-acknowledged by the browser; those acknowledgements define the demo ledger's
-played boundary. Supported browsers use German `speechSynthesis` with a timed PCM
-fallback. This is a real local browser voice path, but remains clearly labeled as
-local browser evidence rather than production-provider speech quality.
+Set `ANTHROPIC_API_KEY`, then open `http://127.0.0.1:8765`. The browser sends live
+PCM16 microphone frames while Browser Web Speech emits real German partial/final
+transcripts. A session-scoped Anthropic reasoner streams context-aware German
+answers into mandatory browser `speechSynthesis`. Playback start, completion and
+cancellation are acknowledged by the browser and define the demo ledger's played
+boundary. Missing credentials, browser STT or browser TTS fail visibly; the live
+demo never substitutes the deterministic echo/tone adapters used by tests. This
+remains local browser evidence until the separate human validation passes.
+
+See `docs/LIVE_BROWSER_PIPELINE.md` for the real/mock boundary at every stage.

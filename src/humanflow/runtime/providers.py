@@ -8,6 +8,7 @@ import math
 from array import array
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from time import monotonic_ns
 from typing import Protocol
 from uuid import uuid4
@@ -17,6 +18,48 @@ from humanflow.domain.conversation import OperationToken
 from humanflow.turns.models import TurnSignals
 
 
+class ProviderMode(StrEnum):
+    """Whether a runtime provider performs real work or deterministic test work."""
+
+    REAL = "REAL"
+    MOCK = "MOCK"
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderInfo:
+    """Secret-free provider identity exposed in telemetry and the live demo."""
+
+    role: str
+    provider: str
+    model: str
+    mode: ProviderMode
+    runtime: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "role": self.role,
+            "provider": self.provider,
+            "model": self.model,
+            "mode": self.mode.value,
+            "runtime": self.runtime,
+        }
+
+
+def provider_info(provider: object, *, role: str) -> ProviderInfo:
+    """Return an adapter's declared identity, or an explicit unknown/mock identity."""
+
+    info = getattr(provider, "provider_info", None)
+    if isinstance(info, ProviderInfo):
+        return info
+    return ProviderInfo(
+        role=role,
+        provider=type(provider).__name__,
+        model="undeclared",
+        mode=ProviderMode.MOCK,
+        runtime="server",
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class TranscriptUpdate:
     """A provider transcript plus the signals used for a turn decision."""
@@ -24,6 +67,7 @@ class TranscriptUpdate:
     text: str
     is_final: bool
     signals: TurnSignals
+    provider: ProviderInfo | None = None
 
     def __post_init__(self) -> None:
         if not self.text.strip():
@@ -65,6 +109,14 @@ class AudioOutput(Protocol):
 class NullTranscriber:
     """Consumes real PCM frames while transcript input arrives over another adapter."""
 
+    provider_info = ProviderInfo(
+        role="stt",
+        provider="null-transcriber",
+        model="none",
+        mode=ProviderMode.MOCK,
+        runtime="server",
+    )
+
     async def ingest(self, frame: AudioFrame) -> tuple[TranscriptUpdate, ...]:
         del frame
         await asyncio.sleep(0)
@@ -80,6 +132,16 @@ class EchoReasoner:
 
     first_token_delay_ms: float = 20.0
     chunk_delay_ms: float = 5.0
+
+    @property
+    def provider_info(self) -> ProviderInfo:
+        return ProviderInfo(
+            role="reasoning",
+            provider="echo-reasoner",
+            model="deterministic-echo",
+            mode=ProviderMode.MOCK,
+            runtime="server",
+        )
 
     async def stream_response(
         self, transcript: str, token: OperationToken
@@ -101,6 +163,16 @@ class ToneSpeechSynthesizer:
     chunk_duration_ms: float = 80.0
     amplitude: int = 2_400
     frequency_hz: float = 220.0
+
+    @property
+    def provider_info(self) -> ProviderInfo:
+        return ProviderInfo(
+            role="tts",
+            provider="tone-synthesizer",
+            model=f"sine-{self.frequency_hz:g}hz",
+            mode=ProviderMode.MOCK,
+            runtime="server",
+        )
 
     async def synthesize(
         self, text: str, *, response_id: str, sequence: int
@@ -130,6 +202,58 @@ class ToneSpeechSynthesizer:
             chunk_id=str(uuid4()),
             response_id=response_id,
             text=text.strip(),
+            frame=frame,
+        )
+
+
+@dataclass(slots=True)
+class BrowserSpeechSynthesisAdapter:
+    """Send semantic text boundaries to real browser speech synthesis.
+
+    The silent PCM envelope supplies a conservative duration/sample budget for
+    the transport-neutral ledger. It is never rendered when the browser demo's
+    mandatory Web Speech synthesis provider is available.
+    """
+
+    sample_rate_hz: int = 16_000
+    words_per_second: float = 2.6
+    minimum_duration_ms: float = 450.0
+    maximum_duration_ms: float = 15_000.0
+
+    provider_info = ProviderInfo(
+        role="tts",
+        provider="browser-web-speech-api",
+        model="de-DE-system-voice",
+        mode=ProviderMode.REAL,
+        runtime="browser",
+    )
+
+    async def synthesize(
+        self, text: str, *, response_id: str, sequence: int
+    ) -> AudioChunk:
+        clean_text = text.strip()
+        if not clean_text:
+            raise ValueError("text must not be empty")
+        if self.words_per_second <= 0:
+            raise ValueError("words_per_second must be positive")
+        estimated_ms = len(clean_text.split()) / self.words_per_second * 1000.0
+        duration_ms = min(
+            self.maximum_duration_ms,
+            max(self.minimum_duration_ms, estimated_ms),
+        )
+        sample_count = max(1, round(self.sample_rate_hz * duration_ms / 1000.0))
+        frame = AudioFrame(
+            stream_id=response_id,
+            sequence=sequence,
+            pcm16=b"\x00\x00" * sample_count,
+            sample_rate_hz=self.sample_rate_hz,
+            captured_ns=monotonic_ns(),
+        )
+        await asyncio.sleep(0)
+        return AudioChunk(
+            chunk_id=str(uuid4()),
+            response_id=response_id,
+            text=clean_text,
             frame=frame,
         )
 

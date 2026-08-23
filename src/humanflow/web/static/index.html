@@ -11,9 +11,18 @@
       <header>
         <p class="eyebrow">HumanFlow · Realtime Engineering Lab</p>
         <h1>Gesprächsmechanik, live sichtbar.</h1>
-        <p class="lead">Full-Duplex-PCM, adaptive Turns, Backchannels, Barge-in und Played-Audio-Wahrheit in einer lokalen Demo.</p>
+        <p class="lead">Echte deutsche Browser-Sprache, adaptiver Turn-Controller und ein live angebundener Reasoning-Provider mit Gesprächskontext.</p>
         <p><a href="/dashboard">Evidence Dashboard öffnen →</a></p>
       </header>
+
+      <section class="providers" aria-label="Live-Provider-Status">
+        <h2>Live-Provider · kein stiller Mock-Fallback</h2>
+        <div class="provider-grid">
+          <div><span>STT</span><strong id="provider-stt">wird geprüft</strong></div>
+          <div><span>Reasoning</span><strong id="provider-reasoning">wird geladen</strong></div>
+          <div><span>TTS</span><strong id="provider-tts">wird geprüft</strong></div>
+        </div>
+      </section>
 
       <section class="controls" aria-label="Demo-Steuerung">
         <button id="connect">Verbinden & Mikrofon starten</button>
@@ -22,7 +31,7 @@
       </section>
 
       <section class="manual">
-        <label for="transcript">Manuelles Transkript (Fallback ohne Browser-STT)</label>
+        <label for="transcript">Diagnostischer Texteingang (explizit kein STT und kein Voice-Qualitätsnachweis)</label>
         <div class="input-row">
           <input id="transcript" value="Ich brauche bitte einen Termin" maxlength="4096">
           <button id="send" disabled>Turn senden</button>
@@ -31,6 +40,11 @@
           <button data-phrase="mhm" disabled>mhm · Backchannel</button>
           <button data-phrase="Moment, stopp" disabled>Moment, stopp · Barge-in</button>
         </div>
+      </section>
+
+      <section class="conversation" aria-label="Live-Gespräch">
+        <h2>Live-Gespräch</h2>
+        <ol id="conversation"></ol>
       </section>
 
       <section class="grid">
@@ -47,7 +61,7 @@
           <h2>Played Audio Ledger</h2>
           <p><strong>Gehört:</strong> <span id="delivered">—</span></p>
           <p><strong>Nicht gehört:</strong> <span id="unheard">—</span></p>
-          <p class="note">Die Demo nutzt deutsche Browser-Sprachausgabe mit PCM-Fallback. Sie belegt Controller-/Transportverhalten, aber keine Produktionsanbieter-SLAs.</p>
+          <p class="note">Die Demo nutzt echte deutsche Browser-Sprachausgabe. Die Ledger-Grenze stammt aus den tatsächlichen Start-/Ende-/Stopp-Quittungen des Browsers; manuelle Qualitätsvalidierung bleibt erforderlich.</p>
         </article>
       </section>
 

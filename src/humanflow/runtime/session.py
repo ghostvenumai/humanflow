@@ -23,6 +23,7 @@ from .providers import (
     StreamingSpeechSynthesizer,
     StreamingTranscriber,
     TranscriptUpdate,
+    provider_info,
 )
 
 
@@ -223,6 +224,9 @@ class RealtimeVoiceSession:
 
     async def _handle_transcript(self, update: TranscriptUpdate) -> TurnDecision:
         correlation_id = str(uuid4())
+        transcript_provider = update.provider or provider_info(
+            self._transcriber, role="stt"
+        )
         speech_active = update.signals.speech_active
         if speech_active and not self._user_audio_active:
             self._user_audio_active = True
@@ -244,7 +248,7 @@ class RealtimeVoiceSession:
             event_type,
             correlation_id=correlation_id,
             reason_code="provider_transcript",
-            payload={"text": update.text},
+            payload={"text": update.text, "provider": transcript_provider.to_dict()},
         )
         agent_speaking = self.state in {
             ConversationState.SPEAKING,
@@ -302,7 +306,11 @@ class RealtimeVoiceSession:
                 EventType.TURN_CONFIRMED,
                 correlation_id=correlation_id,
                 reason_code="hybrid_policy_complete",
-                payload={"text": update.text, "confidence": decision.confidence},
+                payload={
+                    "text": update.text,
+                    "confidence": decision.confidence,
+                    "stt_provider": transcript_provider.to_dict(),
+                },
             )
             await self._begin_response(update.text, correlation_id=correlation_id)
         return decision
@@ -345,11 +353,18 @@ class RealtimeVoiceSession:
         first_model_output = True
         first_audio = True
         chunk_sequence = 0
+        output_characters = 0
+        generation_started_ns = self._clock_ns()
+        reasoning_provider = provider_info(self._reasoner, role="reasoning")
+        speech_provider = provider_info(self._synthesizer, role="tts")
         self.state_machine.record(
             EventType.AGENT_GENERATION_STARTED,
             correlation_id=correlation_id,
             reason_code="reasoner_stream_started",
-            payload={"response_id": response_id},
+            payload={
+                "response_id": response_id,
+                "provider": reasoning_provider.to_dict(),
+            },
         )
         try:
             async for text in self._reasoner.stream_response(transcript, token):
@@ -359,12 +374,21 @@ class RealtimeVoiceSession:
                     break
                 if first_model_output:
                     first_model_output = False
+                    first_output_ns = self._clock_ns()
                     self.state_machine.record(
                         EventType.FIRST_MODEL_OUTPUT,
                         correlation_id=correlation_id,
                         reason_code="first_stream_fragment",
-                        payload={"response_id": response_id},
+                        payload={
+                            "response_id": response_id,
+                            "provider": reasoning_provider.to_dict(),
+                            "provider_latency_ms": max(
+                                0.0,
+                                (first_output_ns - generation_started_ns) / 1_000_000.0,
+                            ),
+                        },
                     )
+                output_characters += len(text)
                 chunk = await self._synthesizer.synthesize(
                     text, response_id=response_id, sequence=chunk_sequence
                 )
@@ -385,7 +409,11 @@ class RealtimeVoiceSession:
                         EventType.FIRST_AUDIO_CHUNK,
                         correlation_id=correlation_id,
                         reason_code="first_tts_chunk_ready",
-                        payload={"response_id": response_id, "chunk_id": chunk.chunk_id},
+                        payload={
+                            "response_id": response_id,
+                            "chunk_id": chunk.chunk_id,
+                            "provider": speech_provider.to_dict(),
+                        },
                     )
                     if self.state is ConversationState.THINKING:
                         self.state_machine.transition(
@@ -418,6 +446,24 @@ class RealtimeVoiceSession:
                     break
 
             if not self._cancel_event.is_set():
+                usage = getattr(self._reasoner, "last_usage", None)
+                usage_payload = usage.to_dict() if hasattr(usage, "to_dict") else None
+                self.state_machine.record(
+                    EventType.AGENT_GENERATION_COMPLETED,
+                    correlation_id=correlation_id,
+                    reason_code="reasoner_stream_completed",
+                    payload={
+                        "response_id": response_id,
+                        "provider": reasoning_provider.to_dict(),
+                        "duration_ms": max(
+                            0.0,
+                            (self._clock_ns() - generation_started_ns) / 1_000_000.0,
+                        ),
+                        "output_characters": output_characters,
+                        "speech_chunks": chunk_sequence,
+                        "usage": usage_payload,
+                    },
+                )
                 self.state_machine.record(
                     EventType.AGENT_AUDIO_COMPLETED,
                     correlation_id=correlation_id,
@@ -447,6 +493,7 @@ class RealtimeVoiceSession:
                 payload={
                     "response_id": response_id,
                     "exception_type": type(error).__name__,
+                    "provider": reasoning_provider.to_dict(),
                 },
             )
             if self.state in {ConversationState.THINKING, ConversationState.SPEAKING}:

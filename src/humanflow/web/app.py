@@ -5,7 +5,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
+import os
 from collections.abc import AsyncIterator
+from collections.abc import Callable, Mapping
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic_ns
 from typing import Any
@@ -16,13 +21,20 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from humanflow.audio.models import AudioFrame
-from humanflow.domain.conversation import OperationToken
+from humanflow.runtime.anthropic_provider import (
+    DEFAULT_ANTHROPIC_MODEL,
+    AnthropicReasoner,
+)
 from humanflow.runtime.providers import (
+    BrowserSpeechSynthesisAdapter,
     NullTranscriber,
-    ToneSpeechSynthesizer,
+    ProviderInfo,
+    ProviderMode,
+    StreamingReasoner,
     TranscriptUpdate,
 )
 from humanflow.runtime.session import RealtimeVoiceSession
+from humanflow.telemetry.events import EventType
 from humanflow.turns.models import TurnSignals
 
 from .transport import (
@@ -35,20 +47,119 @@ from .transport import (
 STATIC_DIR = Path(__file__).with_name("static")
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 REPORTS_DIR = PROJECT_ROOT / "reports"
+LOGGER = logging.getLogger(__name__)
 
 
-class GermanDemoReasoner:
-    """One local response chunk gives browser speech one semantic boundary."""
+@dataclass(frozen=True, slots=True)
+class ProviderStatus:
+    info: ProviderInfo
+    availability: str
 
-    async def stream_response(
-        self, transcript: str, token: OperationToken
-    ) -> AsyncIterator[str]:
-        del token
-        yield f"Ich habe Sie verstanden. Sie sagten: {transcript.strip()}."
+    def to_dict(self) -> dict[str, str]:
+        return {**self.info.to_dict(), "availability": self.availability}
 
 
-def create_app() -> FastAPI:
-    application = FastAPI(title="HumanFlow Realtime Demo", version="0.1.0")
+@dataclass(frozen=True, slots=True)
+class DemoRuntimeConfig:
+    reasoner_factory: Callable[[], StreamingReasoner] | None
+    providers: tuple[ProviderStatus, ...]
+    blocker: str | None = None
+
+    @property
+    def ready(self) -> bool:
+        return self.reasoner_factory is not None and self.blocker is None
+
+    def provider_payload(self) -> list[dict[str, str]]:
+        return [status.to_dict() for status in self.providers]
+
+
+def load_demo_runtime_config(
+    environ: Mapping[str, str] | None = None,
+) -> DemoRuntimeConfig:
+    """Resolve only explicit real providers; never construct a demo fallback."""
+
+    values = os.environ if environ is None else environ
+    selected = values.get("HUMANFLOW_REASONING_PROVIDER", "anthropic").strip().lower()
+    model = values.get("HUMANFLOW_REASONING_MODEL", DEFAULT_ANTHROPIC_MODEL).strip()
+    stt = ProviderStatus(
+        ProviderInfo(
+            role="stt",
+            provider="browser-web-speech-api",
+            model="de-DE",
+            mode=ProviderMode.REAL,
+            runtime="browser",
+        ),
+        "BROWSER_CHECK_REQUIRED",
+    )
+    tts = ProviderStatus(
+        BrowserSpeechSynthesisAdapter.provider_info,
+        "BROWSER_CHECK_REQUIRED",
+    )
+    if selected != "anthropic":
+        reasoning = ProviderStatus(
+            ProviderInfo(
+                role="reasoning",
+                provider=selected or "unset",
+                model=model or "unset",
+                mode=ProviderMode.REAL,
+                runtime="server",
+            ),
+            "UNSUPPORTED",
+        )
+        return DemoRuntimeConfig(
+            reasoner_factory=None,
+            providers=(stt, reasoning, tts),
+            blocker=f"unsupported reasoning provider: {selected or 'empty'}",
+        )
+    api_key = values.get("ANTHROPIC_API_KEY", "")
+    reasoning_info = ProviderInfo(
+        role="reasoning",
+        provider="anthropic-messages-api",
+        model=model or DEFAULT_ANTHROPIC_MODEL,
+        mode=ProviderMode.REAL,
+        runtime="server",
+    )
+    if not api_key.strip():
+        return DemoRuntimeConfig(
+            reasoner_factory=None,
+            providers=(
+                stt,
+                ProviderStatus(reasoning_info, "MISSING_API_KEY"),
+                tts,
+            ),
+            blocker="ANTHROPIC_API_KEY is not configured",
+        )
+
+    def create_reasoner() -> StreamingReasoner:
+        return AnthropicReasoner(
+            api_key=api_key,
+            model=model or DEFAULT_ANTHROPIC_MODEL,
+        )
+
+    return DemoRuntimeConfig(
+        reasoner_factory=create_reasoner,
+        providers=(stt, ProviderStatus(reasoning_info, "CONFIGURED"), tts),
+    )
+
+
+def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
+    runtime = runtime_config or load_demo_runtime_config()
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if not runtime.ready:
+            raise RuntimeError(f"real provider required: {runtime.blocker}")
+        LOGGER.info(
+            "HumanFlow live providers: %s",
+            json.dumps(runtime.provider_payload(), ensure_ascii=False, sort_keys=True),
+        )
+        yield
+
+    application = FastAPI(
+        title="HumanFlow Realtime Demo",
+        version="0.2.0",
+        lifespan=lifespan,
+    )
     application.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @application.get("/", include_in_schema=False)
@@ -63,8 +174,10 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, Any]:
         return {
             "status": "ok",
-            "runtime": "humanflow-local-demo",
-            "speech_provider": "browser-speech-synthesis-with-pcm-fallback",
+            "runtime": "humanflow-live-provider-demo",
+            "providers": runtime.provider_payload(),
+            "mock_conversation_provider": False,
+            "manual_validation": "REQUIRED_NOT_ATTESTED",
             "production_claim": False,
         }
 
@@ -89,6 +202,12 @@ def create_app() -> FastAPI:
     @application.websocket("/ws")
     async def websocket_session(websocket: WebSocket) -> None:
         await websocket.accept()
+        if runtime.reasoner_factory is None:
+            await websocket.send_json(
+                {"type": "error", "code": "real_reasoning_provider_unavailable"}
+            )
+            await websocket.close(code=1011)
+            return
         outbound: asyncio.Queue[OutboundItem | None] = asyncio.Queue()
         audio_output = BrowserAcknowledgedAudioOutput(
             outbound, acknowledgement_timeout_s=15.0
@@ -98,8 +217,8 @@ def create_app() -> FastAPI:
             conversation_id=str(uuid4()),
             sink=sink,
             transcriber=NullTranscriber(),
-            reasoner=GermanDemoReasoner(),
-            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=1_500),
+            reasoner=runtime.reasoner_factory(),
+            synthesizer=BrowserSpeechSynthesisAdapter(),
             audio_output=audio_output,
         )
         sequence = 0
@@ -124,8 +243,10 @@ def create_app() -> FastAPI:
                 "type": "ready",
                 "conversation_id": session.state_machine.conversation_id,
                 "input_format": {"encoding": "pcm_s16le", "sample_rate_hz": 16000, "channels": 1},
-                "output_mode": "browser_speech_synthesis_with_pcm_fallback",
-                "demo_limit": "Local browser STT/TTS; not a production-provider quality claim.",
+                "output_mode": "mandatory_browser_speech_synthesis",
+                "providers": runtime.provider_payload(),
+                "manual_validation": "REQUIRED_NOT_ATTESTED",
+                "demo_limit": "Browser STT/TTS plus real network reasoning; no Web- oder Kalender-Tool.",
             }
         )
         try:
@@ -157,9 +278,9 @@ def create_app() -> FastAPI:
             pass
         finally:
             audio_output.disconnect()
+            sender.cancel()
+            await asyncio.gather(sender, return_exceptions=True)
             await session.close(reason_code="browser_disconnected")
-            outbound.put_nowait(None)
-            await sender
 
     return application
 
@@ -234,6 +355,31 @@ async def _handle_json(
         outbound.put_nowait({"type": "error", "code": "json_object_required"})
         return
     message_type = message.get("type")
+    if message_type == "provider_capabilities":
+        stt_available = message.get("stt_available") is True
+        tts_available = message.get("tts_available") is True
+        session.state_machine.record(
+            EventType.PROVIDER_STATUS,
+            correlation_id=str(uuid4()),
+            reason_code=(
+                "browser_voice_providers_available"
+                if stt_available and tts_available
+                else "browser_voice_provider_missing"
+            ),
+            payload={
+                "stt": {
+                    "provider": "browser-web-speech-api",
+                    "mode": "REAL",
+                    "available": stt_available,
+                },
+                "tts": {
+                    "provider": "browser-web-speech-api",
+                    "mode": "REAL",
+                    "available": tts_available,
+                },
+            },
+        )
+        return
     if message_type in {"playback_started", "playback_completed", "playback_stopped"}:
         if not audio_output.acknowledge(message):
             outbound.put_nowait({"type": "error", "code": "stale_playback_ack"})
@@ -268,7 +414,16 @@ async def _handle_json(
         )
         decision = await session.submit_transcript(
             TranscriptUpdate(
-                text=text.strip(), is_final=bool(message.get("final", False)), signals=signals
+                text=text.strip(),
+                is_final=bool(message.get("final", False)),
+                signals=signals,
+                provider=ProviderInfo(
+                    role="stt",
+                    provider="browser-web-speech-api",
+                    model="de-DE",
+                    mode=ProviderMode.REAL,
+                    runtime="browser",
+                ),
             )
         )
     except (TypeError, ValueError) as error:

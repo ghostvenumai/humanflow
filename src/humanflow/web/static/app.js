@@ -1,6 +1,7 @@
 const ui = Object.fromEntries([
   "connect", "interrupt", "status", "transcript", "send", "state", "decision",
-  "latency", "frames", "delivered", "unheard", "events", "clear"
+  "latency", "frames", "delivered", "unheard", "events", "clear", "conversation",
+  "provider-stt", "provider-reasoning", "provider-tts"
 ].map((id) => [id, document.getElementById(id)]));
 
 let socket;
@@ -9,7 +10,69 @@ let microphone;
 let processor;
 let frameCount = 0;
 let nextAudioMeta = null;
+let partialTranscriptItem = null;
 const activeAudio = new Map();
+const assistantItems = new Map();
+
+function browserCapabilities() {
+  return {
+    stt: Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
+    tts: Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance)
+  };
+}
+
+function setProvider(role, text, state = "") {
+  const target = ui[`provider-${role}`];
+  target.textContent = text;
+  target.className = state;
+}
+
+function renderProviders(providers) {
+  for (const item of providers || []) {
+    if (!ui[`provider-${item.role}`]) continue;
+    const available = item.availability === "CONFIGURED" || item.availability === "AVAILABLE";
+    const state = item.mode === "REAL" && available ? "real" : "unavailable";
+    setProvider(item.role, `${item.provider} · ${item.model} · ${item.mode} · ${item.availability}`, state);
+  }
+  const capabilities = browserCapabilities();
+  setProvider("stt", `Browser Web Speech · de-DE · REAL · ${capabilities.stt ? "AVAILABLE" : "UNAVAILABLE"}`, capabilities.stt ? "real" : "unavailable");
+  setProvider("tts", `Browser Web Speech · Systemstimme · REAL · ${capabilities.tts ? "AVAILABLE" : "UNAVAILABLE"}`, capabilities.tts ? "real" : "unavailable");
+}
+
+function addConversation(role, text, extraClass = "") {
+  const item = document.createElement("li");
+  item.className = `${role} ${extraClass}`.trim();
+  const label = document.createElement("small");
+  label.textContent = role === "user" ? "Sie" : "HumanFlow";
+  const body = document.createElement("span");
+  body.textContent = text;
+  item.append(label, body);
+  ui.conversation.append(item);
+  ui.conversation.scrollTop = ui.conversation.scrollHeight;
+  return item;
+}
+
+function showTranscript(text, isFinal) {
+  if (isFinal) {
+    partialTranscriptItem?.remove();
+    partialTranscriptItem = null;
+    addConversation("user", text);
+    return;
+  }
+  if (!partialTranscriptItem) partialTranscriptItem = addConversation("user", text, "partial");
+  else partialTranscriptItem.querySelector("span").textContent = text;
+}
+
+function showAssistantChunk(meta) {
+  let item = assistantItems.get(meta.response_id);
+  if (!item) {
+    item = addConversation("assistant", meta.text_boundary);
+    assistantItems.set(meta.response_id, item);
+    return;
+  }
+  const body = item.querySelector("span");
+  body.textContent = `${body.textContent} ${meta.text_boundary}`;
+}
 
 function send(payload) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
@@ -67,7 +130,7 @@ async function startMicrophone() {
 
 function startBrowserStt() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) return;
+  if (!Recognition) throw new Error("Browser-STT ist nicht verfügbar");
   const recognition = new Recognition();
   recognition.lang = "de-DE";
   recognition.continuous = true;
@@ -75,6 +138,7 @@ function startBrowserStt() {
   recognition.onresult = (event) => {
     const result = event.results[event.resultIndex];
     const text = result[0].transcript.trim();
+    showTranscript(text, result.isFinal);
     send({
       type: "transcript", text, final: result.isFinal,
       signals: {
@@ -89,25 +153,6 @@ function startBrowserStt() {
   };
   recognition.onend = () => { if (socket?.readyState === WebSocket.OPEN) recognition.start(); };
   recognition.start();
-}
-
-function playPcm(buffer, meta) {
-  audioContext ||= new AudioContext();
-  const samples = new Int16Array(buffer);
-  const floats = Float32Array.from(samples, (sample) => sample / 32768);
-  const audioBuffer = audioContext.createBuffer(1, floats.length, meta.sample_rate_hz);
-  audioBuffer.copyToChannel(floats, 0);
-  const source = audioContext.createBufferSource();
-  source.buffer = audioBuffer;
-  source.connect(audioContext.destination);
-  const playback = { source, startedAt: audioContext.currentTime, cancelled: false, samples: meta.samples, rate: meta.sample_rate_hz, mode: "pcm" };
-  activeAudio.set(meta.chunk_id, playback);
-  source.onended = () => {
-    if (!playback.cancelled) send({ type: "playback_completed", chunk_id: meta.chunk_id });
-    activeAudio.delete(meta.chunk_id);
-  };
-  source.start();
-  send({ type: "playback_started", chunk_id: meta.chunk_id });
 }
 
 function playSpeech(meta) {
@@ -129,8 +174,13 @@ function playSpeech(meta) {
 }
 
 function playOutput(buffer, meta) {
-  if ("speechSynthesis" in window && "SpeechSynthesisUtterance" in window) playSpeech(meta);
-  else playPcm(buffer, meta);
+  void buffer;
+  if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+    send({ type: "playback_stopped", chunk_id: meta.chunk_id, played_samples: 0 });
+    ui.status.textContent = "Fehler: echtes Browser-TTS fehlt";
+    return;
+  }
+  playSpeech(meta);
 }
 
 function cancelAudio(chunkId) {
@@ -140,15 +190,9 @@ function cancelAudio(chunkId) {
     return;
   }
   playback.cancelled = true;
-  let played = 0;
-  if (playback.mode === "speech") window.speechSynthesis.cancel();
-  else {
-    const elapsed = Math.max(0, audioContext.currentTime - playback.startedAt);
-    played = Math.min(playback.samples, Math.floor(elapsed * playback.rate));
-    try { playback.source.stop(); } catch (_) { /* already stopped */ }
-  }
+  window.speechSynthesis.cancel();
   activeAudio.delete(chunkId);
-  send({ type: "playback_stopped", chunk_id: chunkId, played_samples: played });
+  send({ type: "playback_stopped", chunk_id: chunkId, played_samples: 0 });
 }
 
 function addEvent(event) {
@@ -164,15 +208,23 @@ function addEvent(event) {
     ui.unheard.textContent = event.payload.unheard_text || "—";
   }
   if (event.event_type === "AGENT_AUDIO_COMPLETED") ui.delivered.textContent = event.payload.delivered_text || "—";
+  if (event.event_type === "RECOVERY_STARTED") ui.status.textContent = "Providerfehler · weiter im Hörmodus";
 }
 
 ui.connect.addEventListener("click", async () => {
   try {
+    const capabilities = browserCapabilities();
+    renderProviders([]);
+    if (!capabilities.stt || !capabilities.tts) throw new Error("Echter Browser-STT/TTS-Provider fehlt");
     await startMicrophone();
     const scheme = location.protocol === "https:" ? "wss" : "ws";
     socket = new WebSocket(`${scheme}://${location.host}/ws`);
     socket.binaryType = "arraybuffer";
-    socket.onopen = () => { setConnected(true); startBrowserStt(); };
+    socket.onopen = () => {
+      setConnected(true);
+      startBrowserStt();
+      send({ type: "provider_capabilities", stt_available: capabilities.stt, tts_available: capabilities.tts });
+    };
     socket.onclose = () => setConnected(false);
     socket.onmessage = (message) => {
       if (message.data instanceof ArrayBuffer) {
@@ -181,13 +233,17 @@ ui.connect.addEventListener("click", async () => {
         return;
       }
       const payload = JSON.parse(message.data);
-      if (payload.type === "audio_chunk") nextAudioMeta = payload;
+      if (payload.type === "ready") renderProviders(payload.providers);
+      else if (payload.type === "audio_chunk") {
+        nextAudioMeta = payload;
+        showAssistantChunk(payload);
+      }
       else if (payload.type === "cancel_audio") cancelAudio(payload.chunk_id);
       else if (payload.type === "telemetry") addEvent(payload.event);
       else if (payload.type === "turn_decision") ui.decision.textContent = `${payload.decision} · ${payload.confidence.toFixed(2)}`;
     };
   } catch (error) {
-    ui.status.textContent = `Fehler: ${error.name}`;
+    ui.status.textContent = `Fehler: ${error.message || error.name}`;
   }
 });
 
@@ -196,6 +252,7 @@ ui.send.addEventListener("click", () => send({
   type: "transcript", text: ui.transcript.value, final: true,
   signals: { speech_active: false, silence_duration_ms: 350, utterance_duration_ms: 900, semantic_complete: true, acoustic_completion: 0.9 }
 }));
+ui.send.addEventListener("click", () => showTranscript(ui.transcript.value, true));
 document.querySelectorAll(".quick button").forEach((button) => button.addEventListener("click", () => send({
   type: "transcript", text: button.dataset.phrase, final: true,
   signals: {
@@ -205,4 +262,5 @@ document.querySelectorAll(".quick button").forEach((button) => button.addEventLi
   }
 })));
 ui.clear.addEventListener("click", () => ui.events.replaceChildren());
+renderProviders([]);
 setConnected(false);

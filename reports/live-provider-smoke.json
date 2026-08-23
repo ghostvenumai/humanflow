@@ -1,0 +1,117 @@
+{
+  "captured_utc": "2026-08-23T17:05:40.213001Z",
+  "checks": {
+    "all_responses_nonempty": true,
+    "appointment_is_semantically_relevant": true,
+    "arithmetic_contains_425": true,
+    "erp_is_semantically_relevant": true,
+    "followup_uses_prior_math_context": true,
+    "no_canned_acknowledgement": true,
+    "plain_speech_has_no_markdown": true,
+    "weather_states_live_data_limit": true
+  },
+  "manual_validation": "REQUIRED_NOT_ATTESTED",
+  "providers": [
+    {
+      "availability": "BROWSER_CHECK_REQUIRED",
+      "mode": "REAL",
+      "model": "de-DE",
+      "provider": "browser-web-speech-api",
+      "role": "stt",
+      "runtime": "browser"
+    },
+    {
+      "availability": "CONFIGURED",
+      "mode": "REAL",
+      "model": "claude-haiku-4-5-20251001",
+      "provider": "anthropic-messages-api",
+      "role": "reasoning",
+      "runtime": "server"
+    },
+    {
+      "availability": "BROWSER_CHECK_REQUIRED",
+      "mode": "REAL",
+      "model": "de-DE-system-voice",
+      "provider": "browser-web-speech-api",
+      "role": "tts",
+      "runtime": "browser"
+    }
+  ],
+  "schema_version": 1,
+  "scope": "real reasoning websocket path; browser microphone/STT/TTS excluded",
+  "summary": {
+    "first_model_output_ms_max": 1218.739,
+    "first_model_output_ms_median": 996.603,
+    "input_tokens": 3483,
+    "output_tokens": 460,
+    "turns": 6
+  },
+  "turns": {
+    "appointment": {
+      "first_model_output_ms": 970.105355,
+      "generation_ms": 1128.171732,
+      "prompt": "Ich möchte einen Termin am Freitag.",
+      "response": "Gerne helfe ich dir bei der Terminplanung. Welcher Freitag passt dir denn? Und wofür brauchst du den Termin? Dann kann ich dir besser weiterhelfen.",
+      "speech_chunks": 4,
+      "usage": {
+        "input_tokens": 808,
+        "output_tokens": 56
+      }
+    },
+    "arithmetic": {
+      "first_model_output_ms": 641.738077,
+      "generation_ms": 728.322811,
+      "prompt": "Was ist 25 mal 17?",
+      "response": "25 mal 17 ist 425.",
+      "speech_chunks": 1,
+      "usage": {
+        "input_tokens": 550,
+        "output_tokens": 14
+      }
+    },
+    "capabilities": {
+      "first_model_output_ms": 1218.738818,
+      "generation_ms": 2055.462081,
+      "prompt": "Was kannst du?",
+      "response": "Ich bin HumanFlow, dein deutschsprachiger Voice-Agent. Ich kann dir bei verschiedensten Dingen helfen: Informationen bereitstellen und Fragen beantworten, Texte schreiben oder überarbeiten, bei Problemlösungen unterstützen, Erklärungen geben und komplexe Themen verständlich machen. Ich bin hier für ein natürliches Gespräch und kann flexibel auf deine Bedürfnisse eingehen. Was kann ich für dich tun?",
+      "speech_chunks": 4,
+      "usage": {
+        "input_tokens": 318,
+        "output_tokens": 133
+      }
+    },
+    "context_followup": {
+      "first_model_output_ms": 984.705578,
+      "generation_ms": 1036.852275,
+      "prompt": "Wie lautete noch einmal das Ergebnis meiner Rechenaufgabe?",
+      "response": "Du hattest gefragt, was 25 mal 17 ist. Das Ergebnis war 425.",
+      "speech_chunks": 2,
+      "usage": {
+        "input_tokens": 761,
+        "output_tokens": 29
+      }
+    },
+    "erp": {
+      "first_model_output_ms": 1076.088138,
+      "generation_ms": 1929.227455,
+      "prompt": "Kannst du mir erklären, was ein ERP-System ist?",
+      "response": "Ein ERP-System ist eine Unternehmenssoftware, die alle wichtigen Geschäftsprozesse zentral verwaltet. ERP steht für Enterprise Resource Planning. Es integriert Bereiche wie Buchhaltung, Lagerverwaltung, Personalwesen und Vertrieb in einer Datenbank. Das ermöglicht, dass alle Abteilungen auf die gleichen aktuellen Informationen zugreifen können. Dadurch wird die Effizienz gesteigert und Fehler werden vermieden. Größere Unternehmen nutzen solche Systeme fast immer.",
+      "speech_chunks": 6,
+      "usage": {
+        "input_tokens": 584,
+        "output_tokens": 152
+      }
+    },
+    "weather_limit": {
+      "first_model_output_ms": 1008.500124,
+      "generation_ms": 1137.718402,
+      "prompt": "Wie ist das Wetter?",
+      "response": "Ich habe leider keinen Zugriff auf aktuelle Wetterdaten. Aber ich kann dir gerne helfen, wenn du mir beschreibst, wie das Wetter bei dir gerade ist, oder wenn du Fragen zum Wetter allgemein hast. Was möchtest du wissen?",
+      "speech_chunks": 3,
+      "usage": {
+        "input_tokens": 462,
+        "output_tokens": 76
+      }
+    }
+  }
+}

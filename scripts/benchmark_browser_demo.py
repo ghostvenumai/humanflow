@@ -103,7 +103,22 @@ def main() -> None:
         for _ in range(args.requests):
             latency_ms, status, body = _request(base_url + "/health")
             payload = json.loads(body)
-            if status != 200 or payload.get("production_claim") is not False:
+            reasoning = next(
+                (
+                    provider
+                    for provider in payload.get("providers", [])
+                    if provider.get("role") == "reasoning"
+                ),
+                None,
+            )
+            if (
+                status != 200
+                or payload.get("production_claim") is not False
+                or payload.get("mock_conversation_provider") is not False
+                or reasoning is None
+                or reasoning.get("mode") != "REAL"
+                or reasoning.get("availability") != "CONFIGURED"
+            ):
                 raise RuntimeError("health contract failed")
             health_latencies.append(latency_ms)
         index_latency_ms, index_status, index_body = _request(base_url + "/")

@@ -89,6 +89,11 @@ def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
     assert (STATIC_DIR / "index.html").is_file()
     assert (STATIC_DIR / "app.js").is_file()
     assert (STATIC_DIR / "dashboard.html").is_file()
+    source = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    markup = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    assert "playPcm(buffer" not in source
+    assert "provider-reasoning" in markup
+    assert "kein stiller Mock-Fallback" in markup
 
 
 def test_dashboard_evidence_summary_links_real_reports() -> None:

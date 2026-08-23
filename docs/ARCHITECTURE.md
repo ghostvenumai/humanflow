@@ -52,9 +52,12 @@ all transitions and meaningful timings
   malformed and duplicate responses cannot write stale state; exhausted attempts
   use an explicit safe fallback.
 - `humanflow.web`: a loopback FastAPI/WebSocket demo streams browser microphone
-  PCM into the core. Browser playback acknowledgements establish actual start,
-  completion, partial-play and cancellation boundaries; missing stop acknowledgements
-  enter safe handoff and never manufacture an audible-stop metric.
+  PCM into the core and accepts real `de-DE` Web Speech hypotheses. A modular,
+  fail-closed Anthropic reasoner retains per-session multi-turn context. Mandatory
+  browser speech synthesis returns playback start/completion/cancellation receipts;
+  missing stop acknowledgements enter safe handoff. Since Web Speech exposes no
+  exact interrupted sample offset, the browser conservatively reports zero rather
+  than manufacturing a partial-delivery metric.
 - `humanflow.evaluation`: immutable turn fixtures, executable T01-T20 torture
   scenarios, strict JSONL timeline replay, and an evidence-linked scorecard.
   Replay rejects sequence gaps, backwards monotonic time, illegal transitions,

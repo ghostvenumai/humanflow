@@ -1,22 +1,22 @@
 {
   "artifact_hashes": {
-    "browser-demo-benchmark.json": "91ec0288ecf52ca5f0630e1280f1049eb3ae65557e2f530bb75cd12669c0ab12",
+    "browser-demo-benchmark.json": "fa577add2c4b1d816bb649534e4b5dc700e4c762190b355e1c120dbb7bea334d",
     "dashboard-capture.json": "31e084d892d0f3d09caf1ba77dedd0e6afc457385f4a4344478b01d09346f989",
     "dashboard.png": "f1029b540da6d680b02638426889680945c85d7f6bf8cad43d1275d7755052bb",
-    "development-router.json": "81ef9053f9ad90cfacd1be78bf5bdde294ba2eb2475b1b4244d464a125247de7",
-    "realtime-core-benchmark.json": "a862d270c630ebca6dbd10270b8e93ee379e4e31801d67e6a75ce8fcfbf648dd",
-    "recovery-benchmark.json": "313a06ee0be19a539deff13e3f4660cd5638f65d1d82ccc2893934ee33cb9f75",
+    "development-router.json": "34f867cdc8e1c4ce1858628584f5b12199d39702bc9acfc6dd6acd46257df835",
+    "realtime-core-benchmark.json": "1c7d38a79167389112723fcc20058fda053017e3b5c2f4fc439aa14502bc59f5",
+    "recovery-benchmark.json": "9f0ba60171b4e44db79f0b7b7fa1b6992c7482521174e8e3ce56284114cd1d01",
     "runtime-quality-eval.json": "3c858ed6a4780acd7b2820fdbc976367e491bc32d90ddc51598aa558f5ae0a43",
-    "scorecard.json": "ec7b9cf73434627b490e70f0387fe01af9fe077bbfcdfe482a324a5e0d47c909",
-    "timeline-replay.json": "aae4eff80242c9b8cc406b8f6213ed65b9c93f4554b2325d40b0b2b275e7d86d",
-    "torture-run.json": "b7594ecfc98b3c05dc069ac3ae1949f0a20c5f821462e4a269271098778b40d4",
-    "tournament-readiness.json": "10f68e657b6c81bae818a9b3f2dd53670eb2358afef330cff809056f197fc92f",
-    "turn-benchmark.json": "8bdfd1e719513aeae3b2b744c69f0046318e2d2771e45f994f571af6d57fa4a5"
+    "scorecard.json": "29d960dc81ccef3206b2b26be4d290c89253b9ba2d180336d0973993a6e28153",
+    "timeline-replay.json": "4133c55276d4c94300666a750ad5860889e2e0172990d303077d63e024cbda8c",
+    "torture-run.json": "e93a7be232a1dac5582e46740ec004ec3491f49ec012b28a4d67244155f84565",
+    "tournament-readiness.json": "7cb232e2d496094b92b2531196a51e0205cd46d76e4e561f360a146b8897e1a5",
+    "turn-benchmark.json": "2b3b98c25024e17e077aeead60be10ab5d0c09f1f140ee275fa9574db70c66fb"
   },
   "automated_failures": 0,
   "demo_duration_target_minutes": "3-5",
-  "generated_at_utc": "2026-08-23T16:31:20.153614Z",
-  "git_commit": "1bf6edc5e1fbb5e38931d161e24cd31e061b8374",
+  "generated_at_utc": "2026-08-23T17:06:59.343520Z",
+  "git_commit": "e6ecf3b3d432e5ef64bce4c7ce617a7352b63eaf",
   "manual_requirements": [
     "Run the browser demo with microphone and audible output",
     "Validate German browser STT/TTS behavior on an actual supported browser",
