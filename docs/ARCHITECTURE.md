@@ -73,3 +73,12 @@ all transitions and meaningful timings
 ## Next runtime components
 
 1. Controlled quality-loop candidate evaluation against immutable evidence.
+
+## Controlled quality loop
+
+The loop hashes every protected path plus the iteration-specific runtime
+evaluation before and after each worktree evaluation. Baseline and candidate run
+the same full tests, lint, turn benchmark, realtime benchmark, T01-T20 torture
+suite, runtime-depth evaluation, and scorecard. Promotion is `KEEP` only for a
+strict score improvement with all commands passing and identical evidence hashes;
+every other outcome is `REVERT`.

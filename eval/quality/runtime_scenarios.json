@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "id": "RQ01",
+      "name": "runtime_background_overlap_lifecycle",
+      "input": {
+        "text": "Nachrichten im Hintergrund",
+        "background_speech_probability": 0.95,
+        "interruption_probability": 0.05
+      },
+      "expected": {
+        "decision": "UNCERTAIN",
+        "ordered_states": ["OVERLAP", "SPEAKING"],
+        "agent_audio_cancelled_events": 0
+      }
+    }
+  ]
+}

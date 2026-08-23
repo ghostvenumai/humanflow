@@ -1,0 +1,27 @@
+{
+  "fixture": {
+    "path": "eval/quality/runtime_scenarios.json",
+    "sha256": "672ef8115ec4b0d146cf92a181a8369eea342a90295a155b82995cfff7d5544e"
+  },
+  "results": [
+    {
+      "agent_audio_cancelled_events": 0,
+      "decision": "UNCERTAIN",
+      "id": "RQ01",
+      "observed_transitions": [
+        "LISTENING",
+        "THINKING",
+        "SPEAKING",
+        "LISTENING"
+      ],
+      "passed": false
+    }
+  ],
+  "schema_version": 1,
+  "summary": {
+    "failed": 1,
+    "passed": 0,
+    "score": 0.0,
+    "total": 1
+  }
+}

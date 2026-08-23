@@ -1,6 +1,6 @@
 schema_version: 1
-enabled: false
-dry_run_default: true
+enabled: true
+dry_run_default: false
 protected_paths:
   - tests/golden/
   - eval/golden/
@@ -18,4 +18,5 @@ promotion:
   require_full_regression: true
   require_immutable_benchmark: true
   require_score_improvement: true
-
+immutable_iteration_eval:
+  - eval/quality/runtime_scenarios.json
