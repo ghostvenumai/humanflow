@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "protected": true,
+  "metrics": {
+    "ttfa_ms": {
+      "start_event": "TURN_CONFIRMED",
+      "end_event": "AGENT_AUDIO_STARTED",
+      "clock": "monotonic_ns"
+    },
+    "audible_barge_in_latency_ms": {
+      "start_event": "INTERRUPTION_CANDIDATE",
+      "end_event": "AGENT_AUDIO_CANCELLED",
+      "end_condition": "playback_audibly_stopped",
+      "clock": "monotonic_ns"
+    },
+    "unexpected_hangups": {
+      "event": "CALL_ENDED",
+      "count_when": "termination_reason_unexpected"
+    }
+  },
+  "required_latency_percentiles": [50, 90, 95, 99],
+  "sample_size_required": true
+}
+

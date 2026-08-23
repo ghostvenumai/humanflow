@@ -1,0 +1,38 @@
+schema_version: 1
+protected: true
+minimum_labeled_cases: 50
+latency_reporting_percentiles: [50, 90, 95, 99]
+gates:
+  ttfa_ms:
+    statistic: p50
+    operator: lt
+    target: 700
+  audible_barge_in_latency_ms:
+    statistic: p50
+    operator: lt
+    target: 250
+  false_interruption_rate:
+    statistic: rate
+    operator: lt
+    target: 0.05
+  premature_endpoint_rate:
+    statistic: rate
+    operator: lt
+    target: 0.05
+  call_completion_rate:
+    statistic: rate
+    operator: gt
+    target: 0.98
+  tool_failure_recovery_rate:
+    statistic: rate
+    operator: gt
+    target: 0.95
+  unexpected_hangups:
+    statistic: count
+    operator: eq
+    target: 0
+  german_interruption_accuracy:
+    statistic: accuracy
+    operator: gt
+    target: 0.95
+

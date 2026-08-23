@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://humanflow.local/schemas/telemetry-event.schema.json",
+  "title": "HumanFlow Telemetry Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "conversation_id",
+    "correlation_id",
+    "sequence",
+    "timestamp_utc",
+    "monotonic_ns",
+    "state",
+    "reason_code",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"type": "string", "minLength": 1},
+    "conversation_id": {"type": "string", "minLength": 1},
+    "correlation_id": {"type": "string", "minLength": 1},
+    "sequence": {"type": "integer", "minimum": 1},
+    "timestamp_utc": {"type": "string", "format": "date-time"},
+    "monotonic_ns": {"type": "integer", "minimum": 0},
+    "state": {
+      "enum": [
+        "IDLE",
+        "LISTENING",
+        "POSSIBLE_END_OF_TURN",
+        "THINKING",
+        "SPEAKING",
+        "POSSIBLE_INTERRUPTION",
+        "INTERRUPTED",
+        "OVERLAP",
+        "TOOL_WAIT",
+        "RECOVERING",
+        "HANDOFF",
+        "DISCONNECTING",
+        "FAILED"
+      ]
+    },
+    "reason_code": {"type": "string", "minLength": 1},
+    "payload": {"type": "object"}
+  }
+}
+

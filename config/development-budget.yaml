@@ -1,0 +1,9 @@
+schema_version: 1
+currency: USD
+anthropic_total_usd: 100
+max_fable_per_task_usd: 1.00
+max_tournament_usd: 5.00
+max_loop_usd: 10.00
+fable_requires_explicit_human_approval: true
+stop_on_budget_exhaustion: true
+

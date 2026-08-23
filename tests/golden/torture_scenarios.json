@@ -1,0 +1,123 @@
+[
+  {
+    "id": "T01",
+    "category": "backchannel",
+    "scenario": "Caller says 'mhm' during agent speech",
+    "expected_evidence": "BACKCHANNEL_DETECTED without AGENT_AUDIO_CANCELLED"
+  },
+  {
+    "id": "T02",
+    "category": "backchannel",
+    "scenario": "Caller says 'ja' during agent speech",
+    "expected_evidence": "BACKCHANNEL_DETECTED without intentional interruption"
+  },
+  {
+    "id": "T03",
+    "category": "interruption",
+    "scenario": "Caller says 'Moment, stopp'",
+    "expected_evidence": "intentional interruption and measured audible stop"
+  },
+  {
+    "id": "T04",
+    "category": "correction",
+    "scenario": "Mid-sentence Thursday-to-Friday correction",
+    "expected_evidence": "single coherent turn with corrected context"
+  },
+  {
+    "id": "T05",
+    "category": "turn_detection",
+    "scenario": "Long hesitation",
+    "expected_evidence": "no premature endpoint before labeled completion"
+  },
+  {
+    "id": "T06",
+    "category": "turn_detection",
+    "scenario": "Unfinished sentence",
+    "expected_evidence": "CONTINUE_LISTENING decision with reason code"
+  },
+  {
+    "id": "T07",
+    "category": "background_speech",
+    "scenario": "Background speaker while agent talks",
+    "expected_evidence": "no false intentional interruption"
+  },
+  {
+    "id": "T08",
+    "category": "overlap",
+    "scenario": "Simultaneous caller and agent speech",
+    "expected_evidence": "explicit OVERLAP lifecycle and deterministic resolution"
+  },
+  {
+    "id": "T09",
+    "category": "tool_latency",
+    "scenario": "Four-second tool latency",
+    "expected_evidence": "audio/event loop remains responsive during TOOL_WAIT"
+  },
+  {
+    "id": "T10",
+    "category": "tool_timeout",
+    "scenario": "Tool timeout",
+    "expected_evidence": "RECOVERY_STARTED and controlled fallback"
+  },
+  {
+    "id": "T11",
+    "category": "tool_invalid_response",
+    "scenario": "Malformed tool response",
+    "expected_evidence": "validation failure without state corruption"
+  },
+  {
+    "id": "T12",
+    "category": "audio_failure",
+    "scenario": "Temporary output-audio failure",
+    "expected_evidence": "explicit recovery or handoff without random hangup"
+  },
+  {
+    "id": "T13",
+    "category": "model_failure",
+    "scenario": "Temporary reasoning-model failure",
+    "expected_evidence": "stale work invalidated and recovery reason recorded"
+  },
+  {
+    "id": "T14",
+    "category": "interruption",
+    "scenario": "Repeated interruption",
+    "expected_evidence": "each cancellation is idempotent and ledger-consistent"
+  },
+  {
+    "id": "T15",
+    "category": "speech_rate",
+    "scenario": "Rapid German speech",
+    "expected_evidence": "no endpoint caused only by short acoustic gaps"
+  },
+  {
+    "id": "T16",
+    "category": "language",
+    "scenario": "Colloquial German",
+    "expected_evidence": "turn decision remains reason-coded and replayable"
+  },
+  {
+    "id": "T17",
+    "category": "correction",
+    "scenario": "Compound self-correction",
+    "expected_evidence": "latest correction wins within one coherent user turn"
+  },
+  {
+    "id": "T18",
+    "category": "context",
+    "scenario": "Abrupt topic switch",
+    "expected_evidence": "new intent does not inherit stale async tool result"
+  },
+  {
+    "id": "T19",
+    "category": "silence",
+    "scenario": "Silence without transcript",
+    "expected_evidence": "UNCERTAIN rather than fabricated completion"
+  },
+  {
+    "id": "T20",
+    "category": "termination",
+    "scenario": "Caller says goodbye",
+    "expected_evidence": "expected termination reason and explicit CALL_ENDED"
+  }
+]
+

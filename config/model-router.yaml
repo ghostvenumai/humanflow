@@ -1,0 +1,18 @@
+schema_version: 1
+default_tier: standard
+tiers:
+  fast:
+    use_for: [fixtures, documentation, deterministic_small_fix]
+  standard:
+    use_for: [normal_coding, local_fix]
+  advanced:
+    use_for: [async_audio, state_machine, race_condition]
+  tournament:
+    use_for: [high_impact, ambiguous_root_cause]
+    requires_independent_candidates: true
+  frontier:
+    use_for: [hard_unresolved_architecture]
+    requires_human_budget_approval: true
+fallback_required: true
+record_resolved_model: true
+

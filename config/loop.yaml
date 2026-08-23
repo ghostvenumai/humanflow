@@ -1,0 +1,21 @@
+schema_version: 1
+enabled: false
+dry_run_default: true
+protected_paths:
+  - tests/golden/
+  - eval/golden/
+  - config/quality-gates.yaml
+  - docs/METRICS.md
+  - schemas/metric-definitions.json
+  - sprint/
+stop_file: STOP_LOOP
+limits:
+  max_iterations: 8
+  max_failed_iterations: 2
+  max_runtime_minutes: 90
+promotion:
+  require_targeted_tests: true
+  require_full_regression: true
+  require_immutable_benchmark: true
+  require_score_improvement: true
+
