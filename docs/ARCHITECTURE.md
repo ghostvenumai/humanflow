@@ -36,6 +36,17 @@ all transitions and meaningful timings
   with key-based secret redaction plus in-memory and JSONL sinks.
 - Operation epochs reject late results after interruption, cancellation, or
   recovery invalidates outstanding async work.
+- `humanflow.runtime`: one asynchronous session owns independent PCM input and
+  streaming-response tasks. Input remains accepted while output is paced, and
+  intentional interruption is complete only after the sink returns an actual
+  playback-stop timestamp.
+- `humanflow.audio`: validated PCM16 frames plus an append-only Played Audio
+  Ledger. Generated, queued, partially played, completely played, and cancelled
+  chunks remain distinct; conversation memory receives only complete semantic
+  chunks.
+- Provider protocols isolate STT, reasoning, TTS, and audio transport. The local
+  tone/output adapters exercise timing and cancellation but explicitly make no
+  speech-quality or production-provider claim.
 
 ## Invariants
 
@@ -49,9 +60,7 @@ all transitions and meaningful timings
 
 ## Next runtime components
 
-1. Played Audio Ledger with queued/played/cancelled semantic boundaries.
-2. Deterministic replay runner over the protected German corpus.
-3. Tool router with latency, timeout, malformed, duplicate and failure injection.
-4. Metrics aggregation and baseline comparison.
-5. Browser audio demo through replaceable provider adapters.
-
+1. Tool router with latency, timeout, malformed, duplicate and failure injection.
+2. Recovery controller with bounded retry, safe fallback, and stale-result rejection.
+3. Browser audio demo through the same provider boundaries.
+4. Deterministic event replay, metrics aggregation, and baseline comparison.

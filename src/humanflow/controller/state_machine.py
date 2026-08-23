@@ -201,6 +201,24 @@ class ConversationStateMachine:
             )
         return current
 
+    def record(
+        self,
+        event_type: EventType,
+        *,
+        correlation_id: str,
+        reason_code: str,
+        payload: Mapping[str, Any] | None = None,
+    ) -> TelemetryEvent:
+        """Record a runtime event in the state machine's ordered event stream."""
+        if not reason_code.strip():
+            raise ValueError("reason_code must not be empty")
+        return self._emit(
+            event_type,
+            correlation_id=correlation_id,
+            reason_code=reason_code,
+            payload=payload or {},
+        )
+
     def _emit(
         self,
         event_type: EventType,
@@ -222,4 +240,3 @@ class ConversationStateMachine:
         )
         self._sink.emit(event)
         return event
-
