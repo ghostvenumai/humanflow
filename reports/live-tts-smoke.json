@@ -3,11 +3,11 @@
   "cost_usd": "NOT_REPORTED",
   "failure": {
     "exception_type": "ElevenLabsProviderError",
-    "provider_error_code": "voice_not_found",
-    "provider_http_status": 404
+    "provider_error_code": "payment_required",
+    "provider_http_status": 402
   },
   "manual_voice_quality_attested": false,
-  "observed_utc": "2026-08-23T19:56:12.472977Z",
+  "observed_utc": "2026-08-23T20:02:41.647706Z",
   "provider": {
     "mode": "REAL",
     "model": "eleven_flash_v2_5",

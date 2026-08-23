@@ -413,7 +413,11 @@ def _safe_provider_error_code(raw_error: bytes) -> str | None:
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None
     detail = payload.get("detail") if isinstance(payload, dict) else None
-    code = detail.get("status") if isinstance(detail, dict) else None
+    code = (
+        detail.get("code") or detail.get("status")
+        if isinstance(detail, dict)
+        else None
+    )
     if not isinstance(code, str) or not re.fullmatch(r"[a-zA-Z0-9_.-]{1,80}", code):
         return None
     return code

@@ -12,6 +12,7 @@ from humanflow.runtime.elevenlabs_provider import (
     ElevenLabsStreamingTTSProvider,
     FallbackStreamingTTSProvider,
     SynthesisBudget,
+    _safe_provider_error_code,
 )
 from humanflow.runtime.prosody import ProsodyPlanner, SpeechIntent
 from humanflow.runtime.providers import (
@@ -212,3 +213,9 @@ def test_budget_stops_before_an_unbounded_provider_request() -> None:
 
     with pytest.raises(RuntimeError, match="tts_character_budget_exhausted"):
         budget.reserve("x")
+
+
+def test_provider_error_parser_prefers_specific_safe_code() -> None:
+    raw = b'{"detail":{"code":"insufficient_credits","status":"payment_required"}}'
+
+    assert _safe_provider_error_code(raw) == "insufficient_credits"
