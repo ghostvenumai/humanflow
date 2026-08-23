@@ -1,0 +1,172 @@
+{
+  "commands": [
+    {
+      "argv": [
+        "python3",
+        "-m",
+        "pytest",
+        "-q"
+      ],
+      "elapsed_ms": 1789.025,
+      "output_tail": [
+        "...........................................                              [100%]",
+        "43 passed in 1.20s"
+      ],
+      "returncode": 0
+    },
+    {
+      "argv": [
+        "ruff",
+        "check",
+        "."
+      ],
+      "elapsed_ms": 13.628,
+      "output_tail": [
+        "All checks passed!"
+      ],
+      "returncode": 0
+    },
+    {
+      "argv": [
+        "python3",
+        "scripts/benchmark_turns.py"
+      ],
+      "elapsed_ms": 170.703,
+      "output_tail": [
+        "          \"INTERRUPTION\": 8",
+        "        },",
+        "        \"LIKELY_COMPLETE\": {",
+        "          \"LIKELY_COMPLETE\": 7",
+        "        },",
+        "        \"UNCERTAIN\": {",
+        "          \"UNCERTAIN\": 6",
+        "        }",
+        "      },",
+        "      \"correct\": 50,",
+        "      \"failed_case_ids\": [],",
+        "      \"policy_name\": \"HybridTurnPolicy\",",
+        "      \"total\": 50",
+        "    }",
+        "  ],",
+        "  \"generated_utc\": \"2026-08-23T16:07:41.657203Z\",",
+        "  \"git_commit\": \"65cf3ecb132b713b40a882f7f108994e8c72a074\",",
+        "  \"schema_version\": 1,",
+        "  \"winner\": \"HybridTurnPolicy\"",
+        "}"
+      ],
+      "returncode": 0
+    },
+    {
+      "argv": [
+        "python3",
+        "scripts/benchmark_realtime_core.py"
+      ],
+      "elapsed_ms": 1253.276,
+      "output_tail": [
+        "    \"mean\": 0.401,",
+        "    \"min\": 0.132,",
+        "    \"n\": 40,",
+        "    \"p50\": 0.365,",
+        "    \"p90\": 0.687,",
+        "    \"p95\": 0.99,",
+        "    \"p99\": 1.424",
+        "  },",
+        "  \"ttfa_ms\": {",
+        "    \"max\": 17.61,",
+        "    \"mean\": 11.26,",
+        "    \"min\": 9.055,",
+        "    \"n\": 40,",
+        "    \"p50\": 11.404,",
+        "    \"p90\": 12.395,",
+        "    \"p95\": 13.309,",
+        "    \"p99\": 16.29",
+        "  }",
+        "}",
+        "report=reports/realtime-core-benchmark.json"
+      ],
+      "returncode": 0
+    },
+    {
+      "argv": [
+        "python3",
+        "scripts/run_torture.py"
+      ],
+      "elapsed_ms": 4567.918,
+      "output_tail": [
+        "{",
+        "  \"failed\": 0,",
+        "  \"passed\": 20,",
+        "  \"total\": 20",
+        "}",
+        "report=/home/serverserver/HumanFlow-PreStart/humanflow/reports/torture-run.json"
+      ],
+      "returncode": 0
+    },
+    {
+      "argv": [
+        "python3",
+        "scripts/evaluate_runtime_quality.py"
+      ],
+      "elapsed_ms": 430.389,
+      "output_tail": [
+        "{",
+        "  \"failed\": 1,",
+        "  \"passed\": 0,",
+        "  \"score\": 0.0,",
+        "  \"total\": 1",
+        "}",
+        "report=/home/serverserver/HumanFlow-PreStart/humanflow/reports/runtime-quality-eval.json"
+      ],
+      "returncode": 0
+    },
+    {
+      "argv": [
+        "python3",
+        "scripts/build_scorecard.py"
+      ],
+      "elapsed_ms": 182.289,
+      "output_tail": [
+        "{",
+        "  \"engineering_evidence_status\": \"PASS_LOCAL_EVIDENCE\",",
+        "  \"gates_failed\": 0,",
+        "  \"gates_passed\": 8,",
+        "  \"gates_total\": 8,",
+        "  \"production_release_claim\": \"NOT_ESTABLISHED_NO_REAL_CALL_DATA\"",
+        "}",
+        "report=/home/serverserver/HumanFlow-PreStart/humanflow/reports/scorecard.json"
+      ],
+      "returncode": 0
+    }
+  ],
+  "commands_passed": true,
+  "generated_at_utc": "2026-08-23T16:07:48.124560Z",
+  "git_commit": "65cf3ecb132b713b40a882f7f108994e8c72a074",
+  "protected_hashes": {
+    "config/quality-gates.yaml": "a7f894864ad2616426b4ac78384b416470c24af61668fa5b6386496f3aa50bb1",
+    "docs/METRICS.md": "26653f6ddf0fcf943df75bc5621ac49313a632be54cf2288628e883c285c9a83",
+    "eval/quality/runtime_scenarios.json": "672ef8115ec4b0d146cf92a181a8369eea342a90295a155b82995cfff7d5544e",
+    "schemas/metric-definitions.json": "290a72536ad8b564fa156b629db930bf498753bb3f2096f5fd00b6202d0d375f",
+    "sprint/checkpoints/checkpoint_20260823_151932Z.json": "348dc564547c69f33f384cbd3d7709a9c095f96a04aebf352e044823b100602e",
+    "sprint/checkpoints/checkpoint_20260823_153348Z.json": "bfaeb3171d6ef8876368c96a4598e3ae9f9d16f7e09f8eb4fac34b258d9f8343",
+    "sprint/checkpoints/checkpoint_20260823_153835Z.json": "9db63c67df7d3a13ecaefe534598b30f8827aabe9b962b4365c0ff50b5057c43",
+    "sprint/checkpoints/checkpoint_20260823_155353Z.json": "b9cd6d80c4e97674ebb1bd349ba4e5e6e5d217f8e21c5e1c8017fdbe461074f1",
+    "sprint/checkpoints/checkpoint_20260823_160146Z.json": "5a5126dd02c2361ed5485db190d799db190132dabad8324cc7d41831e3ca5c1d",
+    "sprint/checkpoints/checkpoint_20260823_160507Z.json": "c7e3b44d2449d2e5aeba986f5530f3156c147d1dc7946fbdb7d3d26b95d53769",
+    "sprint/evidence/preflight.md": "1c4beff42ecb3fa7c805aa6f2511b14c208e9df39a361884dba1e4fb7564e5ac",
+    "sprint/evidence/preflight_status.json": "6c70aaacd11995bc59a103375b0db23a22a8f804d37afa7a2c7dbb821223cffc",
+    "sprint/provenance.jsonl": "0f86c62aea3a5e1c965e9ccefc8947214f918c23c57c10a3c2f4b141c9fcf355",
+    "sprint/start.json": "1c25006b525abe762d1d92a8caa74856b4407e3ad24c182cf4401a3e83dcc233",
+    "tests/golden/test_torture_catalog.py": "f697bc3962176d85cdf35b78845b4f6b79f9b07a028379afc931504b58e31d58",
+    "tests/golden/test_turn_corpus.py": "a76dec7728614f7daabaefcb87d38f8966b4c195b9a5515a64d1fade220d9dc5",
+    "tests/golden/torture_scenarios.json": "98b763cb8258362c64ab4875edd7e53b1918efb2cc6f5b92adfb4a52b308318f",
+    "tests/golden/turn_cases.jsonl": "89e2e2c0ae56e2a88c2a7a2cf7a956365b3ed3004b5f7cfffb6fbaf1d6f48e99"
+  },
+  "root": "/home/serverserver/HumanFlow-PreStart/humanflow",
+  "runtime_quality": {
+    "immutable_eval_sha256": "672ef8115ec4b0d146cf92a181a8369eea342a90295a155b82995cfff7d5544e",
+    "passed": 0,
+    "score": 0.0,
+    "total": 1
+  },
+  "schema_version": 1
+}

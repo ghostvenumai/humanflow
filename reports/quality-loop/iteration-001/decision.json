@@ -1,0 +1,14 @@
+{
+  "baseline_commit": "65cf3ecb132b713b40a882f7f108994e8c72a074",
+  "baseline_score": 0.0,
+  "candidate_commands_passed": true,
+  "candidate_commit": "662ec1989822c72cf6b275fe8e864fe145b10e2c",
+  "candidate_score": 1.0,
+  "decision": "KEEP",
+  "immutable_eval_hash_equal": true,
+  "protected_hashes_equal": true,
+  "reasons": [
+    "immutable_eval_improved_with_full_regression_pass"
+  ],
+  "schema_version": 1
+}

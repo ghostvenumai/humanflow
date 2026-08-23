@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "iteration": 1,
+  "workflow": {
+    "MEASURE": {
+      "baseline_commit": "65cf3ecb132b713b40a882f7f108994e8c72a074",
+      "runtime_quality_score": 0.0
+    },
+    "FIND_LARGEST_QUALITY_GAP": "T08 overlap was proven only at the state-machine level, not through RealtimeVoiceSession",
+    "ROOT_CAUSE": "UNCERTAIN probable background speech emitted a turn candidate but no explicit OVERLAP lifecycle",
+    "ENGINEERING_TASK": "Route high-probability background speech during agent playback through OVERLAP and resolve non-interruptingly to SPEAKING",
+    "IMPLEMENT": {
+      "isolated_worktree": "/home/serverserver/HumanFlow-PreStart/humanflow-loop-overlap-001",
+      "candidate_commit": "662ec1989822c72cf6b275fe8e864fe145b10e2c"
+    },
+    "TEST": {
+      "candidate_commands_passed": true,
+      "full_regression_included": true,
+      "torture_t01_t20_included": true
+    },
+    "BENCHMARK": {
+      "immutable_eval_sha256": "672ef8115ec4b0d146cf92a181a8369eea342a90295a155b82995cfff7d5544e",
+      "baseline_score": 0.0,
+      "candidate_score": 1.0,
+      "protected_hashes_equal": true
+    },
+    "KEEP_OR_REVERT": "KEEP",
+    "POST_KEEP": {
+      "main_commit": "986f495a9584c2aaff6fc684848a124e1c3baeb0",
+      "commands_passed": true,
+      "runtime_quality_score": 1.0
+    },
+    "NEXT_ITERATION": "Select the next largest evidence-backed gap after router/tournament infrastructure is measurable"
+  }
+}

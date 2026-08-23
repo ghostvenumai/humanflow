@@ -4,13 +4,13 @@
       "sha256": "a7f894864ad2616426b4ac78384b416470c24af61668fa5b6386496f3aa50bb1"
     },
     "reports/realtime-core-benchmark.json": {
-      "sha256": "366d9b24deafd6dfe6fc6ffac8d02667bdce3e00cc435f48aeea9932393f184c"
+      "sha256": "2fcc75fa87fe383c6dba65983c65c73654aae75e8f5fa1c440e0d25f2349fc55"
     },
     "reports/recovery-benchmark.json": {
       "sha256": "a48c8706cfb28a6f286da4e9c8a803a1fe3695e6a1ddb26dcd3c85b46e4cb86b"
     },
     "reports/torture-run.json": {
-      "sha256": "f7771c142151d1a030660b88747ebdc81ba247eb822150a5ddb4a495315d37a7"
+      "sha256": "b8e19db3acc9c5aaed64db8495a3ce9818494064b7b42490abc049c2e9d12ed7"
     },
     "tests/golden/turn_cases.jsonl": {
       "sha256": "89e2e2c0ae56e2a88c2a7a2cf7a956365b3ed3004b5f7cfffb6fbaf1d6f48e99"
@@ -18,7 +18,7 @@
   },
   "gates": {
     "audible_barge_in_latency_ms": {
-      "observed": 2.685,
+      "observed": 2.604,
       "operator": "lt",
       "passed": true,
       "sample_count": 40,
@@ -66,7 +66,7 @@
       "target": 0.95
     },
     "ttfa_ms": {
-      "observed": 11.419,
+      "observed": 11.136,
       "operator": "lt",
       "passed": true,
       "sample_count": 40,
@@ -82,14 +82,14 @@
       "target": 0
     }
   },
-  "generated_at_utc": "2026-08-23T16:01:28.289042Z",
+  "generated_at_utc": "2026-08-23T16:08:29.457869Z",
   "metrics": {
     "audible_barge_in_latency_ms": {
       "sample_count": 40,
       "scope": "local_timed_pcm_sink",
       "source": "reports/realtime-core-benchmark.json",
       "statistic": "p50",
-      "value": 2.685
+      "value": 2.604
     },
     "call_completion_rate": {
       "numerator": 1,
@@ -136,7 +136,7 @@
       "scope": "local_event_loop_transport",
       "source": "reports/realtime-core-benchmark.json",
       "statistic": "p50",
-      "value": 11.419
+      "value": 11.136
     },
     "unexpected_hangups": {
       "sample_count": 1,
