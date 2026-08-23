@@ -1,5 +1,5 @@
 {
-  "captured_utc": "2026-08-23T17:22:17.943074Z",
+  "captured_utc": "2026-08-23T21:14:50.633344Z",
   "checks": {
     "cancel_message_seen": true,
     "followup_answer_contains_56": true,
@@ -8,14 +8,14 @@
     "server_cancellation_event_seen": true
   },
   "followup": {
-    "response": "Sieben mal acht ist 56.",
-    "speech_chunks": 1,
+    "response": "Ich bin HumanFlow, ein KI-Assistent. Sieben mal acht ist sechsundfünfzig.",
+    "speech_chunks": 2,
     "transcript": "Was ist sieben mal acht?"
   },
   "manual_validation": "REQUIRED_NOT_ATTESTED",
   "metrics": {
-    "controller_stop_ack_latency_ms": 7.24941,
-    "followup_first_model_output_ms": 1066.314033,
+    "controller_stop_ack_latency_ms": 5.752514,
+    "followup_first_model_output_ms": 948.370119,
     "reported_played_samples": 0
   },
   "schema_version": 1,

@@ -34,6 +34,7 @@ from humanflow.runtime.elevenlabs_provider import (
 )
 from humanflow.runtime.providers import (
     BrowserSpeechSynthesisAdapter,
+    GaplessSegmentTTSProvider,
     NullTranscriber,
     ProviderInfo,
     ProviderMode,
@@ -95,6 +96,26 @@ class DemoRuntimeConfig:
 
     def provider_payload(self) -> list[dict[str, str]]:
         return [status.to_dict() for status in self.providers]
+
+
+class BrowserSessionLease:
+    """Allow exactly one browser demo to own device playback at a time."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._active_conversation_id: str | None = None
+
+    async def acquire(self, conversation_id: str) -> bool:
+        async with self._lock:
+            if self._active_conversation_id is not None:
+                return False
+            self._active_conversation_id = conversation_id
+            return True
+
+    async def release(self, conversation_id: str) -> None:
+        async with self._lock:
+            if self._active_conversation_id == conversation_id:
+                self._active_conversation_id = None
 
 
 def load_demo_runtime_config(
@@ -215,9 +236,11 @@ def load_demo_runtime_config(
             model=tts_model or DEFAULT_ELEVENLABS_MODEL,
             budget=tts_budget,
         )
-        return FallbackStreamingTTSProvider(
-            primary=primary,
-            fallback=BrowserSpeechSynthesisAdapter(),
+        return GaplessSegmentTTSProvider(
+            FallbackStreamingTTSProvider(
+                primary=primary,
+                fallback=BrowserSpeechSynthesisAdapter(),
+            )
         )
 
     return DemoRuntimeConfig(
@@ -235,6 +258,7 @@ def load_demo_runtime_config(
 def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
     runtime = runtime_config or load_demo_runtime_config()
     assessment_lock = asyncio.Lock()
+    browser_session_lease = BrowserSessionLease()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -315,13 +339,24 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             )
             await websocket.close(code=1011)
             return
+        conversation_id = str(uuid4())
+        input_only = websocket.query_params.get("mode") == "input-only"
+        if not await browser_session_lease.acquire(conversation_id):
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "code": "another_browser_session_owns_playback",
+                }
+            )
+            await websocket.close(code=1008)
+            return
         outbound: asyncio.Queue[OutboundItem | None] = asyncio.Queue()
         audio_output = BrowserAcknowledgedAudioOutput(
             outbound, acknowledgement_timeout_s=15.0
         )
         sink = BrowserTelemetrySink(outbound)
         session = RealtimeVoiceSession(
-            conversation_id=str(uuid4()),
+            conversation_id=conversation_id,
             sink=sink,
             transcriber=NullTranscriber(),
             reasoner=runtime.reasoner_factory(),
@@ -330,6 +365,7 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
         )
         sequence = 0
         controls: asyncio.Queue[str] = asyncio.Queue()
+        seen_final_transcript_ids: set[str] = set()
 
         async def send_loop() -> None:
             while True:
@@ -348,7 +384,14 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             while True:
                 payload = await controls.get()
                 try:
-                    await _handle_json(payload, session, audio_output, outbound)
+                    await _handle_json(
+                        payload,
+                        session,
+                        audio_output,
+                        outbound,
+                        seen_final_transcript_ids=seen_final_transcript_ids,
+                        input_only=input_only,
+                    )
                 finally:
                     controls.task_done()
 
@@ -362,10 +405,18 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                 "type": "ready",
                 "conversation_id": session.state_machine.conversation_id,
                 "input_format": {"encoding": "pcm_s16le", "sample_rate_hz": 16000, "channels": 1},
-                "output_mode": "streaming_pcm_with_visible_browser_speech_fallback",
+                "output_mode": (
+                    "disabled_input_routing_isolation"
+                    if input_only
+                    else "streaming_pcm_with_visible_browser_speech_fallback"
+                ),
                 "providers": runtime.provider_payload(),
                 "manual_validation": "REQUIRED_NOT_ATTESTED",
-                "demo_limit": "Browser STT, echtes ElevenLabs Streaming-TTS und reales Reasoning; kein Web- oder Kalender-Tool.",
+                "demo_limit": (
+                    "INPUT-ONLY: kein Reasoning- oder TTS-Aufruf."
+                    if input_only
+                    else "Browser STT, echtes ElevenLabs Streaming-TTS und reales Reasoning; kein Web- oder Kalender-Tool."
+                ),
             }
         )
         try:
@@ -401,7 +452,10 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             controller.cancel()
             sender.cancel()
             await asyncio.gather(controller, sender, return_exceptions=True)
-            await session.close(reason_code="browser_disconnected")
+            try:
+                await session.close(reason_code="browser_disconnected")
+            finally:
+                await browser_session_lease.release(conversation_id)
 
     return application
 
@@ -544,6 +598,9 @@ async def _handle_json(
     session: RealtimeVoiceSession,
     audio_output: BrowserAcknowledgedAudioOutput,
     outbound: asyncio.Queue[OutboundItem | None],
+    *,
+    seen_final_transcript_ids: set[str] | None = None,
+    input_only: bool = False,
 ) -> None:
     import json
 
@@ -596,12 +653,35 @@ async def _handle_json(
     if not isinstance(text, str) or not text.strip() or len(text) > 4_096:
         outbound.put_nowait({"type": "error", "code": "invalid_transcript"})
         return
+    is_final = bool(message.get("final", False))
+    source = message.get("source")
+    if source == "browser_stt" and is_final:
+        recognition_result_id = message.get("recognition_result_id")
+        if not isinstance(recognition_result_id, str) or not recognition_result_id.strip():
+            outbound.put_nowait(
+                {"type": "error", "code": "missing_recognition_result_id"}
+            )
+            return
+        final_ids = seen_final_transcript_ids if seen_final_transcript_ids is not None else set()
+        if recognition_result_id in final_ids:
+            session.state_machine.record(
+                EventType.DUPLICATE_TRANSCRIPT_REJECTED,
+                correlation_id=str(uuid4()),
+                reason_code="browser_final_result_id_already_processed",
+                payload={"recognition_result_id": recognition_result_id},
+            )
+            outbound.put_nowait(
+                {"type": "error", "code": "duplicate_final_transcript_rejected"}
+            )
+            return
+        if len(final_ids) >= 4_096:
+            raise RuntimeError("browser_transcript_dedupe_capacity_exceeded")
+        final_ids.add(recognition_result_id)
     raw_signals = message.get("signals", {})
     if not isinstance(raw_signals, dict):
         outbound.put_nowait({"type": "error", "code": "invalid_signals"})
         return
     try:
-        source = message.get("source")
         if source == "browser_stt":
             transcript_provider = ProviderInfo(
                 role="stt",
@@ -631,14 +711,35 @@ async def _handle_json(
             interruption_probability=float(raw_signals.get("interruption_probability", 0.0)),
             provider_endpointed=bool(raw_signals.get("provider_endpointed", False)),
         )
-        decision = await session.submit_transcript(
-            TranscriptUpdate(
-                text=text.strip(),
-                is_final=bool(message.get("final", False)),
-                signals=signals,
-                provider=transcript_provider,
-            )
+        update = TranscriptUpdate(
+            text=text.strip(),
+            is_final=is_final,
+            signals=signals,
+            provider=transcript_provider,
         )
+        if input_only:
+            session.state_machine.record(
+                EventType.FINAL_TRANSCRIPT if is_final else EventType.PARTIAL_TRANSCRIPT,
+                correlation_id=str(uuid4()),
+                reason_code="input_only_browser_routing_probe",
+                payload={
+                    "text": update.text,
+                    "provider": transcript_provider.to_dict(),
+                    "recognition_result_id": message.get("recognition_result_id"),
+                    "reasoning_called": False,
+                    "tts_called": False,
+                },
+            )
+            outbound.put_nowait(
+                {
+                    "type": "input_probe_transcript",
+                    "text": update.text,
+                    "final": update.is_final,
+                    "recognition_result_id": message.get("recognition_result_id"),
+                }
+            )
+            return
+        decision = await session.submit_transcript(update)
     except (TypeError, ValueError) as error:
         outbound.put_nowait(
             {"type": "error", "code": "invalid_signal_value", "detail": type(error).__name__}

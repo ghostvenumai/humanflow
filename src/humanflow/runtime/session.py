@@ -80,6 +80,11 @@ class RealtimeVoiceSession:
         self._cancel_requested_ns: int | None = None
         self._cancel_correlation_id: str | None = None
         self._last_playback_receipt: PlaybackReceipt | None = None
+        self._playback_owner_response_id: str | None = None
+        self._active_tts_provider: tuple[str, str, str] | None = None
+        self._seen_audio_chunk_ids: set[str] = set()
+        self._seen_audio_sequences: set[tuple[str, int]] = set()
+        self._cancelled_response_ids: set[str] = set()
         self._user_audio_active = False
         self._closed = False
 
@@ -172,6 +177,8 @@ class RealtimeVoiceSession:
             payload={"detected_ns": request_ns},
         )
         self._cancel_event.set()
+        if self._response_id is not None:
+            self._cancelled_response_ids.add(self._response_id)
         await self._audio_stopped.wait()
         receipt = self._last_playback_receipt
         if receipt is None or not receipt.cancelled:
@@ -487,7 +494,18 @@ class RealtimeVoiceSession:
                             if self._cancel_event.is_set() or not self.state_machine.accept_result(
                                 token, correlation_id=correlation_id
                             ):
+                                self._record_stale_chunk(
+                                    chunk=chunk,
+                                    response_id=response_id,
+                                    correlation_id=correlation_id,
+                                )
                                 break
+                            if not self._accept_audio_chunk(
+                                chunk=chunk,
+                                response_id=response_id,
+                                correlation_id=correlation_id,
+                            ):
+                                continue
                             segment_audio_emitted = True
                             actual_speech_provider = (
                                 dict(chunk.provider)
@@ -553,6 +571,12 @@ class RealtimeVoiceSession:
                                         correlation_id=correlation_id,
                                     )
 
+                            self.state_machine.record(
+                                EventType.AUDIO_CHUNK_SCHEDULED,
+                                correlation_id=correlation_id,
+                                reason_code="single_owner_playback_schedule",
+                                payload=self._audio_chunk_payload(chunk),
+                            )
                             receipt = await self._audio_output.play(
                                 chunk,
                                 cancel_event=self._cancel_event,
@@ -568,6 +592,30 @@ class RealtimeVoiceSession:
                             )
                             self._last_playback_receipt = receipt
                             self.ledger.record_playback(receipt)
+                            self.state_machine.record(
+                                EventType.AUDIO_CHUNK_PLAYED,
+                                correlation_id=correlation_id,
+                                reason_code=(
+                                    "browser_playback_cancelled"
+                                    if receipt.cancelled
+                                    else "browser_playback_completed"
+                                ),
+                                payload={
+                                    **self._audio_chunk_payload(chunk),
+                                    "played_samples": receipt.played_samples,
+                                    "requested_samples": receipt.requested_samples,
+                                    "cancelled": receipt.cancelled,
+                                    "playback_started_ns": receipt.playback_started_ns,
+                                    "playback_stopped_ns": receipt.playback_stopped_ns,
+                                    "source_node_id": receipt.source_node_id,
+                                    "browser_scheduled_start_ms": (
+                                        receipt.browser_scheduled_start_ms
+                                    ),
+                                    "browser_actual_playback_start_ms": (
+                                        receipt.browser_actual_playback_start_ms
+                                    ),
+                                },
+                            )
                             if (
                                 receipt.sink_base_latency_ms is not None
                                 or receipt.sink_output_latency_ms is not None
@@ -588,6 +636,13 @@ class RealtimeVoiceSession:
                                         ),
                                         "player_stop_callback_latency_ms": (
                                             receipt.player_stop_callback_latency_ms
+                                        ),
+                                        "source_node_id": receipt.source_node_id,
+                                        "browser_scheduled_start_ms": (
+                                            receipt.browser_scheduled_start_ms
+                                        ),
+                                        "browser_actual_playback_start_ms": (
+                                            receipt.browser_actual_playback_start_ms
                                         ),
                                     },
                                 )
@@ -722,7 +777,152 @@ class RealtimeVoiceSession:
                         correlation_id=correlation_id,
                     )
             self.ledger.assert_invariants()
+            self._release_playback_owner(
+                response_id=response_id,
+                correlation_id=correlation_id,
+            )
             self._audio_stopped.set()
+
+    @staticmethod
+    def _audio_chunk_payload(chunk: AudioChunk) -> dict[str, object]:
+        return {
+            "response_id": chunk.response_id,
+            "stream_id": chunk.frame.stream_id,
+            "chunk_id": chunk.chunk_id,
+            "sequence": chunk.frame.sequence,
+            "chunk_byte_length": len(chunk.frame.pcm16),
+            "codec": "pcm_s16le",
+            "sample_rate_hz": chunk.frame.sample_rate_hz,
+            "decoded_duration_ms": chunk.frame.duration_ms,
+            "provider": dict(chunk.provider),
+        }
+
+    def _record_stale_chunk(
+        self,
+        *,
+        chunk: AudioChunk,
+        response_id: str,
+        correlation_id: str,
+    ) -> None:
+        self.state_machine.record(
+            EventType.STALE_CHUNK_REJECTED,
+            correlation_id=correlation_id,
+            reason_code="cancelled_or_invalid_operation_epoch",
+            payload={
+                **self._audio_chunk_payload(chunk),
+                "expected_response_id": response_id,
+            },
+        )
+
+    def _accept_audio_chunk(
+        self,
+        *,
+        chunk: AudioChunk,
+        response_id: str,
+        correlation_id: str,
+    ) -> bool:
+        if chunk.response_id != response_id or response_id in self._cancelled_response_ids:
+            self._record_stale_chunk(
+                chunk=chunk,
+                response_id=response_id,
+                correlation_id=correlation_id,
+            )
+            return False
+        sequence_key = (chunk.frame.stream_id, chunk.frame.sequence)
+        if (
+            chunk.chunk_id in self._seen_audio_chunk_ids
+            or sequence_key in self._seen_audio_sequences
+        ):
+            self.state_machine.record(
+                EventType.DUPLICATE_CHUNK_REJECTED,
+                correlation_id=correlation_id,
+                reason_code="chunk_id_or_stream_sequence_already_seen",
+                payload=self._audio_chunk_payload(chunk),
+            )
+            return False
+        if self._playback_owner_response_id is None:
+            self._playback_owner_response_id = response_id
+            self.state_machine.record(
+                EventType.PLAYBACK_OWNER_CREATED,
+                correlation_id=correlation_id,
+                reason_code="response_acquired_exclusive_playback",
+                payload={
+                    "response_id": response_id,
+                    "active_playback_owners": 1,
+                },
+            )
+        elif self._playback_owner_response_id != response_id:
+            self._record_stale_chunk(
+                chunk=chunk,
+                response_id=response_id,
+                correlation_id=correlation_id,
+            )
+            return False
+
+        provider_key = (
+            str(chunk.provider.get("provider", "unknown")),
+            str(chunk.provider.get("model", "unknown")),
+            chunk.playback_mode.value,
+        )
+        if self._active_tts_provider is None:
+            self._active_tts_provider = provider_key
+            self.state_machine.record(
+                EventType.TTS_PROVIDER_ACTIVATED,
+                correlation_id=correlation_id,
+                reason_code="response_provider_pinned",
+                payload={
+                    "response_id": response_id,
+                    "provider": dict(chunk.provider),
+                    "playback_mode": chunk.playback_mode.value,
+                    "active_tts_playback_providers": 1,
+                },
+            )
+        elif self._active_tts_provider != provider_key:
+            raise RuntimeError("active_tts_playback_providers_exceeded")
+
+        self._seen_audio_chunk_ids.add(chunk.chunk_id)
+        self._seen_audio_sequences.add(sequence_key)
+        self.state_machine.record(
+            EventType.AUDIO_CHUNK_RECEIVED,
+            correlation_id=correlation_id,
+            reason_code="unique_chunk_accepted",
+            payload=self._audio_chunk_payload(chunk),
+        )
+        return True
+
+    def _release_playback_owner(
+        self,
+        *,
+        response_id: str,
+        correlation_id: str,
+    ) -> None:
+        if self._playback_owner_response_id != response_id:
+            return
+        if self._active_tts_provider is not None:
+            provider, model, playback_mode = self._active_tts_provider
+            self.state_machine.record(
+                EventType.TTS_PROVIDER_DEACTIVATED,
+                correlation_id=correlation_id,
+                reason_code="response_playback_released",
+                payload={
+                    "response_id": response_id,
+                    "provider": provider,
+                    "model": model,
+                    "playback_mode": playback_mode,
+                    "active_tts_playback_providers": 0,
+                },
+            )
+        self.state_machine.record(
+            EventType.PLAYBACK_OWNER_DESTROYED,
+            correlation_id=correlation_id,
+            reason_code="response_playback_released",
+            payload={
+                "response_id": response_id,
+                "active_playback_owners": 0,
+            },
+        )
+        self._active_tts_provider = None
+        self._playback_owner_response_id = None
 
     def _playback_started(
         self,

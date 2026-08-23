@@ -109,6 +109,9 @@ class PlaybackReceipt:
     sink_base_latency_ms: float | None = None
     sink_output_latency_ms: float | None = None
     player_stop_callback_latency_ms: float | None = None
+    source_node_id: str | None = None
+    browser_scheduled_start_ms: float | None = None
+    browser_actual_playback_start_ms: float | None = None
 
     def __post_init__(self) -> None:
         if not self.chunk_id.strip():
@@ -127,7 +130,11 @@ class PlaybackReceipt:
             "sink_base_latency_ms",
             "sink_output_latency_ms",
             "player_stop_callback_latency_ms",
+            "browser_scheduled_start_ms",
+            "browser_actual_playback_start_ms",
         ):
             value = getattr(self, name)
             if value is not None and value < 0:
                 raise ValueError(f"{name} must be non-negative")
+        if self.source_node_id is not None and not self.source_node_id.strip():
+            raise ValueError("source_node_id must be non-empty when present")

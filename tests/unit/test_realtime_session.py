@@ -315,3 +315,55 @@ def test_background_speech_uses_explicit_non_interrupting_overlap_lifecycle() ->
         await session.close()
 
     asyncio.run(scenario())
+
+
+def test_playback_owner_provider_and_chunk_lifecycle_are_unique_and_ordered() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        session = RealtimeVoiceSession(
+            conversation_id="call-playback-invariants",
+            sink=sink,
+            transcriber=CountingTranscriber(),
+            reasoner=WordReasoner(),
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=2),
+            audio_output=TimedPcmOutput(quantum_ms=1),
+        )
+        await session.start()
+        await session.submit_transcript(_complete())
+        await session.wait_for_response()
+
+        event_types = [event.event_type for event in sink.events]
+        assert event_types.count(EventType.PLAYBACK_OWNER_CREATED) == 1
+        assert event_types.count(EventType.PLAYBACK_OWNER_DESTROYED) == 1
+        assert event_types.count(EventType.TTS_PROVIDER_ACTIVATED) == 1
+        assert event_types.count(EventType.TTS_PROVIDER_DEACTIVATED) == 1
+        received = [
+            event for event in sink.events
+            if event.event_type is EventType.AUDIO_CHUNK_RECEIVED
+        ]
+        scheduled = [
+            event for event in sink.events
+            if event.event_type is EventType.AUDIO_CHUNK_SCHEDULED
+        ]
+        played = [
+            event for event in sink.events
+            if event.event_type is EventType.AUDIO_CHUNK_PLAYED
+        ]
+        assert len(received) == len(scheduled) == len(played) > 0
+        assert len({event.payload["chunk_id"] for event in received}) == len(received)
+        assert len(
+            {
+                (event.payload["stream_id"], event.payload["sequence"])
+                for event in scheduled
+            }
+        ) == len(scheduled)
+        assert not any(
+            event.event_type in {
+                EventType.DUPLICATE_CHUNK_REJECTED,
+                EventType.STALE_CHUNK_REJECTED,
+            }
+            for event in sink.events
+        )
+        await session.close()
+
+    asyncio.run(scenario())

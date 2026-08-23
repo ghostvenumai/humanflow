@@ -1,0 +1,20 @@
+{
+  "accepted_texts": [
+    "Das ist der erste echte Mikrofonsatz.",
+    "Hier folgt der zweite echte Mikrofonsatz.",
+    "Nur meine Sprache darf als Nutzertext erscheinen."
+  ],
+  "agent_attestation": false,
+  "assistant_payloads_accepted_as_user_transcript": 0,
+  "assistant_routing_payloads_attempted": 1,
+  "browser_stt_final_payloads_sent": 4,
+  "conversation_controller_calls": 0,
+  "duplicate_final_transcripts_rejected": 1,
+  "manual_browser_microphone_validation": "PENDING",
+  "observed_utc": "2026-08-23T21:06:43.568414Z",
+  "reasoning_calls": 0,
+  "scope": "server browser-STT event routing with input-only mode; physical microphone/browser recognition remains manual validation",
+  "status": "PASS_AUTOMATED_INPUT_ROUTING_ISOLATION",
+  "tts_calls": 0,
+  "unique_final_transcripts_accepted": 3
+}

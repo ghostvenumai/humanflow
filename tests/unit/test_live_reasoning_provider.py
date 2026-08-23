@@ -7,8 +7,7 @@ from typing import Any
 
 from humanflow.domain.conversation import OperationToken
 from humanflow.runtime.anthropic_provider import DEFAULT_SYSTEM_PROMPT, AnthropicReasoner
-from humanflow.runtime.elevenlabs_provider import FallbackStreamingTTSProvider
-from humanflow.runtime.providers import ProviderMode
+from humanflow.runtime.providers import GaplessSegmentTTSProvider, ProviderMode
 from humanflow.web.app import load_demo_runtime_config
 
 
@@ -125,7 +124,7 @@ def test_demo_factory_can_only_build_declared_real_reasoner() -> None:
     assert runtime.synthesizer_factory is not None
     synthesizer = runtime.synthesizer_factory()
     assert isinstance(reasoner, AnthropicReasoner)
-    assert isinstance(synthesizer, FallbackStreamingTTSProvider)
+    assert isinstance(synthesizer, GaplessSegmentTTSProvider)
     assert reasoner.provider_info.mode is ProviderMode.REAL
     assert all(status.info.mode is ProviderMode.REAL for status in runtime.providers)
 

@@ -117,7 +117,7 @@ def semantic_checks(results: dict[str, dict[str, Any]]) -> dict[str, bool]:
             not any(marker in text for marker in ("*", "#", "`"))
             for text in responses.values()
         ),
-        "arithmetic_contains_425": "425" in responses["arithmetic"],
+        "arithmetic_contains_425": _contains_425(responses["arithmetic"]),
         "erp_is_semantically_relevant": all(
             term in responses["erp"] for term in ("erp", "unternehmen")
         ),
@@ -125,11 +125,18 @@ def semantic_checks(results: dict[str, dict[str, Any]]) -> dict[str, bool]:
             term in responses["weather_limit"]
             for term in ("keinen zugriff", "nicht auf", "keine live", "standort")
         ),
-        "followup_uses_prior_math_context": "425" in responses["context_followup"],
+        "followup_uses_prior_math_context": _contains_425(
+            responses["context_followup"]
+        ),
         "appointment_is_semantically_relevant": all(
             term in responses["appointment"] for term in ("termin", "freitag")
         ),
     }
+
+
+def _contains_425(text: str) -> bool:
+    normalized = "".join(character for character in text.casefold() if character.isalnum())
+    return "425" in normalized or "vierhundertfünfundzwanzig" in normalized
 
 
 def main() -> None:
@@ -150,9 +157,6 @@ def main() -> None:
         connection.close()
 
     checks = semantic_checks(results)
-    if not all(checks.values()):
-        failed = [name for name, passed in checks.items() if not passed]
-        raise RuntimeError("semantic live checks failed: " + ", ".join(failed))
     first_output = [
         result["first_model_output_ms"]
         for result in results.values()
@@ -184,6 +188,9 @@ def main() -> None:
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    if not all(checks.values()):
+        failed = [name for name, passed in checks.items() if not passed]
+        raise RuntimeError("semantic live checks failed: " + ", ".join(failed))
     print(json.dumps(report["summary"], sort_keys=True))
     print(f"report={REPORT.relative_to(ROOT)}")
 

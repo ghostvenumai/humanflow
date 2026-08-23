@@ -348,6 +348,110 @@ class BrowserSpeechSynthesisAdapter:
         )
 
 
+class GaplessSegmentTTSProvider:
+    """Coalesce raw PCM transport chunks into one gapless semantic playback unit.
+
+    Provider streaming still runs concurrently and remains cancellable. The
+    browser receives one source buffer per stable semantic segment, avoiding a
+    stop-and-wait source-node gap at every provider packet boundary.
+    """
+
+    def __init__(self, upstream: StreamingTTSProvider) -> None:
+        self._upstream = upstream
+
+    @property
+    def provider_info(self) -> ProviderInfo:
+        return self._upstream.provider_info  # type: ignore[attr-defined]
+
+    @property
+    def fallback_info(self) -> ProviderInfo | None:
+        return getattr(self._upstream, "fallback_info", None)
+
+    async def stream_speech(
+        self,
+        request: SpeechSynthesisRequest,
+        *,
+        cancel_event: asyncio.Event,
+    ) -> AsyncIterator[AudioChunk]:
+        stream = self._upstream.stream_speech(request, cancel_event=cancel_event)
+        chunks: list[AudioChunk] = []
+        seen_chunk_ids: set[str] = set()
+        seen_sequences: set[int] = set()
+        expected_sequence = request.sequence_start
+        try:
+            async for chunk in stream:
+                if cancel_event.is_set():
+                    break
+                if chunk.chunk_id in seen_chunk_ids:
+                    raise RuntimeError("duplicate_tts_chunk_id")
+                if chunk.frame.sequence in seen_sequences:
+                    raise RuntimeError("duplicate_tts_chunk_sequence")
+                if chunk.response_id != request.response_id:
+                    raise RuntimeError("stale_tts_response_id")
+                if chunk.frame.sequence != expected_sequence:
+                    raise RuntimeError("non_contiguous_tts_chunk_sequence")
+                seen_chunk_ids.add(chunk.chunk_id)
+                seen_sequences.add(chunk.frame.sequence)
+                expected_sequence += 1
+                chunks.append(chunk)
+        finally:
+            close_stream = getattr(stream, "aclose", None)
+            if close_stream is not None:
+                await close_stream()
+
+        if cancel_event.is_set() or not chunks:
+            return
+        playback_modes = {chunk.playback_mode for chunk in chunks}
+        if len(playback_modes) != 1:
+            raise RuntimeError("multiple_tts_playback_modes_in_segment")
+        if chunks[0].playback_mode is AudioPlaybackMode.BROWSER_SPEECH:
+            if len(chunks) != 1:
+                raise RuntimeError("browser_fallback_must_emit_one_chunk")
+            yield chunks[0]
+            return
+
+        sample_rates = {chunk.frame.sample_rate_hz for chunk in chunks}
+        channels = {chunk.frame.channels for chunk in chunks}
+        providers = {
+            (chunk.provider.get("provider"), chunk.provider.get("model"))
+            for chunk in chunks
+        }
+        if len(sample_rates) != 1 or len(channels) != 1 or len(providers) != 1:
+            raise RuntimeError("inconsistent_tts_stream_metadata")
+        if not chunks[-1].semantic_boundary or chunks[-1].text != request.text:
+            raise RuntimeError("tts_stream_missing_final_semantic_boundary")
+        provider_metadata = dict(chunks[0].provider)
+        provider_metadata.update(
+            {
+                "delivery": "gapless-semantic-buffer",
+                "source_chunk_count": str(len(chunks)),
+                "source_sequence_first": str(chunks[0].frame.sequence),
+                "source_sequence_last": str(chunks[-1].frame.sequence),
+            }
+        )
+        yield AudioChunk(
+            chunk_id=str(uuid4()),
+            response_id=request.response_id,
+            text=request.text,
+            semantic_id=chunks[0].semantic_id,
+            semantic_text=request.text,
+            frame=AudioFrame(
+                stream_id=request.response_id,
+                sequence=request.sequence_start,
+                pcm16=b"".join(chunk.frame.pcm16 for chunk in chunks),
+                sample_rate_hz=chunks[0].frame.sample_rate_hz,
+                channels=chunks[0].frame.channels,
+                captured_ns=chunks[0].frame.captured_ns,
+            ),
+            playback_mode=AudioPlaybackMode.PCM,
+            semantic_boundary=True,
+            display_text=request.text,
+            pause_after_ms=request.pause_after_ms,
+            speaking_rate=request.speaking_rate,
+            provider=provider_metadata,
+        )
+
+
 @dataclass(slots=True)
 class TimedPcmOutput:
     """A cancel-aware PCM sink that advances according to the real event-loop clock."""

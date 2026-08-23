@@ -355,6 +355,7 @@ class FallbackStreamingTTSProvider:
         self._fallback = fallback
         self._active_provider_info = primary.provider_info  # type: ignore[attr-defined]
         self._last_fallback_reason: str | None = None
+        self._response_provider: dict[str, str] = {}
 
     @property
     def provider_info(self) -> ProviderInfo:
@@ -378,6 +379,16 @@ class FallbackStreamingTTSProvider:
         *,
         cancel_event: asyncio.Event,
     ) -> AsyncIterator[AudioChunk]:
+        primary_name = self.provider_info.provider
+        fallback_name = self.fallback_info.provider
+        pinned_provider = self._response_provider.get(request.response_id)
+        if pinned_provider == fallback_name:
+            self._active_provider_info = self.fallback_info
+            async for chunk in self._fallback.stream_speech(
+                request, cancel_event=cancel_event
+            ):
+                yield chunk
+            return
         yielded = False
         self._last_fallback_reason = None
         self._active_provider_info = self.provider_info
@@ -386,10 +397,13 @@ class FallbackStreamingTTSProvider:
                 request, cancel_event=cancel_event
             ):
                 yielded = True
+                self._pin_response_provider(request.response_id, primary_name)
                 yield chunk
             return
         except Exception as error:
             if yielded or cancel_event.is_set():
+                raise
+            if pinned_provider == primary_name:
                 raise
             if (
                 isinstance(error, ElevenLabsProviderError)
@@ -402,7 +416,17 @@ class FallbackStreamingTTSProvider:
         async for chunk in self._fallback.stream_speech(
             request, cancel_event=cancel_event
         ):
+            self._pin_response_provider(request.response_id, fallback_name)
             yield chunk
+
+    def _pin_response_provider(self, response_id: str, provider_name: str) -> None:
+        existing = self._response_provider.get(response_id)
+        if existing is not None and existing != provider_name:
+            raise RuntimeError("tts_provider_changed_within_response")
+        self._response_provider[response_id] = provider_name
+        if len(self._response_provider) > 128:
+            oldest = next(iter(self._response_provider))
+            del self._response_provider[oldest]
 
 
 def _safe_provider_error_code(raw_error: bytes) -> str | None:

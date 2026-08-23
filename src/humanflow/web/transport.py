@@ -24,6 +24,9 @@ class _PendingPlayback:
     sink_base_latency_ms: float | None = None
     sink_output_latency_ms: float | None = None
     player_stop_callback_latency_ms: float | None = None
+    source_node_id: str | None = None
+    browser_scheduled_start_ms: float | None = None
+    browser_actual_playback_start_ms: float | None = None
 
 
 class BrowserTelemetrySink(InMemoryTelemetrySink):
@@ -76,9 +79,14 @@ class BrowserAcknowledgedAudioOutput:
                 "type": "audio_chunk",
                 "chunk_id": chunk.chunk_id,
                 "response_id": chunk.response_id,
+                "stream_id": chunk.frame.stream_id,
+                "sequence": chunk.frame.sequence,
+                "chunk_byte_length": len(chunk.frame.pcm16),
+                "codec": "pcm_s16le",
                 "sample_rate_hz": chunk.frame.sample_rate_hz,
                 "channels": chunk.frame.channels,
                 "samples": chunk.frame.samples_per_channel,
+                "decoded_duration_ms": chunk.frame.duration_ms,
                 "playback_mode": chunk.playback_mode.value,
                 "text_boundary": chunk.display_text,
                 "ledger_boundary": chunk.text,
@@ -141,6 +149,11 @@ class BrowserAcknowledgedAudioOutput:
                 player_stop_callback_latency_ms=(
                     pending.player_stop_callback_latency_ms
                 ),
+                source_node_id=pending.source_node_id,
+                browser_scheduled_start_ms=pending.browser_scheduled_start_ms,
+                browser_actual_playback_start_ms=(
+                    pending.browser_actual_playback_start_ms
+                ),
             )
         finally:
             cancel_wait.cancel()
@@ -159,6 +172,15 @@ class BrowserAcknowledgedAudioOutput:
             pending.sink_output_latency_ms = _nonnegative_float(
                 message.get("browser_audio_context_output_latency_ms")
             )
+            pending.browser_scheduled_start_ms = _nonnegative_float(
+                message.get("browser_scheduled_start_ms")
+            )
+            pending.browser_actual_playback_start_ms = _nonnegative_float(
+                message.get("browser_actual_playback_start_ms")
+            )
+            source_node_id = message.get("source_node_id")
+            if isinstance(source_node_id, str) and source_node_id.strip():
+                pending.source_node_id = source_node_id[:256]
             pending.started.set_result(now_ns)
             return True
         if message_type in {"playback_completed", "playback_stopped"}:

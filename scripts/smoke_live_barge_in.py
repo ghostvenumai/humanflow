@@ -52,6 +52,11 @@ def receive_payload(connection: websocket.WebSocket) -> dict[str, Any] | bytes:
     return payload
 
 
+def contains_56(text: str) -> bool:
+    normalized = "".join(character for character in text.casefold() if character.isalnum())
+    return "56" in normalized or "sechsundfünfzig" in normalized
+
+
 def main() -> None:
     connection = websocket.create_connection(URL, timeout=30)
     try:
@@ -156,12 +161,9 @@ def main() -> None:
         "cancel_message_seen": cancel_seen,
         "server_cancellation_event_seen": cancellation_event is not None,
         "followup_confirmed_after_cancel": followup_confirmed,
-        "followup_answer_contains_56": "56" in response,
+        "followup_answer_contains_56": contains_56(response),
         "no_canned_acknowledgement": "ich habe sie verstanden" not in response.casefold(),
     }
-    if not all(checks.values()):
-        failed = [name for name, passed in checks.items() if not passed]
-        raise RuntimeError("live barge-in checks failed: " + ", ".join(failed))
     assert cancellation_event is not None
     report = {
         "schema_version": 1,
@@ -186,6 +188,9 @@ def main() -> None:
         json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    if not all(checks.values()):
+        failed = [name for name, passed in checks.items() if not passed]
+        raise RuntimeError("live barge-in checks failed: " + ", ".join(failed))
     print(json.dumps({"checks": checks, "metrics": report["metrics"]}, sort_keys=True))
     print(f"report={REPORT.relative_to(ROOT)}")
 

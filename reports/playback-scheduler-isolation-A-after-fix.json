@@ -1,0 +1,30 @@
+{
+  "active_playback_owners_maximum": 1,
+  "active_tts_playback_providers_maximum": 1,
+  "agent_attestation": false,
+  "browser_playback_unit_count": 1,
+  "browser_source_node_count": 1,
+  "duplicate_chunks_accepted": 0,
+  "duplicate_sequences_scheduled": 0,
+  "human_audible_assessment": null,
+  "lossless_pcm_sha256": "1ddc2f424ac06944c38dc360245aae7c2ad2d67d473560ea0a2b916d10c19485",
+  "observed_utc": "2026-08-23T21:05:56.919485Z",
+  "raw_provider_chunk_boundaries": 22,
+  "raw_provider_chunk_count": 23,
+  "response_id": "isolation-a-gapless-after-fix",
+  "scope": "recorded_real_provider_pcm_exact_browser_transport_no_mic_no_stt",
+  "source_provider_chunk_count": "23",
+  "status": "PASS_GAPLESS_SINGLE_PLAYBACK_UNIT",
+  "transport": {
+    "actual_playback_start": "SIMULATED_ACK_ONLY",
+    "chunk_byte_length": 257092,
+    "chunk_id": "28ff33c7-5d5a-45e1-b31c-bc03206cf595",
+    "codec": "pcm_s16le",
+    "decoded_duration_ms": 8034.125,
+    "sample_rate_hz": 16000,
+    "scheduled_ns": 204897995031628,
+    "sequence": 0,
+    "source_node_id": "simulated-gapless-source-0",
+    "stream_id": "isolation-a-gapless-after-fix"
+  }
+}

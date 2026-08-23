@@ -10,6 +10,8 @@ let socket;
 let audioContext;
 let microphone;
 let processor;
+let recognition;
+let recognitionRun = 0;
 let frameCount = 0;
 let nextAudioMeta = null;
 let partialTranscriptItem = null;
@@ -17,7 +19,18 @@ let speechStartedAt = null;
 let speechEndedAt = null;
 const activeAudio = new Map();
 const assistantItems = new Map();
+const receivedChunkIds = new Set();
+const scheduledChunkSequences = new Set();
+const responsePlaybackProviders = new Map();
+const cancelledResponseIds = new Set();
+const sentFinalRecognitionIds = new Set();
+const browserSessionId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+const inputOnlyMode = new URLSearchParams(location.search).get("mode") === "input-only";
+let activePlaybackProvider = null;
+let activePlaybackOwner = null;
+let sourceNodeSequence = 0;
 let activeTtsCandidate = "noch nicht gehört";
+let declaredProviders = [];
 const voiceRatingFields = {
   naturalness: "Natürlichkeit", prosody: "Prosodie", pacing: "Sprechtempo",
   voice_pleasantness: "Stimmklang", turn_timing: "Turn-Timing",
@@ -53,7 +66,8 @@ function setProvider(role, text, state = "") {
 }
 
 function renderProviders(providers) {
-  for (const item of providers || []) {
+  if (providers?.length) declaredProviders = providers;
+  for (const item of declaredProviders) {
     if (!ui[`provider-${item.role}`]) continue;
     const available = item.availability === "CONFIGURED" || item.availability === "AVAILABLE";
     const state = item.mode === "REAL" && available ? "real" : "unavailable";
@@ -62,6 +76,16 @@ function renderProviders(providers) {
   const capabilities = browserCapabilities();
   setProvider("stt", `Browser Web Speech · de-DE · REAL · ${capabilities.stt ? "AVAILABLE" : "UNAVAILABLE"}`, capabilities.stt ? "real" : "unavailable");
   setProvider("tts-fallback", `Browser Web Speech · Systemstimme · REAL · ${capabilities.tts ? "AVAILABLE" : "UNAVAILABLE"}`, capabilities.tts ? "real" : "unavailable");
+}
+
+function activateTtsProvider(provider) {
+  renderProviders(declaredProviders);
+  const fallbackActive = provider.provider === "browser-web-speech-api";
+  const role = fallbackActive ? "tts-fallback" : "tts";
+  setProvider(role, `${provider.provider} · ${provider.model} · ${provider.mode} · ACTIVE`, provider.mode === "REAL" ? "real" : "unavailable");
+  activeTtsCandidate = `${provider.provider} · ${provider.model}`;
+  ui["voice-candidate"].textContent = activeTtsCandidate;
+  ui["save-voice-rating"].disabled = false;
 }
 
 function addConversation(role, text, extraClass = "") {
@@ -157,7 +181,7 @@ async function startMicrophone() {
 function startBrowserStt() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!Recognition) throw new Error("Browser-STT ist nicht verfügbar");
-  const recognition = new Recognition();
+  recognition = new Recognition();
   recognition.lang = "de-DE";
   recognition.continuous = true;
   recognition.interimResults = true;
@@ -174,12 +198,15 @@ function startBrowserStt() {
       const result = event.results[index];
       const text = result[0].transcript.trim();
       if (!text) continue;
+      const recognitionResultId = `${browserSessionId}:${recognitionRun}:${index}`;
+      if (result.isFinal && sentFinalRecognitionIds.has(recognitionResultId)) continue;
       const utteranceDuration = speechStartedAt == null ? 0 : Math.max(0, (speechEndedAt || observedAt) - speechStartedAt);
       const silenceDuration = speechEndedAt == null ? 0 : Math.max(0, observedAt - speechEndedAt);
       const explicitInterruption = /^(moment|stopp|warte|nein stopp)(\b|[,.!?])/i.test(text);
       showTranscript(text, result.isFinal);
       send({
         type: "transcript", source: "browser_stt", text, final: result.isFinal,
+        recognition_result_id: recognitionResultId,
         signals: {
           speech_active: !result.isFinal,
           silence_duration_ms: Math.round(silenceDuration),
@@ -191,6 +218,7 @@ function startBrowserStt() {
         }
       });
       if (result.isFinal) {
+        sentFinalRecognitionIds.add(recognitionResultId);
         speechStartedAt = null;
         speechEndedAt = null;
       }
@@ -203,20 +231,92 @@ function startBrowserStt() {
       setProvider("stt", `Browser Web Speech · de-DE · REAL · ${event.error.toUpperCase()}`, "unavailable");
     }
   };
-  recognition.onend = () => { if (socket?.readyState === WebSocket.OPEN) recognition.start(); };
+  recognition.onend = () => {
+    if (socket?.readyState === WebSocket.OPEN) {
+      recognitionRun += 1;
+      recognition.start();
+    }
+  };
+  recognitionRun += 1;
   recognition.start();
 }
 
+function playbackProviderKey(meta) {
+  const provider = meta.tts_provider || {};
+  return `${provider.provider || "unknown"}|${provider.model || "unknown"}|${meta.playback_mode}`;
+}
+
+function rejectPlayback(meta, code) {
+  send({ type: "playback_stopped", chunk_id: meta.chunk_id, played_samples: 0 });
+  ui.status.textContent = `Playback blockiert: ${code}`;
+}
+
+function acceptAudioMeta(meta) {
+  const sequenceKey = `${meta.stream_id}:${meta.sequence}`;
+  const providerKey = playbackProviderKey(meta);
+  const pinnedProvider = responsePlaybackProviders.get(meta.response_id);
+  if (cancelledResponseIds.has(meta.response_id)) {
+    rejectPlayback(meta, "stale_cancelled_response");
+    return false;
+  }
+  if (receivedChunkIds.has(meta.chunk_id) || scheduledChunkSequences.has(sequenceKey)) {
+    rejectPlayback(meta, "duplicate_chunk_or_sequence");
+    return false;
+  }
+  if (pinnedProvider && pinnedProvider !== providerKey) {
+    rejectPlayback(meta, "tts_provider_changed_within_response");
+    return false;
+  }
+  if (nextAudioMeta || activeAudio.size > 0) {
+    rejectPlayback(meta, "multiple_playback_consumers");
+    return false;
+  }
+  receivedChunkIds.add(meta.chunk_id);
+  responsePlaybackProviders.set(meta.response_id, providerKey);
+  return true;
+}
+
+function acquirePlayback(meta) {
+  const providerKey = playbackProviderKey(meta);
+  if (activePlaybackProvider && activePlaybackProvider !== providerKey) {
+    rejectPlayback(meta, "active_tts_playback_providers_exceeded");
+    return false;
+  }
+  if (activePlaybackOwner && activePlaybackOwner !== meta.response_id) {
+    rejectPlayback(meta, "playback_owner_conflict");
+    return false;
+  }
+  const sequenceKey = `${meta.stream_id}:${meta.sequence}`;
+  if (scheduledChunkSequences.has(sequenceKey)) {
+    rejectPlayback(meta, "sequence_scheduled_twice");
+    return false;
+  }
+  scheduledChunkSequences.add(sequenceKey);
+  activePlaybackProvider = providerKey;
+  activePlaybackOwner = meta.response_id;
+  if (meta.playback_mode === "pcm" && "speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
+  return true;
+}
+
 function playSpeech(meta) {
+  window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(meta.text_boundary);
   utterance.lang = "de-DE";
   utterance.rate = meta.speaking_rate || 1.0;
   const playback = {
     utterance, cancelled: false, finished: false, samples: meta.samples,
-    mode: "speech", pauseTimer: null
+    mode: "speech", pauseTimer: null, responseId: meta.response_id,
+    providerKey: playbackProviderKey(meta), sourceNodeId: `speech-${meta.response_id}-${++sourceNodeSequence}`
   };
   activeAudio.set(meta.chunk_id, playback);
-  utterance.onstart = () => send({ type: "playback_started", chunk_id: meta.chunk_id });
+  utterance.onstart = () => send({
+    type: "playback_started", chunk_id: meta.chunk_id,
+    source_node_id: playback.sourceNodeId,
+    browser_scheduled_start_ms: performance.now(),
+    browser_actual_playback_start_ms: performance.now()
+  });
   utterance.onend = () => {
     if (playback.cancelled) return;
     const complete = () => finishPlayback(meta.chunk_id, false, meta.samples);
@@ -235,6 +335,10 @@ function finishPlayback(chunkId, cancelled, playedSamples, stopCallbackLatencyMs
   if (playback.pauseTimer != null) window.clearTimeout(playback.pauseTimer);
   if (playback.stopFallbackTimer != null) window.clearTimeout(playback.stopFallbackTimer);
   activeAudio.delete(chunkId);
+  if (activeAudio.size === 0) {
+    activePlaybackProvider = null;
+    activePlaybackOwner = null;
+  }
   if (cancelled) {
     send({
       type: "playback_stopped", chunk_id: chunkId, played_samples: playedSamples,
@@ -260,11 +364,14 @@ function playPcm(buffer, meta) {
   const source = audioContext.createBufferSource();
   source.buffer = decoded;
   source.connect(audioContext.destination);
+  const sourceNodeId = `pcm-${meta.response_id}-${meta.sequence}-${++sourceNodeSequence}`;
+  const scheduledStartMs = audioContext.currentTime * 1000;
   const playback = {
     source, cancelled: false, finished: false, samples: meta.samples,
     sampleRate: meta.sample_rate_hz, startedAt: audioContext.currentTime,
     mode: "pcm", pauseTimer: null, sourceEnded: false,
-    stopRequestedAt: null, stopFallbackTimer: null, playedSamplesAtStop: 0
+    stopRequestedAt: null, stopFallbackTimer: null, playedSamplesAtStop: 0,
+    responseId: meta.response_id, providerKey: playbackProviderKey(meta), sourceNodeId
   };
   activeAudio.set(meta.chunk_id, playback);
   source.onended = () => {
@@ -278,16 +385,21 @@ function playPcm(buffer, meta) {
     const complete = () => finishPlayback(meta.chunk_id, false, meta.samples);
     playback.pauseTimer = window.setTimeout(complete, meta.pause_after_ms || 0);
   };
-  source.start();
+  source.start(0);
+  const actualPlaybackStartMs = audioContext.currentTime * 1000;
   send({
     type: "playback_started",
     chunk_id: meta.chunk_id,
     browser_audio_context_base_latency_ms: (audioContext.baseLatency || 0) * 1000,
-    browser_audio_context_output_latency_ms: (audioContext.outputLatency || 0) * 1000
+    browser_audio_context_output_latency_ms: (audioContext.outputLatency || 0) * 1000,
+    source_node_id: sourceNodeId,
+    browser_scheduled_start_ms: scheduledStartMs,
+    browser_actual_playback_start_ms: actualPlaybackStartMs
   });
 }
 
 function playOutput(buffer, meta) {
+  if (!acquirePlayback(meta)) return;
   if (meta.playback_mode === "pcm") {
     playPcm(buffer, meta);
     return;
@@ -311,6 +423,7 @@ function cancelAudio(chunkId) {
     send({ type: "playback_stopped", chunk_id: chunkId, played_samples: 0 });
     return;
   }
+  cancelledResponseIds.add(playback.responseId);
   playback.cancelled = true;
   if (playback.pauseTimer != null) window.clearTimeout(playback.pauseTimer);
   let playedSamples = 0;
@@ -349,6 +462,10 @@ function addEvent(event) {
   }
   if (event.event_type === "AGENT_AUDIO_COMPLETED") ui.delivered.textContent = event.payload.delivered_text || "—";
   if (event.event_type === "RECOVERY_STARTED") ui.status.textContent = "Providerfehler · weiter im Hörmodus";
+  if (event.event_type === "TTS_PROVIDER_ACTIVATED" && event.payload.provider) {
+    activateTtsProvider(event.payload.provider);
+  }
+  if (event.event_type === "TTS_PROVIDER_DEACTIVATED") renderProviders(declaredProviders);
 }
 
 ui.connect.addEventListener("click", async () => {
@@ -358,14 +475,18 @@ ui.connect.addEventListener("click", async () => {
     if (!capabilities.stt) throw new Error("Echter Browser-STT-Provider fehlt");
     await startMicrophone();
     const scheme = location.protocol === "https:" ? "wss" : "ws";
-    socket = new WebSocket(`${scheme}://${location.host}/ws`);
+    socket = new WebSocket(`${scheme}://${location.host}/ws${inputOnlyMode ? "?mode=input-only" : ""}`);
     socket.binaryType = "arraybuffer";
     socket.onopen = () => {
       setConnected(true);
       startBrowserStt();
       send({ type: "provider_capabilities", stt_available: capabilities.stt, tts_available: capabilities.tts });
     };
-    socket.onclose = () => setConnected(false);
+    socket.onclose = () => {
+      setConnected(false);
+      recognition?.stop();
+      for (const chunkId of [...activeAudio.keys()]) cancelAudio(chunkId);
+    };
     socket.onmessage = (message) => {
       if (message.data instanceof ArrayBuffer) {
         if (nextAudioMeta) playOutput(message.data, nextAudioMeta);
@@ -373,21 +494,30 @@ ui.connect.addEventListener("click", async () => {
         return;
       }
       const payload = JSON.parse(message.data);
-      if (payload.type === "ready") renderProviders(payload.providers);
+      if (payload.type === "ready") {
+        renderProviders(payload.providers);
+        if (inputOnlyMode) {
+          setProvider("reasoning", "DEAKTIVIERT · INPUT-ONLY-ISOLATION", "unavailable");
+          setProvider("tts", "DEAKTIVIERT · INPUT-ONLY-ISOLATION", "unavailable");
+          setProvider("tts-fallback", "DEAKTIVIERT · INPUT-ONLY-ISOLATION", "unavailable");
+          ui.status.textContent = "online · INPUT-ONLY";
+        }
+      }
       else if (payload.type === "audio_chunk") {
+        if (!acceptAudioMeta(payload)) {
+          nextAudioMeta = null;
+          return;
+        }
         nextAudioMeta = payload;
         showAssistantChunk(payload);
         if (payload.tts_provider?.provider) {
-          const provider = payload.tts_provider;
-          setProvider("tts", `${provider.provider} · ${provider.model} · ${provider.mode} · ACTIVE`, provider.mode === "REAL" ? "real" : "unavailable");
-          activeTtsCandidate = `${provider.provider} · ${provider.model}`;
-          ui["voice-candidate"].textContent = activeTtsCandidate;
-          ui["save-voice-rating"].disabled = false;
+          activateTtsProvider(payload.tts_provider);
         }
       }
       else if (payload.type === "cancel_audio") cancelAudio(payload.chunk_id);
       else if (payload.type === "telemetry") addEvent(payload.event);
       else if (payload.type === "turn_decision") ui.decision.textContent = `${payload.decision} · ${payload.confidence.toFixed(2)}`;
+      else if (payload.type === "error") ui.status.textContent = `Fehler: ${payload.code}`;
     };
   } catch (error) {
     ui.status.textContent = `Fehler: ${error.message || error.name}`;

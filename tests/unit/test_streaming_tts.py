@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from humanflow.audio.models import AudioPlaybackMode
+from humanflow.audio.models import AudioChunk, AudioFrame, AudioPlaybackMode
 from humanflow.runtime.elevenlabs_provider import (
     ElevenLabsProviderError,
     ElevenLabsStreamingTTSProvider,
@@ -17,6 +17,7 @@ from humanflow.runtime.elevenlabs_provider import (
 from humanflow.runtime.prosody import ProsodyPlanner, SpeechIntent
 from humanflow.runtime.providers import (
     BrowserSpeechSynthesisAdapter,
+    GaplessSegmentTTSProvider,
     ProviderInfo,
     ProviderMode,
     SpeechSynthesisRequest,
@@ -115,6 +116,80 @@ def test_elevenlabs_streams_pcm_and_only_final_chunk_advances_text_ledger() -> N
             "mode": "REAL",
             "runtime": "server",
         }
+
+    asyncio.run(scenario())
+
+
+def test_gapless_wrapper_turns_raw_provider_packets_into_one_playback_source() -> None:
+    async def scenario() -> None:
+        pcm = b"\x01\x00" * 5_000
+        raw_provider = ElevenLabsStreamingTTSProvider(
+            api_key="test-key-never-sent",
+            voice_id="test-voice-never-logged",
+            client=FakeClient(FakeResponse([pcm[:3_000], pcm[3_000:]])),
+            budget=SynthesisBudget(
+                maximum_audio_seconds=10,
+                maximum_input_characters=100,
+            ),
+        )
+        provider = GaplessSegmentTTSProvider(raw_provider)
+
+        chunks = [
+            chunk
+            async for chunk in provider.stream_speech(
+                _request(), cancel_event=asyncio.Event()
+            )
+        ]
+
+        assert len(chunks) == 1
+        assert chunks[0].frame.pcm16 == pcm
+        assert chunks[0].frame.sequence == 4
+        assert chunks[0].text == _request().text
+        assert chunks[0].provider["delivery"] == "gapless-semantic-buffer"
+        assert chunks[0].provider["source_chunk_count"] == "2"
+        assert chunks[0].provider["source_sequence_first"] == "4"
+        assert chunks[0].provider["source_sequence_last"] == "5"
+
+    asyncio.run(scenario())
+
+
+def test_gapless_wrapper_rejects_duplicate_raw_sequence_before_playback() -> None:
+    class DuplicateSequenceProvider:
+        provider_info = ProviderInfo(
+            role="tts",
+            provider="duplicate-test-provider",
+            model="test",
+            mode=ProviderMode.MOCK,
+            runtime="test",
+        )
+
+        async def stream_speech(
+            self, request: SpeechSynthesisRequest, *, cancel_event: asyncio.Event
+        ) -> AsyncIterator[AudioChunk]:
+            del cancel_event
+            for chunk_id in ("chunk-a", "chunk-b"):
+                yield AudioChunk(
+                    chunk_id=chunk_id,
+                    response_id=request.response_id,
+                    text="",
+                    semantic_id="semantic-a",
+                    semantic_text=request.text,
+                    semantic_boundary=False,
+                    frame=AudioFrame(
+                        stream_id=request.response_id,
+                        sequence=request.sequence_start,
+                        pcm16=b"\x00\x00" * 16,
+                    ),
+                    provider=self.provider_info.to_dict(),
+                )
+
+    async def scenario() -> None:
+        provider = GaplessSegmentTTSProvider(DuplicateSequenceProvider())
+        with pytest.raises(RuntimeError, match="duplicate_tts_chunk_sequence"):
+            async for _ in provider.stream_speech(
+                _request(), cancel_event=asyncio.Event()
+            ):
+                pass
 
     asyncio.run(scenario())
 
