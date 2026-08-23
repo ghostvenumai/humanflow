@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "task_id": "R01",
+      "category": "DOCUMENTATION",
+      "description": "Clarify a deterministic README command",
+      "risk": 0.1,
+      "criticality": 0.1,
+      "ambiguity": 0.1,
+      "realtime_impact": 0.0,
+      "context_tokens": 4000,
+      "prior_failures": 0,
+      "budget_usd": 0.1,
+      "expected_tier": "FAST"
+    },
+    {
+      "task_id": "R02",
+      "category": "LOCAL_FIX",
+      "description": "Repair a bounded local validation bug",
+      "risk": 0.4,
+      "criticality": 0.4,
+      "ambiguity": 0.3,
+      "realtime_impact": 0.2,
+      "context_tokens": 16000,
+      "prior_failures": 0,
+      "budget_usd": 0.5,
+      "expected_tier": "STANDARD"
+    },
+    {
+      "task_id": "R03",
+      "category": "ASYNC_AUDIO",
+      "description": "Resolve a cancellation race in full-duplex audio",
+      "risk": 0.75,
+      "criticality": 0.8,
+      "ambiguity": 0.5,
+      "realtime_impact": 0.95,
+      "context_tokens": 48000,
+      "prior_failures": 0,
+      "budget_usd": 2.0,
+      "expected_tier": "ADVANCED"
+    },
+    {
+      "task_id": "R04",
+      "category": "RACE_CONDITION",
+      "description": "Compare independent fixes after repeated high-impact failures",
+      "risk": 0.9,
+      "criticality": 0.95,
+      "ambiguity": 0.85,
+      "realtime_impact": 0.95,
+      "context_tokens": 70000,
+      "prior_failures": 2,
+      "budget_usd": 8.0,
+      "expected_tier": "TOURNAMENT"
+    },
+    {
+      "task_id": "R05",
+      "category": "ARCHITECTURE",
+      "description": "Resolve an architecture problem after three failed candidates",
+      "risk": 0.95,
+      "criticality": 1.0,
+      "ambiguity": 0.95,
+      "realtime_impact": 0.9,
+      "context_tokens": 120000,
+      "prior_failures": 3,
+      "budget_usd": 10.0,
+      "human_budget_approved": false,
+      "expected_tier": "FRONTIER"
+    }
+  ]
+}

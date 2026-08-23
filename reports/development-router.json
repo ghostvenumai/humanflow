@@ -1,0 +1,161 @@
+{
+  "adapters": [
+    {
+      "agent": "codex",
+      "authentication": "UNKNOWN_NOT_PROBED",
+      "executable": "/home/serverserver/.local/bin/codex",
+      "external_execution_authorized": false,
+      "installed": true,
+      "version": "codex-cli 0.149.0"
+    },
+    {
+      "agent": "claude",
+      "authentication": "UNKNOWN_NOT_PROBED",
+      "executable": "/home/serverserver/.local/bin/claude",
+      "external_execution_authorized": false,
+      "installed": true,
+      "version": "2.1.229 (Claude Code)"
+    }
+  ],
+  "authentication_secrets_probed": false,
+  "decisions": [
+    {
+      "agents": [
+        "codex"
+      ],
+      "evidence": [
+        "category=DOCUMENTATION",
+        "risk=0.10",
+        "criticality=0.10",
+        "ambiguity=0.10",
+        "realtime_impact=0.00",
+        "prior_failures=0",
+        "context_tokens=4000"
+      ],
+      "execution_allowed": true,
+      "expected_tier": "FAST",
+      "matches": true,
+      "maximum_budget_usd": 0.1,
+      "reason_codes": [
+        "deterministic_low_risk_task",
+        "minimum_sufficient_tier"
+      ],
+      "task_id": "R01",
+      "tier": "FAST"
+    },
+    {
+      "agents": [
+        "codex"
+      ],
+      "evidence": [
+        "category=LOCAL_FIX",
+        "risk=0.40",
+        "criticality=0.40",
+        "ambiguity=0.30",
+        "realtime_impact=0.20",
+        "prior_failures=0",
+        "context_tokens=16000"
+      ],
+      "execution_allowed": true,
+      "expected_tier": "STANDARD",
+      "matches": true,
+      "maximum_budget_usd": 0.5,
+      "reason_codes": [
+        "normal_local_engineering",
+        "minimum_sufficient_tier"
+      ],
+      "task_id": "R02",
+      "tier": "STANDARD"
+    },
+    {
+      "agents": [
+        "codex"
+      ],
+      "evidence": [
+        "category=ASYNC_AUDIO",
+        "risk=0.75",
+        "criticality=0.80",
+        "ambiguity=0.50",
+        "realtime_impact=0.95",
+        "prior_failures=0",
+        "context_tokens=48000"
+      ],
+      "execution_allowed": true,
+      "expected_tier": "ADVANCED",
+      "matches": true,
+      "maximum_budget_usd": 2.0,
+      "reason_codes": [
+        "advanced_async_or_realtime_work",
+        "single_candidate_sufficient"
+      ],
+      "task_id": "R03",
+      "tier": "ADVANCED"
+    },
+    {
+      "agents": [
+        "codex",
+        "claude"
+      ],
+      "evidence": [
+        "category=RACE_CONDITION",
+        "risk=0.90",
+        "criticality=0.95",
+        "ambiguity=0.85",
+        "realtime_impact=0.95",
+        "prior_failures=2",
+        "context_tokens=70000"
+      ],
+      "execution_allowed": true,
+      "expected_tier": "TOURNAMENT",
+      "matches": true,
+      "maximum_budget_usd": 5.0,
+      "reason_codes": [
+        "independent_candidates_required",
+        "high_impact_or_prior_failures",
+        "budget_capped"
+      ],
+      "task_id": "R04",
+      "tier": "TOURNAMENT"
+    },
+    {
+      "agents": [
+        "codex",
+        "claude"
+      ],
+      "evidence": [
+        "category=ARCHITECTURE",
+        "risk=0.95",
+        "criticality=1.00",
+        "ambiguity=0.95",
+        "realtime_impact=0.90",
+        "prior_failures=3",
+        "context_tokens=120000"
+      ],
+      "execution_allowed": false,
+      "expected_tier": "FRONTIER",
+      "matches": true,
+      "maximum_budget_usd": 10.0,
+      "reason_codes": [
+        "hard_unresolved_architecture",
+        "repeated_candidate_failure",
+        "human_budget_approval_required"
+      ],
+      "task_id": "R05",
+      "tier": "FRONTIER"
+    }
+  ],
+  "external_agent_calls_made": 0,
+  "external_spend_usd": 0.0,
+  "fixture": {
+    "path": "eval/router/tasks.json",
+    "sha256": "0119b1538cc616b8038ed9f226a374596e12f74d32021fab96f855225cefeb5f",
+    "tasks": 5
+  },
+  "generated_at_utc": "2026-08-23T16:14:40.933024Z",
+  "schema_version": 1,
+  "summary": {
+    "accuracy": 1.0,
+    "correct": 5,
+    "total": 5
+  }
+}

@@ -1,4 +1,4 @@
-.PHONY: status test torture-test benchmark realtime-benchmark recovery-benchmark replay scorecard runtime-quality demo demo-benchmark turn-tournament checkpoint
+.PHONY: status test torture-test benchmark realtime-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report demo demo-benchmark turn-tournament checkpoint
 
 status:
 	python3 scripts/status.py
@@ -27,6 +27,12 @@ scorecard:
 
 runtime-quality:
 	PYTHONPATH=src python3 scripts/evaluate_runtime_quality.py
+
+router-report:
+	PYTHONPATH=src python3 scripts/report_development_router.py
+
+tournament-report:
+	PYTHONPATH=src python3 scripts/report_tournament_readiness.py
 
 demo:
 	PYTHONPATH=src uvicorn humanflow.web.app:app --host 127.0.0.1 --port 8765

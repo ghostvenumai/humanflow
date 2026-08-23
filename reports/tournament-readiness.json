@@ -1,0 +1,68 @@
+{
+  "adapters": [
+    {
+      "agent": "codex",
+      "authentication": "UNKNOWN_NOT_PROBED",
+      "executable": "/home/serverserver/.local/bin/codex",
+      "external_execution_authorized": false,
+      "installed": true,
+      "version": "codex-cli 0.149.0"
+    },
+    {
+      "agent": "claude",
+      "authentication": "UNKNOWN_NOT_PROBED",
+      "executable": "/home/serverserver/.local/bin/claude",
+      "external_execution_authorized": false,
+      "installed": true,
+      "version": "2.1.229 (Claude Code)"
+    }
+  ],
+  "evaluator_self_test": {
+    "result": {
+      "disqualified": {},
+      "ranking": [
+        {
+          "agent": "claude",
+          "lines_changed": 40,
+          "runtime_cost_score": 0.0,
+          "score": 0.75
+        },
+        {
+          "agent": "codex",
+          "lines_changed": 30,
+          "runtime_cost_score": 0.0,
+          "score": 0.5
+        }
+      ],
+      "reason_codes": [
+        "highest_immutable_quality_score",
+        "lower_runtime_cost_then_churn_breaks_ties"
+      ],
+      "status": "WINNER",
+      "winner": "claude",
+      "winner_commit": "b"
+    },
+    "synthetic_inputs_clearly_labeled": true
+  },
+  "external_agent_calls_made": 0,
+  "external_spend_usd": 0.0,
+  "generated_at_utc": "2026-08-23T16:14:41.228318Z",
+  "production_code_selected_by_synthetic_test": false,
+  "real_candidate_registration": {
+    "candidates": [
+      "codex"
+    ],
+    "reason_codes": [
+      "at_least_two_real_candidates_required"
+    ],
+    "status": "NOT_EXECUTED",
+    "winner": null
+  },
+  "reason_codes": [
+    "only_one_real_candidate_available",
+    "external_agent_execution_not_authorized",
+    "no_tournament_spend_authorized"
+  ],
+  "schema_version": 1,
+  "status": "READY_NOT_EXECUTED"
+}

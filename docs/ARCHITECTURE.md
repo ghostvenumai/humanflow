@@ -82,3 +82,14 @@ the same full tests, lint, turn benchmark, realtime benchmark, T01-T20 torture
 suite, runtime-depth evaluation, and scorecard. Promotion is `KEEP` only for a
 strict score improvement with all commands passing and identical evidence hashes;
 every other outcome is `REVERT`.
+
+## Development router and tournament
+
+Development tasks are routed to the minimum sufficient FAST, STANDARD,
+ADVANCED, TOURNAMENT, or FRONTIER tier using category, risk, criticality,
+ambiguity, realtime impact, context, prior failures, and budget. FRONTIER is
+blocked without human budget approval. Codex and Claude CLI adapters never run
+unless external execution is explicitly authorized. Tournament candidates must
+share one baseline and immutable evidence; regressions or protected-artifact
+changes are automatic disqualifications, and score ties prefer lower runtime
+cost and code churn.
