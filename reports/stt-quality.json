@@ -1,0 +1,62 @@
+{
+  "agent_attestation": false,
+  "human_reference_sample_count": 0,
+  "manual_validation": "FAILED_SELF_TRANSCRIPTION_PRESENT_BEFORE_FIX",
+  "provider": {
+    "mode": "REAL",
+    "model": "de-DE",
+    "provider": "browser-web-speech-api",
+    "recognition_input_binding": "UNVERIFIED_INDEPENDENT_BROWSER_CAPTURE",
+    "runtime": "browser"
+  },
+  "scripted_human_understanding_cases": [
+    {
+      "actual_stt_transcript": null,
+      "expected_meaning": "425",
+      "spoken_input": "Was ist 25 mal 17?"
+    },
+    {
+      "actual_stt_transcript": null,
+      "expected_meaning": "400 using prior context",
+      "spoken_input": "Und zieh davon 25 ab."
+    },
+    {
+      "actual_stt_transcript": null,
+      "expected_meaning": "move appointment Thursday to Friday",
+      "spoken_input": "Ich möchte meinen Termin von Donnerstag auf Freitag verschieben."
+    },
+    {
+      "actual_stt_transcript": null,
+      "expected_meaning": "correct target day to Monday",
+      "spoken_input": "Nein, nicht Freitag. Ich meinte Montag."
+    },
+    {
+      "actual_stt_transcript": null,
+      "expected_meaning": "short relevant ERP explanation",
+      "spoken_input": "Kannst du mir kurz erklären, was ein ERP-System ist?"
+    },
+    {
+      "actual_stt_transcript": null,
+      "expected_meaning": "retrieve first arithmetic result from context",
+      "spoken_input": "Wie lautete noch einmal das Ergebnis meiner Rechenaufgabe?"
+    }
+  ],
+  "status": "AWAITING_POST_FIX_HUMAN_STT_SAMPLES",
+  "stt_dimensions": {
+    "corrections": "PENDING_HUMAN_SAMPLE",
+    "dates": "PENDING_HUMAN_SAMPLE",
+    "german_compounds": "PENDING_HUMAN_SAMPLE",
+    "hesitations": "PENDING_HUMAN_SAMPLE",
+    "names": "PENDING_HUMAN_SAMPLE",
+    "numbers": "PENDING_HUMAN_SAMPLE",
+    "semantic_preservation": "PENDING_HUMAN_SAMPLE",
+    "short_utterances": "PENDING_HUMAN_SAMPLE",
+    "speech_while_agent_playing": "FAILED_PRE_FIX_SELF_TRANSCRIPTION",
+    "times": "PENDING_HUMAN_SAMPLE",
+    "word_error_examples": []
+  },
+  "upgrade_recommendation": {
+    "reason": "Browser SpeechRecognition cannot be bound to the exact getUserMedia PCM stream and has produced assistant self-transcription during real headphone validation.",
+    "status": "STT_PROVIDER_UPGRADE_RECOMMENDED"
+  }
+}

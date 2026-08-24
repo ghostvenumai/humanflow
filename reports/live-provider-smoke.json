@@ -1,5 +1,5 @@
 {
-  "captured_utc": "2026-08-23T21:11:35.338395Z",
+  "captured_utc": "2026-08-24T10:16:28.692789Z",
   "checks": {
     "all_responses_nonempty": true,
     "appointment_is_semantically_relevant": true,
@@ -48,77 +48,77 @@
   "schema_version": 1,
   "scope": "real reasoning websocket path; browser microphone/STT/TTS excluded",
   "summary": {
-    "first_model_output_ms_max": 1599.974,
-    "first_model_output_ms_median": 966.866,
-    "input_tokens": 4576,
-    "output_tokens": 435,
+    "first_model_output_ms_max": 1444.646,
+    "first_model_output_ms_median": 983.153,
+    "input_tokens": 4588,
+    "output_tokens": 476,
     "turns": 6
   },
   "turns": {
     "appointment": {
-      "first_model_output_ms": 898.322695,
-      "generation_ms": 2499.970412,
+      "first_model_output_ms": 1008.530181,
+      "generation_ms": 16479.035023,
       "prompt": "Ich möchte einen Termin am Freitag.",
-      "response": "Okay, gerne. Welcher Freitag ist gemeint – der kommende oder ein bestimmter? Und wofür brauchst du den Termin? Mit wem oder welcher Stelle soll der Termin sein?",
+      "response": "Gerne, das kann ich dir helfen zu klären. Aber ich habe keinen echten Kalender und kann Termine nicht selbst buchen. Welcher Freitag ist dir recht und wofür brauchst du den Termin? Dann können wir gemeinsam überlegen, wie das am besten passt.",
       "speech_chunks": 4,
       "usage": {
-        "input_tokens": 982,
-        "output_tokens": 59
+        "input_tokens": 999,
+        "output_tokens": 83
       }
     },
     "arithmetic": {
-      "first_model_output_ms": 798.687781,
-      "generation_ms": 1187.324094,
+      "first_model_output_ms": 957.776614,
+      "generation_ms": 3807.694257,
       "prompt": "Was ist 25 mal 17?",
-      "response": "Das sind vierhundertfünfundzwanzig.",
+      "response": "Das ergibt vierhundertfünfundzwanzig.",
       "speech_chunks": 1,
       "usage": {
-        "input_tokens": 743,
-        "output_tokens": 18
+        "input_tokens": 730,
+        "output_tokens": 20
       }
     },
     "capabilities": {
-      "first_model_output_ms": 983.147457,
-      "generation_ms": 2778.529319,
+      "first_model_output_ms": 952.743873,
+      "generation_ms": 23012.067628,
       "prompt": "Was kannst du?",
-      "response": "Ich bin HumanFlow, ein KI-Assistent. Ich kann dir bei vielen Dingen helfen – Fragen beantworten, Informationen erklären, bei Schreib- oder Denkaufgaben unterstützen, Probleme durchdenken oder einfach mit dir über verschiedene Themen sprechen. Was interessiert dich gerade?",
+      "response": "Ich bin HumanFlow, ein KI-Assistent. Ich kann dir bei vielen Dingen helfen: Fragen beantworten, Informationen erklären, mit dir diskutieren, Texte verfassen oder überarbeiten. Ich kann dir auch bei Planungen helfen, Ideen sammeln oder Probleme durchdenken. Was interessiert dich gerade?",
       "speech_chunks": 4,
       "usage": {
         "input_tokens": 520,
-        "output_tokens": 94
+        "output_tokens": 96
       }
     },
     "context_followup": {
-      "first_model_output_ms": 950.584557,
-      "generation_ms": 1380.197782,
+      "first_model_output_ms": 919.458102,
+      "generation_ms": 6659.446081,
       "prompt": "Wie lautete noch einmal das Ergebnis meiner Rechenaufgabe?",
       "response": "Vierhundertfünfundzwanzig – das war das Ergebnis von fünfundzwanzig mal siebzehn.",
       "speech_chunks": 1,
       "usage": {
-        "input_tokens": 925,
+        "input_tokens": 942,
         "output_tokens": 39
       }
     },
     "erp": {
-      "first_model_output_ms": 1599.974435,
-      "generation_ms": 3303.00734,
+      "first_model_output_ms": 1444.646324,
+      "generation_ms": 34616.486338,
       "prompt": "Kannst du mir erklären, was ein ERP-System ist?",
-      "response": "Ein ERP-System ist im Grunde eine zentrale Software, die alle wichtigen Geschäftsprozesse eines Unternehmens vernetzt – also Finanzen, Lagerbestand, Personal, Vertrieb, alles an einem Ort. Dadurch haben alle Abteilungen Zugriff auf dieselben aktuellen Daten und können besser zusammenarbeiten. Das spart Zeit und reduziert Fehler durch doppelte Dateneingaben.",
-      "speech_chunks": 4,
+      "response": "Ein ERP-System ist eine Unternehmenssoftware, die alle wichtigen Prozesse eines Unternehmens zusammenbringt – also Finanzen, Lagerverwaltung, Personal, Vertrieb und Produktion. Statt dass jede Abteilung ihre eigenen Programme nutzt, arbeitet alles über eine zentrale Datenbank zusammen. Das macht Abläufe effizienter und gibt einen besseren Überblick. Die großen Anbieter sind SAP oder Oracle, aber es gibt auch kleinere Systeme für mittlere Unternehmen.",
+      "speech_chunks": 5,
       "usage": {
-        "input_tokens": 781,
-        "output_tokens": 119
+        "input_tokens": 770,
+        "output_tokens": 147
       }
     },
     "weather_limit": {
-      "first_model_output_ms": 1170.861923,
-      "generation_ms": 2479.865337,
+      "first_model_output_ms": 1282.202057,
+      "generation_ms": 17617.661303,
       "prompt": "Wie ist das Wetter?",
-      "response": "Ich habe keinen Zugriff auf aktuelle Wetterdaten, deswegen kann ich dir da nicht live sagen, wie es gerade bei dir aussieht. Aber wenn du mir sagst, wo du bist und was du über die aktuelle Situation weißt, kann ich dir gerne helfen – zum Beispiel bei der Frage, was du anziehen solltest oder ob bestimmte Pläne passen.",
-      "speech_chunks": 3,
+      "response": "Ich habe keinen Zugriff auf aktuelle Wetterdaten, deswegen kann ich dir das nicht live sagen. Aber wenn du mir sagst, wo du bist und was du gerade siehst oder weißt, kann ich dir vielleicht trotzdem helfen – zum Beispiel beim Packen oder bei der Planung des Tages.",
+      "speech_chunks": 2,
       "usage": {
-        "input_tokens": 625,
-        "output_tokens": 106
+        "input_tokens": 627,
+        "output_tokens": 91
       }
     }
   }

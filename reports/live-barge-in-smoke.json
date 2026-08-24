@@ -1,5 +1,5 @@
 {
-  "captured_utc": "2026-08-23T21:14:50.633344Z",
+  "captured_utc": "2026-08-24T10:16:41.329597Z",
   "checks": {
     "cancel_message_seen": true,
     "followup_answer_contains_56": true,
@@ -14,8 +14,8 @@
   },
   "manual_validation": "REQUIRED_NOT_ATTESTED",
   "metrics": {
-    "controller_stop_ack_latency_ms": 5.752514,
-    "followup_first_model_output_ms": 948.370119,
+    "controller_stop_ack_latency_ms": 3.340616,
+    "followup_first_model_output_ms": 956.746406,
     "reported_played_samples": 0
   },
   "schema_version": 1,

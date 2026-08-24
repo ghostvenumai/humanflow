@@ -1,0 +1,51 @@
+{
+  "agent_manual_validation_attestation": false,
+  "audio_source_observation": {
+    "browser_recognition_source_binding": "UNVERIFIED_BROWSER_MANAGED",
+    "default_source": "alsa_input.pci-0000_00_1f.3.analog-stereo",
+    "monitor_source_exists": true,
+    "monitor_source_is_default": false,
+    "server": "PulseAudio on PipeWire 1.0.5"
+  },
+  "baseline_commit": "d08cbeef075159f63d7e56498be2680a5d74dcf6",
+  "causes_not_supported_by_static_evidence": {
+    "assistant_text_directly_invokes_recognition_callback": "NOT_FOUND",
+    "duplicate_recognition_onresult_handlers": "NOT_FOUND",
+    "duplicate_websocket_onmessage_handlers": "NOT_FOUND",
+    "shared_role_object_mutation": "NOT_FOUND"
+  },
+  "checks": {
+    "baseline_browser_rendered_recognition_as_user_before_server_acceptance": true,
+    "baseline_browser_sent_recognition_as_browser_stt": true,
+    "baseline_reasoner_appended_every_forwarded_text_as_user": true,
+    "baseline_recognition_onresult_handler_count": 1,
+    "baseline_server_forwarded_update_to_session": true,
+    "baseline_session_had_no_authoritative_accept_user_gate": true,
+    "baseline_used_independent_get_user_media_and_speech_recognition": true,
+    "baseline_websocket_onmessage_handler_count": 1,
+    "current_assistant_origin_history_assertion": true,
+    "current_browser_waits_for_server_before_user_render": true,
+    "current_server_has_authoritative_user_gate": true
+  },
+  "classification": {
+    "A_ui_only_duplication": false,
+    "B_browser_stt_self_recognition": true,
+    "C_server_event_routing_contamination": true,
+    "D_conversation_history_contamination": true,
+    "E_multiple_causes": true
+  },
+  "human_evidence": {
+    "assistant_sentence_visible_as_user_transcript": true,
+    "headphones_changed_failure": false,
+    "manual_validation": "FAILED"
+  },
+  "observed_utc": "2026-08-24T10:16:48.877910Z",
+  "root_cause_chain": [
+    "Browser SpeechRecognition runs independently from getUserMedia PCM.",
+    "Its onresult callback rendered every result as USER before server acceptance.",
+    "Every browser_stt final was allowlisted solely by a mutable source string.",
+    "The session forwarded completed text to the reasoner without self-speech classification.",
+    "AnthropicReasoner appended every forwarded transcript with role=user."
+  ],
+  "status": "ROOT_CAUSE_CONFIRMED_AND_GUARD_IMPLEMENTED"
+}
