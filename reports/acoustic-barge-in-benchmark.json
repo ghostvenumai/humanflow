@@ -1,0 +1,238 @@
+{
+  "false_interruption_count": 0,
+  "generated_at_utc": "2026-08-24T12:50:30.118840Z",
+  "measurement_scope": {
+    "browser_audio_device": false,
+    "claim_limit": "Measures PCM detector, controller, epoch invalidation and acknowledged stop locally; browser/device audible yield remains manual evidence.",
+    "human_perception": false,
+    "kind": "paced_local_pcm_two_stage_barge_in_benchmark",
+    "pcm": "real paced PCM16 frames on the authoritative session input",
+    "playback": "BrowserAcknowledgedAudioOutput with in-process acknowledgement",
+    "stt": "not used for acoustic onset or sustained takeover"
+  },
+  "metrics": {
+    "acoustic_speech_onset_latency_ms": {
+      "max": 83.271,
+      "mean": 81.932,
+      "min": 80.978,
+      "n": 20,
+      "p50": 81.852,
+      "p95": 83.161
+    },
+    "backchannel_recovery_latency_ms": {
+      "max": 419.312,
+      "mean": 413.41,
+      "min": 409.636,
+      "n": 20,
+      "p50": 413.186,
+      "p95": 417.4
+    },
+    "speech_onset_to_audible_stop_ms": {
+      "max": 650.263,
+      "mean": 641.834,
+      "min": 631.92,
+      "n": 20,
+      "p50": 641.275,
+      "p95": 648.953
+    },
+    "speech_onset_to_hard_cancel_ms": {
+      "max": 648.494,
+      "mean": 641.289,
+      "min": 631.666,
+      "n": 20,
+      "p50": 641.027,
+      "p95": 648.215
+    },
+    "speech_onset_to_soft_duck_ms": {
+      "max": 84.463,
+      "mean": 82.94,
+      "min": 81.532,
+      "n": 20,
+      "p50": 83.172,
+      "p95": 84.458
+    }
+  },
+  "samples": [
+    {
+      "acoustic_speech_onset_latency_ms": 81.148,
+      "backchannel_recovery_latency_ms": 413.795852,
+      "false_interruption_count": 0,
+      "sample": 0,
+      "speech_onset_to_audible_stop_ms": 640.2476,
+      "speech_onset_to_hard_cancel_ms": 639.781799,
+      "speech_onset_to_soft_duck_ms": 82.12998
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 80.978,
+      "backchannel_recovery_latency_ms": 411.039325,
+      "false_interruption_count": 0,
+      "sample": 1,
+      "speech_onset_to_audible_stop_ms": 631.91963,
+      "speech_onset_to_hard_cancel_ms": 631.665811,
+      "speech_onset_to_soft_duck_ms": 81.531661
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 81.299,
+      "backchannel_recovery_latency_ms": 411.245338,
+      "false_interruption_count": 0,
+      "sample": 2,
+      "speech_onset_to_audible_stop_ms": 637.020556,
+      "speech_onset_to_hard_cancel_ms": 636.788012,
+      "speech_onset_to_soft_duck_ms": 82.047424
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 81.409,
+      "backchannel_recovery_latency_ms": 410.503399,
+      "false_interruption_count": 0,
+      "sample": 3,
+      "speech_onset_to_audible_stop_ms": 639.154738,
+      "speech_onset_to_hard_cancel_ms": 638.640801,
+      "speech_onset_to_soft_duck_ms": 82.317284
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 82.244,
+      "backchannel_recovery_latency_ms": 415.398909,
+      "false_interruption_count": 0,
+      "sample": 4,
+      "speech_onset_to_audible_stop_ms": 644.446863,
+      "speech_onset_to_hard_cancel_ms": 643.134666,
+      "speech_onset_to_soft_duck_ms": 83.348691
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 81.923,
+      "backchannel_recovery_latency_ms": 414.24061,
+      "false_interruption_count": 0,
+      "sample": 5,
+      "speech_onset_to_audible_stop_ms": 640.862267,
+      "speech_onset_to_hard_cancel_ms": 640.612744,
+      "speech_onset_to_soft_duck_ms": 83.326636
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 81.829,
+      "backchannel_recovery_latency_ms": 412.191746,
+      "false_interruption_count": 0,
+      "sample": 6,
+      "speech_onset_to_audible_stop_ms": 643.737652,
+      "speech_onset_to_hard_cancel_ms": 643.414873,
+      "speech_onset_to_soft_duck_ms": 83.243039
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 81.496,
+      "backchannel_recovery_latency_ms": 414.338019,
+      "false_interruption_count": 0,
+      "sample": 7,
+      "speech_onset_to_audible_stop_ms": 641.181543,
+      "speech_onset_to_hard_cancel_ms": 640.952676,
+      "speech_onset_to_soft_duck_ms": 82.007746
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 81.876,
+      "backchannel_recovery_latency_ms": 416.347404,
+      "false_interruption_count": 0,
+      "sample": 8,
+      "speech_onset_to_audible_stop_ms": 643.045831,
+      "speech_onset_to_hard_cancel_ms": 642.800445,
+      "speech_onset_to_soft_duck_ms": 83.570811
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 82.474,
+      "backchannel_recovery_latency_ms": 412.820407,
+      "false_interruption_count": 0,
+      "sample": 9,
+      "speech_onset_to_audible_stop_ms": 648.883545,
+      "speech_onset_to_hard_cancel_ms": 648.200066,
+      "speech_onset_to_soft_duck_ms": 84.061619
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 81.365,
+      "backchannel_recovery_latency_ms": 410.052109,
+      "false_interruption_count": 0,
+      "sample": 10,
+      "speech_onset_to_audible_stop_ms": 635.806516,
+      "speech_onset_to_hard_cancel_ms": 635.419116,
+      "speech_onset_to_soft_duck_ms": 81.935505
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 81.301,
+      "backchannel_recovery_latency_ms": 411.246945,
+      "false_interruption_count": 0,
+      "sample": 11,
+      "speech_onset_to_audible_stop_ms": 650.262887,
+      "speech_onset_to_hard_cancel_ms": 648.494127,
+      "speech_onset_to_soft_duck_ms": 81.960486
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 83.155,
+      "backchannel_recovery_latency_ms": 412.996861,
+      "false_interruption_count": 0,
+      "sample": 12,
+      "speech_onset_to_audible_stop_ms": 647.280358,
+      "speech_onset_to_hard_cancel_ms": 646.446494,
+      "speech_onset_to_soft_duck_ms": 84.457291
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 82.264,
+      "backchannel_recovery_latency_ms": 417.29976,
+      "false_interruption_count": 0,
+      "sample": 13,
+      "speech_onset_to_audible_stop_ms": 644.398022,
+      "speech_onset_to_hard_cancel_ms": 643.394121,
+      "speech_onset_to_soft_duck_ms": 83.603529
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 81.542,
+      "backchannel_recovery_latency_ms": 411.366979,
+      "false_interruption_count": 0,
+      "sample": 14,
+      "speech_onset_to_audible_stop_ms": 640.429801,
+      "speech_onset_to_hard_cancel_ms": 640.034161,
+      "speech_onset_to_soft_duck_ms": 82.289942
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 82.887,
+      "backchannel_recovery_latency_ms": 409.636013,
+      "false_interruption_count": 0,
+      "sample": 15,
+      "speech_onset_to_audible_stop_ms": 639.05786,
+      "speech_onset_to_hard_cancel_ms": 638.721279,
+      "speech_onset_to_soft_duck_ms": 83.47923
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 81.432,
+      "backchannel_recovery_latency_ms": 419.312105,
+      "false_interruption_count": 0,
+      "sample": 16,
+      "speech_onset_to_audible_stop_ms": 636.690574,
+      "speech_onset_to_hard_cancel_ms": 636.188276,
+      "speech_onset_to_soft_duck_ms": 81.961359
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 83.271,
+      "backchannel_recovery_latency_ms": 413.374263,
+      "false_interruption_count": 0,
+      "sample": 17,
+      "speech_onset_to_audible_stop_ms": 643.863042,
+      "speech_onset_to_hard_cancel_ms": 643.328009,
+      "speech_onset_to_soft_duck_ms": 84.463215
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 82.432,
+      "backchannel_recovery_latency_ms": 413.961739,
+      "false_interruption_count": 0,
+      "sample": 18,
+      "speech_onset_to_audible_stop_ms": 647.028567,
+      "speech_onset_to_hard_cancel_ms": 646.658752,
+      "speech_onset_to_soft_duck_ms": 83.95539
+    },
+    {
+      "acoustic_speech_onset_latency_ms": 82.314,
+      "backchannel_recovery_latency_ms": 417.031234,
+      "false_interruption_count": 0,
+      "sample": 19,
+      "speech_onset_to_audible_stop_ms": 641.369269,
+      "speech_onset_to_hard_cancel_ms": 641.101019,
+      "speech_onset_to_soft_duck_ms": 83.100516
+    }
+  ],
+  "schema_version": 1
+}

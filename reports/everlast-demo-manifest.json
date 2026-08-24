@@ -1,23 +1,23 @@
 {
   "artifact_hashes": {
-    "browser-demo-benchmark.json": "c379671587f00aa231dba9202a83419fda49c1019de8889e6fec1c6fb9edf94d",
+    "browser-demo-benchmark.json": "e2cac509ce6329b9a55cace1d807b3bcb426cb04e4bcb6fe7e0b7bd91b9f61f0",
     "dashboard-capture.json": "31e084d892d0f3d09caf1ba77dedd0e6afc457385f4a4344478b01d09346f989",
     "dashboard.png": "f1029b540da6d680b02638426889680945c85d7f6bf8cad43d1275d7755052bb",
     "development-router.json": "46263f73d0f599925b4d8553e28299dded33907d90d3c0abde02e0792ef7f8ba",
-    "live-stt-smoke.json": "f1bbeceffe92a0abfea3a08a026cc3d27545cdcf845efa221cd874ec7c7633b5",
-    "realtime-core-benchmark.json": "05b60e65923eec37a956684046edc87617adec7efa96cd972d93a121396766bc",
-    "recovery-benchmark.json": "58dcf532ea701c2d53ae654c445047be2c48112879204fa8210ceb1c99edc190",
+    "live-stt-smoke.json": "27c62f3a69df4f076fc0a0f9d44bf7a393d4d224649a1729adebfcb0ebd5426d",
+    "realtime-core-benchmark.json": "96ca1073e1aa1566525d50a60be1441eb6cc97f1e1a7a1d65c7c7fab84dfe393",
+    "recovery-benchmark.json": "8968a52f4ef654c4dc0966284f3302b52cf7fb8fdb0b9a9cd0e4a987538447c3",
     "runtime-quality-eval.json": "3c858ed6a4780acd7b2820fdbc976367e491bc32d90ddc51598aa558f5ae0a43",
-    "scorecard.json": "79f3d07878b0c00ea821a42be13b9af533739d1fd12a41b43a3b0e9502b7d900",
-    "timeline-replay.json": "8975a9f0a1dd1cc50a04b26d3bfd1b13aec9df645331cc430b9f28a4909f9822",
-    "torture-run.json": "3d1bb0ef7883e78dd63751eb7682f1f5f38e45f792072d6872484c4c1c46b51d",
+    "scorecard.json": "bf3a0d1a0efea5b6e6123c695a7401e6863bf8a68f9f7603d1ce754aa2f0ccc8",
+    "timeline-replay.json": "a048ec122ba0361ae0b3a0805f462959bd9677e00cecc1ba770a62b09ca4ffcf",
+    "torture-run.json": "17954a6dca908f383762fd17d85d54440adc8f4b3c50ead71f259d9befc18660",
     "tournament-readiness.json": "7723f029de3c46c93755d85a6015163de526c9d6e82870cbe05b49b2d21e2312",
-    "turn-benchmark.json": "9b80fc90df04a0ae309806db9464da954756d5f6e6ab5b4200089a6917711b3f"
+    "turn-benchmark.json": "eccfabee953b097466d19cf7b482f63271a1843b6e718ee9fccede5525a248c2"
   },
-  "automated_failures": 1,
+  "automated_failures": 0,
   "demo_duration_target_minutes": "3-5",
-  "generated_at_utc": "2026-08-24T11:39:28.166745Z",
-  "git_commit": "674cf153516917fd74c67af9bd9c8f9566a7426f",
+  "generated_at_utc": "2026-08-24T12:51:46.868893Z",
+  "git_commit": "45c3aceccf4be561d5b7a03b0c6cb267c06d0344",
   "manual_requirements": [
     "Run the browser demo with microphone and audible output",
     "Validate source-bound Scribe STT and TTS behavior on an actual supported browser",
@@ -32,7 +32,7 @@
     "gates_total": 8,
     "production_release_claim": "NOT_ESTABLISHED_NO_REAL_CALL_DATA"
   },
-  "status": "NOT_READY",
+  "status": "READY_FOR_MANUAL_VALIDATION_NOT_FROZEN",
   "steps": [
     {
       "evidence": [
@@ -41,7 +41,7 @@
         "reports/live-stt-smoke.json"
       ],
       "name": "normal_german_browser_conversation",
-      "status": "FAIL",
+      "status": "MANUAL_REQUIRED",
       "step": 1
     },
     {

@@ -1,11 +1,35 @@
 {
-  "browser_speech_recognition_production_status": "OFF",
-  "failure": {
-    "exception_type": "ElevenLabsRealtimeSTTError",
-    "provider_error_code": "auth_error"
+  "fixture": {
+    "audio_seconds": 2.229,
+    "text": "Was ist fünfundzwanzig mal siebzehn?",
+    "tts_budget": {
+      "estimated_base_cost_usd": 0.0005,
+      "generated_audio_seconds": 2.229,
+      "maximum_audio_seconds": 15.0,
+      "maximum_input_characters": 80,
+      "reported_billable_characters": 10,
+      "submitted_characters": 36
+    },
+    "tts_provider": {
+      "mode": "REAL",
+      "model": "eleven_flash_v2_5",
+      "provider": "elevenlabs-text-to-speech-stream",
+      "role": "tts",
+      "runtime": "server"
+    }
   },
   "manual_microphone_quality_attested": false,
-  "observed_utc": "2026-08-24T11:25:32.539642Z",
+  "observed": {
+    "committed_events_delivered": 1,
+    "committed_transcript": "Was is 25 mal 17?",
+    "committed_transcript_ms": 3128.695,
+    "first_partial_ms": 2320.171,
+    "partial_events_delivered": 2,
+    "pcm_frames_sent": 32,
+    "semantic_numbers_preserved": true,
+    "wall_duration_ms": 3265.294
+  },
+  "observed_utc": "2026-08-24T12:47:28.977432Z",
   "provider": {
     "mode": "REAL",
     "model": "scribe_v2_realtime",
@@ -13,5 +37,14 @@
     "role": "stt",
     "runtime": "server"
   },
-  "status": "FAIL"
+  "provider_cost_usd": "NOT_REPORTED_BY_PROVIDER_RESPONSE",
+  "scope": "real Scribe websocket and exact PCM provider path; synthetic ElevenLabs speech fixture, not a browser microphone assessment",
+  "source_binding": {
+    "audio_capture_id": "live-stt-smoke-capture",
+    "browser_speech_recognition_production_status": "OFF",
+    "format": "pcm_s16le_16000_mono",
+    "recognition_input_binding": "EXACT_GETUSERMEDIA_PCM16_CONTRACT",
+    "stream_id": "live-stt-smoke-pcm"
+  },
+  "status": "PASS"
 }

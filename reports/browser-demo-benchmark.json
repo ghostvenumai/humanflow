@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-08-24T11:31:00.866964Z",
+  "generated_at_utc": "2026-08-24T12:50:47.969204Z",
   "measurement_scope": {
     "audio_device_executed": false,
     "browser_executed": false,
@@ -10,28 +10,28 @@
   },
   "metrics": {
     "dashboard_api_request_ms": {
-      "max": 4.042,
-      "mean": 2.412,
-      "min": 1.283,
-      "n": 4,
-      "p50": 2.162,
-      "p90": 3.575,
-      "p95": 3.808,
-      "p99": 3.995
+      "max": 3.732,
+      "mean": 2.124,
+      "min": 1.209,
+      "n": 5,
+      "p50": 1.662,
+      "p90": 3.271,
+      "p95": 3.502,
+      "p99": 3.686
     },
-    "dashboard_request_ms": 2.1,
+    "dashboard_request_ms": 2.141,
     "health_request_ms": {
-      "max": 1.461,
-      "mean": 1.149,
-      "min": 0.919,
+      "max": 1.561,
+      "mean": 1.134,
+      "min": 0.925,
       "n": 30,
-      "p50": 1.174,
-      "p90": 1.345,
-      "p95": 1.359,
-      "p99": 1.433
+      "p50": 1.069,
+      "p90": 1.487,
+      "p95": 1.498,
+      "p99": 1.544
     },
-    "index_request_ms": 31.569,
-    "server_startup_to_health_ms": 797.297
+    "index_request_ms": 34.189,
+    "server_startup_to_health_ms": 874.73
   },
   "schema_version": 1
 }
