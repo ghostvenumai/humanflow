@@ -18,6 +18,8 @@ from humanflow.telemetry.events import EventType
 from humanflow.telemetry.sinks import TelemetrySink
 from humanflow.turns.models import TurnDecision, TurnDecisionType
 from humanflow.turns.policies import HybridTurnPolicy
+from humanflow.tools.appointment_coordinator import AppointmentTransactionCoordinator
+from humanflow.tools.providers import ToolProvider
 
 from .providers import (
     AudioOutput,
@@ -33,7 +35,7 @@ from .acoustic_barge_in import (
     AcousticBargeInEvent,
     AcousticEventType,
 )
-from .appointment_state import AppointmentState, AppointmentStateTracker
+from .appointment_state import AppointmentState, AppointmentStateDelta, AppointmentStateTracker
 from .prosody import ProsodyPlanner
 from .speech_text import GermanSpeechNormalizer
 from .self_speech import SelfSpeechAssessment, SelfSpeechGuard
@@ -91,6 +93,8 @@ class RealtimeVoiceSession:
         self_speech_guard: SelfSpeechGuard | None = None,
         acoustic_barge_in_detector: AcousticBargeInDetector | None = None,
         appointment_state_tracker: AppointmentStateTracker | None = None,
+        appointment_tool_provider: ToolProvider | None = None,
+        appointment_tool_timeout_ms: float = 4_000.0,
         soft_yield_recovery_delay_ms: float = 420.0,
         input_queue_size: int = 256,
         clock_ns: Callable[[], int] = monotonic_ns,
@@ -118,6 +122,16 @@ class RealtimeVoiceSession:
         )
         self._appointment_state_tracker = (
             appointment_state_tracker or AppointmentStateTracker()
+        )
+        self._appointment_transaction_coordinator = (
+            AppointmentTransactionCoordinator(
+                conversation_id=conversation_id,
+                state_machine=self.state_machine,
+                provider=appointment_tool_provider,
+                timeout_ms=appointment_tool_timeout_ms,
+            )
+            if appointment_tool_provider is not None
+            else None
         )
         self._soft_yield_recovery_delay_ms = soft_yield_recovery_delay_ms
         self._input_queue: asyncio.Queue[AudioFrame | None] = asyncio.Queue(input_queue_size)
@@ -1155,17 +1169,18 @@ class RealtimeVoiceSession:
             transcript,
             source_turn=user_transcript_id,
         )
-        appointment_context = self._appointment_state_tracker.reasoning_context(
-            appointment_delta
-        )
-        set_context = getattr(
-            self._reasoner, "set_authoritative_transaction_context", None
-        )
-        if callable(set_context):
-            set_context(
-                appointment_context,
-                state=appointment_delta.appointments,
+        if self._appointment_transaction_coordinator is None:
+            appointment_context = self._appointment_state_tracker.reasoning_context(
+                appointment_delta
             )
+            set_context = getattr(
+                self._reasoner, "set_authoritative_transaction_context", None
+            )
+            if callable(set_context):
+                set_context(
+                    appointment_context,
+                    state=appointment_delta.appointments,
+                )
         if appointment_delta.changed:
             self.state_machine.record(
                 EventType.APPOINTMENT_STATE_UPDATED,
@@ -1205,6 +1220,7 @@ class RealtimeVoiceSession:
                 correlation_id=correlation_id,
                 user_transcript_id=user_transcript_id,
                 history_user_count_before=history_user_count_before,
+                appointment_delta=appointment_delta,
             ),
             name=f"humanflow-response-{self._response_id}",
         )
@@ -1218,6 +1234,7 @@ class RealtimeVoiceSession:
         correlation_id: str,
         user_transcript_id: str,
         history_user_count_before: int | None,
+        appointment_delta: AppointmentStateDelta,
     ) -> None:
         first_model_output = True
         first_audio = True
@@ -1230,16 +1247,55 @@ class RealtimeVoiceSession:
         generation_started_ns = self._clock_ns()
         reasoning_provider = provider_info(self._reasoner, role="reasoning")
         speech_provider = provider_info(self._synthesizer, role="tts")
-        self.state_machine.record(
-            EventType.AGENT_GENERATION_STARTED,
-            correlation_id=correlation_id,
-            reason_code="reasoner_stream_started",
-            payload={
-                "response_id": response_id,
-                "provider": reasoning_provider.to_dict(),
-            },
-        )
         try:
+            coordinator = self._appointment_transaction_coordinator
+            if coordinator is not None:
+                tool_delta, tool_outcome = await coordinator.execute(
+                    transcript=transcript,
+                    delta=appointment_delta,
+                    tracker=self._appointment_state_tracker,
+                    correlation_id=correlation_id,
+                    source_turn=user_transcript_id,
+                    parent_token=token,
+                )
+                appointment_context = self._appointment_state_tracker.reasoning_context(
+                    tool_delta
+                )
+                appointment_context = coordinator.enrich_reasoning_context(
+                    appointment_context, tool_outcome
+                )
+                set_context = getattr(
+                    self._reasoner, "set_authoritative_transaction_context", None
+                )
+                if callable(set_context):
+                    set_context(
+                        appointment_context,
+                        state=tool_delta.appointments,
+                    )
+                if tool_outcome is not None and tool_delta.updated_slots:
+                    self.state_machine.record(
+                        EventType.APPOINTMENT_STATE_UPDATED,
+                        correlation_id=correlation_id,
+                        reason_code="database_tool_result_applied_to_action_state",
+                        payload={
+                            **tool_delta.to_dict(),
+                            "tool_name": tool_outcome.tool_name,
+                            "tool_success": tool_outcome.success,
+                        },
+                    )
+                if self._cancel_event.is_set() or not self.state_machine.accept_result(
+                    token, correlation_id=correlation_id
+                ):
+                    return
+            self.state_machine.record(
+                EventType.AGENT_GENERATION_STARTED,
+                correlation_id=correlation_id,
+                reason_code="reasoner_stream_started",
+                payload={
+                    "response_id": response_id,
+                    "provider": reasoning_provider.to_dict(),
+                },
+            )
             async for text in self._reasoner.stream_response(transcript, token):
                 self._raise_completed_playback_failure(playback_tasks)
                 if self._cancel_event.is_set() or not self.state_machine.accept_result(
@@ -1584,7 +1640,10 @@ class RealtimeVoiceSession:
             if self._cancel_event.is_set():
                 stopped_ns = self._clock_ns()
                 self.ledger.cancel_unplayed(response_id=response_id, cancelled_ns=stopped_ns)
-                if self.state is ConversationState.INTERRUPTED:
+                if self.state in {
+                    ConversationState.INTERRUPTED,
+                    ConversationState.THINKING,
+                }:
                     self.state_machine.transition(
                         ConversationState.LISTENING,
                         reason_code="barge_in_output_stopped",

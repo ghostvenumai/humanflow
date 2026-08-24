@@ -140,6 +140,7 @@ def test_demo_factory_can_only_build_declared_real_reasoner() -> None:
     assert transcriber.provider_info.mode is ProviderMode.REAL
     assert isinstance(synthesizer, FallbackStreamingTTSProvider)
     assert runtime.tts_candidate_factory is not None
+    assert runtime.appointment_tool_provider_factory is not None
     candidate = runtime.tts_candidate_factory()
     assert candidate.provider_info.model == "eleven_v3_conversational"
     assert reasoner.provider_info.mode is ProviderMode.REAL
@@ -153,6 +154,12 @@ def test_demo_factory_can_only_build_declared_real_reasoner() -> None:
     )
     assert tts_candidate.info.model == "eleven_v3_conversational"
     assert tts_candidate.availability == "CONFIGURED_UNVERIFIED"
+    appointment_tools = next(
+        status for status in runtime.providers if status.info.role == "appointment-tools"
+    )
+    assert appointment_tools.info.provider == "local-sqlite"
+    assert appointment_tools.info.mode is ProviderMode.REAL
+    assert appointment_tools.availability == "CONFIGURED"
 
 
 def test_demo_accepts_dedicated_scribe_key_without_exposing_it() -> None:
@@ -246,6 +253,34 @@ def test_authoritative_transaction_context_does_not_rewrite_provider_history() -
             {"role": "user", "content": "Vielleicht 15 Uhr."}
         ]
         assert reasoner.history[0]["content"] == "Vielleicht 15 Uhr."
+
+    asyncio.run(scenario())
+
+
+def test_database_availability_reply_cannot_invent_model_slots() -> None:
+    async def scenario() -> None:
+        client = FakeClient([["Donnerstag sind 16 Uhr und 18 Uhr frei."]])
+        reasoner = AnthropicReasoner(
+            api_key="test-key-never-sent",
+            model="claude-test-real-adapter",
+            client=client,
+        )
+        reasoner.set_authoritative_transaction_context(
+            '{"database_tool_result":{"tool_name":"search_availability",'
+            '"success":true,"failure_reason":null,"elapsed_ms":2.0,"result":'
+            '{"success":true,"slots":['
+            '{"start_datetime":"2026-09-03T10:30:00+02:00"},'
+            '{"start_datetime":"2026-09-03T14:00:00+02:00"}]}}}'
+        )
+
+        spoken = await _collect(
+            reasoner, "Ich brauche Donnerstag einen Orthopädentermin.", 1
+        )
+
+        assert "10:30 Uhr" in spoken
+        assert "14 Uhr" in spoken
+        assert "16 Uhr" not in spoken
+        assert "18 Uhr" not in spoken
 
     asyncio.run(scenario())
 

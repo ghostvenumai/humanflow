@@ -7,7 +7,7 @@ import re
 from collections.abc import Mapping
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from humanflow.domain.conversation import OperationToken
@@ -37,7 +37,9 @@ ausgeführten Aktionen. Bei Fragen zum aktuellen Wetter sage ausdrücklich, dass
 keinen Zugriff auf aktuelle Wetterdaten hast, und biete Hilfe anhand vom Nutzer
 genannter Daten an. Du hast derzeit auch keinen echten Kalender. Erkläre diese
 Grenzen natürlich und hilf anschließend so konkret wie möglich weiter. Behaupte bei
-Terminwünschen niemals, ein Termin sei bereits gebucht.
+Terminwünschen niemals, ein Termin sei bereits gebucht, solange kein erfolgreicher
+lokaler SQLite-Toolaufruf vorliegt. Du hast derzeit auch keinen echten Kalender; die
+SQLite-Terminwerkzeuge enthalten ausschließlich klar gekennzeichnete Demo-Daten.
 Beginne nicht mit einer generischen Empfangsbestätigung wie „Ich habe Sie verstanden“.
 Schreibe Daten und Uhrzeiten so, dass eine deutsche Sprachausgabe sie eindeutig und
 natürlich vorlesen kann. Rechenresultate gibst du immer als Ziffern in einem kurzen
@@ -192,6 +194,7 @@ class AnthropicReasoner:
         transaction_contract = _parse_transaction_contract(
             self._authoritative_transaction_context
         )
+        database_reply = _authoritative_database_reply(transaction_contract)
         identity_requested = _IDENTITY_REQUEST.search(user_text) is not None
 
         system_prompt = self._system_prompt
@@ -233,6 +236,11 @@ class AnthropicReasoner:
                 "Status immer das Substantiv „Terminwunsch“."
                 " Relative Datumsangaben rechnest du niemals selbst aus; verwende "
                 "ausschließlich das vom Controller gelieferte resolved_iso_date."
+                " Wenn database_tool_result vorhanden ist, stammen Verfügbarkeit und "
+                "gebuchte Termine ausschließlich daraus. Erfinde keine Slots oder "
+                "Termine. Nur database_tool_result.success=true erlaubt eine bestätigte "
+                "Buchung, Verschiebung oder Absage; bei false meldest du den Fehlschlag "
+                "knapp und wahrheitsgemäß."
             )
 
         async with self._client.messages.stream(
@@ -247,7 +255,12 @@ class AnthropicReasoner:
                 pending += delta
                 ready, pending = _take_speech_boundaries(pending)
                 for fragment in ready:
-                    guarded = _guard_transaction_fragment(fragment, transaction_contract)
+                    if database_reply is not None:
+                        if delivered_text:
+                            continue
+                        guarded = database_reply
+                    else:
+                        guarded = _guard_transaction_fragment(fragment, transaction_contract)
                     guarded = self._enforce_ai_disclosure(
                         guarded, identity_requested=identity_requested
                     )
@@ -257,7 +270,15 @@ class AnthropicReasoner:
                     yield guarded
             final_message = await stream.get_final_message()
 
-        if pending.strip():
+        if database_reply is not None and not delivered_text:
+            guarded = database_reply
+            guarded = self._enforce_ai_disclosure(
+                guarded, identity_requested=identity_requested
+            )
+            if guarded:
+                delivered_text.append(guarded)
+                yield guarded
+        elif pending.strip() and database_reply is None:
             guarded = _guard_transaction_fragment(pending.strip(), transaction_contract)
             guarded = self._enforce_ai_disclosure(
                 guarded, identity_requested=identity_requested
@@ -336,6 +357,101 @@ def _parse_transaction_contract(context: str | None) -> dict[str, object] | None
     except (TypeError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _authoritative_database_reply(context: Mapping[str, object] | None) -> str | None:
+    if context is None:
+        return None
+    raw_outcome = context.get("database_tool_result")
+    if not isinstance(raw_outcome, Mapping):
+        return None
+    tool_name = raw_outcome.get("tool_name")
+    result = raw_outcome.get("result")
+    if not isinstance(tool_name, str) or not isinstance(result, Mapping):
+        return None
+    if raw_outcome.get("success") is not True:
+        if result.get("error_code") == "BOOKING_CONFLICT":
+            return "Der gewünschte Termin ist leider nicht verfügbar."
+        return "Das hat gerade nicht geklappt. Ich kann es noch einmal versuchen."
+    if tool_name == "search_availability":
+        slots = result.get("slots")
+        if not isinstance(slots, list) or not slots:
+            return "Für diesen Tag ist in den Demo-Daten kein Termin frei."
+        starts = [
+            slot.get("start_datetime")
+            for slot in slots
+            if isinstance(slot, Mapping) and isinstance(slot.get("start_datetime"), str)
+        ]
+        if not starts:
+            return "Für diesen Tag ist in den Demo-Daten kein Termin frei."
+        spoken = [_spoken_datetime(value, include_date=False) for value in starts[:3]]
+        day = _spoken_datetime(starts[0], include_time=False)
+        return f"{day} hätte ich {_join_german(spoken)} etwas frei."
+    if tool_name == "create_appointment":
+        start = result.get("start_datetime")
+        appointment_type = result.get("appointment_type")
+        if isinstance(start, str):
+            subject = (
+                f"dein {appointment_type}-Termin"
+                if isinstance(appointment_type, str)
+                else "dein Termin"
+            )
+            return f"Alles klar, {subject} ist {_spoken_datetime(start)} gebucht."
+    if tool_name == "reschedule_appointment":
+        new_slot = result.get("new_slot")
+        if isinstance(new_slot, Mapping) and isinstance(new_slot.get("start_datetime"), str):
+            return (
+                "Okay, ich habe den Termin auf "
+                f"{_spoken_datetime(new_slot['start_datetime'])} verschoben."
+            )
+    if tool_name == "cancel_appointment":
+        appointment_type = result.get("appointment_type")
+        subject = (
+            f"der {appointment_type}-Termin"
+            if isinstance(appointment_type, str)
+            else "der Termin"
+        )
+        return f"Okay, {subject} ist abgesagt."
+    if tool_name == "list_appointments":
+        appointments = result.get("appointments")
+        if not isinstance(appointments, list) or not appointments:
+            return "Du hast aktuell keine gebuchten Demo-Termine."
+        descriptions = []
+        for appointment in appointments:
+            if not isinstance(appointment, Mapping):
+                continue
+            start = appointment.get("start_datetime")
+            appointment_type = appointment.get("appointment_type")
+            if isinstance(start, str) and isinstance(appointment_type, str):
+                descriptions.append(
+                    f"einen {appointment_type}-Termin {_spoken_datetime(start)}"
+                )
+        if descriptions:
+            return f"Du hast {_join_german(descriptions, connector='und')}."
+    return None
+
+
+def _spoken_datetime(
+    value: str, *, include_date: bool = True, include_time: bool = True
+) -> str:
+    parsed = datetime.fromisoformat(value)
+    parts: list[str] = []
+    if include_date:
+        parts.append(f"am {_GERMAN_WEEKDAYS[parsed.weekday()]}")
+    if include_time:
+        spoken_time = (
+            f"{parsed.hour} Uhr"
+            if parsed.minute == 0
+            else f"{parsed.hour}:{parsed.minute:02d} Uhr"
+        )
+        parts.append(f"um {spoken_time}")
+    return " ".join(parts)
+
+
+def _join_german(values: list[str], *, connector: str = "oder") -> str:
+    if len(values) < 2:
+        return values[0] if values else ""
+    return ", ".join(values[:-1]) + f" {connector} {values[-1]}"
 
 
 def _guard_transaction_fragment(

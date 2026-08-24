@@ -71,6 +71,11 @@ class ResilientToolExecutor:
                     payload={"tool_name": name, "attempt": attempt},
                 )
             token = self._state_machine.issue_operation(kind=f"tool:{name}")
+            provider_arguments = dict(arguments)
+            provider_arguments["_humanflow_operation_is_current"] = lambda: (
+                token.conversation_id == self._state_machine.conversation_id
+                and token.epoch == self._state_machine.operation_epoch
+            )
             attempt_started_ns = self._clock_ns()
             self._state_machine.record(
                 EventType.TOOL_STARTED,
@@ -80,7 +85,7 @@ class ResilientToolExecutor:
             )
             try:
                 raw_response = await asyncio.wait_for(
-                    self._provider.call(name, dict(arguments)),
+                    self._provider.call(name, provider_arguments),
                     timeout=self._timeout_ms / 1000.0,
                 )
                 response = self._validate_response(raw_response)

@@ -11,4 +11,4 @@ node_modules/
 dist/
 build/
 *.log
-
+*.sqlite3

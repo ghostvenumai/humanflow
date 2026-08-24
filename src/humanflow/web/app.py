@@ -55,6 +55,8 @@ from humanflow.runtime.transcript_events import (
     normalize_transcript,
 )
 from humanflow.telemetry.events import EventType, TelemetryEvent
+from humanflow.tools.providers import ToolProvider
+from humanflow.tools.sqlite_appointments import SQLiteAppointmentToolProvider
 from humanflow.turns.models import TurnSignals
 
 from .transport import (
@@ -98,6 +100,8 @@ class DemoRuntimeConfig:
     providers: tuple[ProviderStatus, ...]
     blocker: str | None = None
     tts_candidate_factory: Callable[[], StreamingTTSProvider] | None = None
+    appointment_tool_provider_factory: Callable[[], ToolProvider] | None = None
+    appointment_tool_timeout_ms: float = 4_000.0
 
     @property
     def ready(self) -> bool:
@@ -105,6 +109,7 @@ class DemoRuntimeConfig:
             self.transcriber_factory is not None
             and self.reasoner_factory is not None
             and self.synthesizer_factory is not None
+            and self.appointment_tool_provider_factory is not None
             and self.blocker is None
         )
 
@@ -312,6 +317,28 @@ def load_demo_runtime_config(
         tts_fallback_info,
         "BROWSER_CHECK_REQUIRED",
     )
+    appointment_database_path = Path(
+        values.get(
+            "HUMANFLOW_APPOINTMENTS_DB",
+            str(PROJECT_ROOT / "var" / "humanflow-demo.sqlite3"),
+        )
+    )
+    appointment_tool_delay_ms = float(
+        values.get("HUMANFLOW_DEMO_TOOL_DELAY_MS", "0") or "0"
+    )
+    appointment_failure_tool = (
+        values.get("HUMANFLOW_DEMO_TOOL_FAILURE", "").strip() or None
+    )
+    appointment_tools_status = ProviderStatus(
+        ProviderInfo(
+            role="appointment-tools",
+            provider="local-sqlite",
+            model="humanflow-appointments-v1",
+            mode=ProviderMode.REAL,
+            runtime="server",
+        ),
+        "CONFIGURED",
+    )
     tts_api_key = values.get("ELEVENLABS_API_KEY", "")
     tts_voice_id = values.get("ELEVENLABS_VOICE_ID", "")
     tts_missing = []
@@ -462,6 +489,13 @@ def load_demo_runtime_config(
             fallback=BrowserSpeechSynthesisAdapter(),
         )
 
+    def create_appointment_tools() -> ToolProvider:
+        return SQLiteAppointmentToolProvider(
+            database_path=appointment_database_path,
+            delay_ms=appointment_tool_delay_ms,
+            failure_tool=appointment_failure_tool,
+        )
+
     return DemoRuntimeConfig(
         transcriber_factory=create_transcriber,
         reasoner_factory=create_reasoner,
@@ -473,8 +507,11 @@ def load_demo_runtime_config(
             tts_status,
             tts_candidate_status,
             tts_fallback,
+            appointment_tools_status,
         ),
         tts_candidate_factory=create_candidate_synthesizer,
+        appointment_tool_provider_factory=create_appointment_tools,
+        appointment_tool_timeout_ms=max(4_000.0, appointment_tool_delay_ms + 1_000.0),
     )
 
 
@@ -613,6 +650,8 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             reasoner=runtime.reasoner_factory(),
             synthesizer=selected_synthesizer_factory(),
             audio_output=audio_output,
+            appointment_tool_provider=runtime.appointment_tool_provider_factory(),
+            appointment_tool_timeout_ms=runtime.appointment_tool_timeout_ms,
         )
         sequence = 0
         stt_input_failed = False
@@ -680,7 +719,7 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                 "demo_limit": (
                     "INPUT-ONLY: kein Reasoning- oder TTS-Aufruf."
                     if input_only
-                    else "Scribe Realtime, echtes ElevenLabs Streaming-TTS und reales Reasoning; kein Web- oder Kalender-Tool."
+                    else "Scribe Realtime, echtes ElevenLabs Streaming-TTS, reales Reasoning und lokale SQLite-Terminwerkzeuge."
                 ),
             }
         )

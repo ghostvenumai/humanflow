@@ -29,7 +29,9 @@ _NEW_APPOINTMENT = re.compile(
     re.IGNORECASE,
 )
 _GENERIC_PRONOUN = re.compile(
-    r"\b(ihn|den\s+termin|der\s+termin|dieser\s+termin)\b", re.IGNORECASE
+    r"\b(ihn|den\s+termin|der\s+termin|dieser\s+termin|"
+    r"den(?=\s+(?:will|möchte)\s+ich\s+absagen))\b",
+    re.IGNORECASE,
 )
 _PLURAL_OVERVIEW = re.compile(r"\b(welche|meine|alle)\s+termine\b", re.IGNORECASE)
 _CANCEL_REQUEST = re.compile(
@@ -42,9 +44,13 @@ _CANCEL_REQUEST = re.compile(
 class AppointmentActionState(StrEnum):
     PROPOSED = "PROPOSED"
     COLLECTING_DETAILS = "COLLECTING_DETAILS"
+    READY_TO_CHECK = "READY_TO_CHECK"
+    CHECKING_AVAILABILITY = "CHECKING_AVAILABILITY"
+    AVAILABLE = "AVAILABLE"
     READY_TO_BOOK = "READY_TO_BOOK"
     TOOL_PENDING = "TOOL_PENDING"
     BOOKED = "BOOKED"
+    RESCHEDULED = "RESCHEDULED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
 
@@ -390,15 +396,21 @@ class AppointmentStateTracker:
         appointment = self._appointments[appointment_id]
         timestamp = self._timestamp()
         normalized_action = action.casefold().strip()
+        if normalized_action not in {"search", "book", "reschedule", "cancel"}:
+            raise ValueError("tool action must be search, book, reschedule or cancel")
         if not success:
             status = AppointmentActionState.FAILED
+        elif normalized_action == "search":
+            status = AppointmentActionState.AVAILABLE
         elif normalized_action == "book":
+            status = AppointmentActionState.BOOKED
+        elif normalized_action == "reschedule":
             status = AppointmentActionState.BOOKED
         elif normalized_action == "cancel":
             status = AppointmentActionState.CANCELLED
-        else:
-            raise ValueError("tool action must be book or cancel")
-        appointment.external_action_confirmed = success
+        appointment.external_action_confirmed = bool(
+            success and normalized_action in {"book", "reschedule", "cancel"}
+        )
         self._set_slot(
             appointment,
             "status",
