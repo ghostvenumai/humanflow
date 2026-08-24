@@ -170,6 +170,7 @@ class LiveBargeInMetrics:
     sample_counts: dict[str, int] = dataclass_field(default_factory=dict)
     false_interruption_count: int = 0
     conversation_id: str | None = None
+    latest_decomposition: dict[str, Any] | None = None
 
     _EVENT_FIELDS = {
         EventType.USER_AUDIO_STARTED: (
@@ -204,12 +205,17 @@ class LiveBargeInMetrics:
         self.sample_counts.clear()
         self.false_interruption_count = 0
         self.conversation_id = conversation_id
+        self.latest_decomposition = None
 
     def observe(self, event: TelemetryEvent) -> None:
         if self.conversation_id != event.conversation_id:
             self.reset(event.conversation_id)
         if event.event_type is EventType.FALSE_INTERRUPTION_DETECTED:
             self.false_interruption_count += 1
+        if event.event_type is EventType.AUDIBLE_STOP_ACK:
+            decomposition = event.payload.get("latency_decomposition_ms")
+            if isinstance(decomposition, dict):
+                self.latest_decomposition = dict(decomposition)
         mapping = self._EVENT_FIELDS.get(event.event_type)
         if mapping is None:
             return
@@ -241,6 +247,7 @@ class LiveBargeInMetrics:
                 for name in names
             },
             "false_interruption_count": self.false_interruption_count,
+            "latest_latency_decomposition_ms": self.latest_decomposition,
             "manual_validation": "REQUIRED_NOT_ATTESTED",
             "measurement_scope": (
                 "authoritative server PCM onset; browser duck/stop acknowledgements "

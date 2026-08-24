@@ -47,7 +47,7 @@ def test_short_backchannel_soft_yields_then_recovers_without_hard_cancel() -> No
 def test_sustained_takeover_confirms_without_waiting_for_stt() -> None:
     detector = AcousticBargeInDetector()
     events = []
-    for sequence in range(32):
+    for sequence in range(26):
         events.extend(
             detector.observe(
                 _frame(sequence, 5_000), assistant_playback_active=True
@@ -58,8 +58,28 @@ def test_sustained_takeover_confirms_without_waiting_for_stt() -> None:
         AcousticEventType.SPEECH_ONSET,
         AcousticEventType.SUSTAINED_TAKEOVER,
     ]
-    assert events[1].speech_duration_ms == 620.0
-    assert events[1].detection_latency_ms == 620.0
+    assert events[1].speech_duration_ms == 520.0
+    assert events[1].detection_latency_ms == 520.0
+
+
+def test_half_second_backchannel_or_hesitation_does_not_hard_cancel() -> None:
+    detector = AcousticBargeInDetector()
+    events = []
+    for sequence in range(25):
+        events.extend(
+            detector.observe(
+                _frame(sequence, 5_000), assistant_playback_active=True
+            )
+        )
+    for sequence in range(25, 35):
+        events.extend(
+            detector.observe(_frame(sequence, 0), assistant_playback_active=True)
+        )
+
+    assert [event.event_type for event in events] == [
+        AcousticEventType.SPEECH_ONSET,
+        AcousticEventType.SPEECH_ENDED,
+    ]
 
 
 def test_noise_transient_never_ducks_or_cancels() -> None:

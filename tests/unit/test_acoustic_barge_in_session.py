@@ -170,12 +170,21 @@ def test_sustained_pcm_takeover_hard_cancels_before_any_stt_event() -> None:
         )
         soft_index = event_types.index(EventType.PLAYBACK_DUCK_REQUESTED)
         hard_index = event_types.index(EventType.INTERRUPTION_CONFIRMED)
+        evidence_index = event_types.index(EventType.TAKEOVER_EVIDENCE)
+        assert soft_index < evidence_index < hard_index
         assert not any(
             event_type in {EventType.PARTIAL_TRANSCRIPT, EventType.FINAL_TRANSCRIPT}
             for event_type in event_types[soft_index:hard_index]
         )
         assert EventType.AUDIO_CANCEL_SIGNAL in event_types
         assert EventType.AUDIBLE_STOP_ACK in event_types
+        stop = next(
+            event for event in sink.events if event.event_type is EventType.AUDIBLE_STOP_ACK
+        )
+        decomposition = stop.payload["latency_decomposition_ms"]
+        assert decomposition["takeover_evidence_type"] == "ACOUSTIC_SUSTAINED_TAKEOVER"
+        assert decomposition["speech_onset_to_audible_stop"] >= 0
+        assert decomposition["cancel_signal_to_audible_stop"] >= 0
         assert session.state is ConversationState.LISTENING
         await session.close()
 
@@ -209,6 +218,11 @@ def test_moment_stopp_partial_confirms_after_soft_yield_before_sustained_timer()
 
         assert decision.decision is TurnDecisionType.INTERRUPTION
         assert len(output.invalidations) == 1
+        evidence = next(
+            event for event in sink.events if event.event_type is EventType.TAKEOVER_EVIDENCE
+        )
+        assert evidence.payload["evidence_type"] == "SEMANTIC_PARTIAL_TAKEOVER"
+        assert evidence.payload["semantic_evidence"] is True
         assert any(
             event.event_type is EventType.AUDIBLE_STOP_ACK for event in sink.events
         )

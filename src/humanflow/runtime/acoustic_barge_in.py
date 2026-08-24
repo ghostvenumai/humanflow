@@ -40,7 +40,7 @@ class AcousticBargeInDetector:
         self,
         *,
         onset_debounce_ms: float = 70.0,
-        sustained_takeover_ms: float = 620.0,
+        sustained_takeover_ms: float = 520.0,
         release_silence_ms: float = 180.0,
         minimum_rms: float = 0.010,
         minimum_peak: float = 0.030,

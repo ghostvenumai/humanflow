@@ -10,7 +10,7 @@ const ui = Object.fromEntries([
   "metric-soft-yield", "metric-confirmed-interruption", "metric-audible-stop",
   "metric-backchannel-recovery", "metric-false-interruptions",
   "metric-first-partial", "metric-final-stt"
-  , "tts-ab-selection"
+  , "tts-ab-selection", "metric-barge-in-breakdown"
 ].map((id) => [id, document.getElementById(id)]));
 
 let socket;
@@ -624,6 +624,12 @@ function addEvent(event) {
   }
   if (event.event_type === "AUDIBLE_STOP_ACK" && event.payload.speech_onset_to_audible_stop_ms != null) {
     ui["metric-audible-stop"].textContent = `${event.payload.speech_onset_to_audible_stop_ms.toFixed(1)} ms`;
+    const breakdown = event.payload.latency_decomposition_ms;
+    if (breakdown) {
+      ui["metric-barge-in-breakdown"].textContent = Object.entries(breakdown)
+        .map(([name, value]) => `${name}=${typeof value === "number" ? value.toFixed(1) + " ms" : value}`)
+        .join(" · ");
+    }
   }
   if (event.event_type === "BACKCHANNEL_RECOVERY") {
     ui["metric-backchannel-recovery"].textContent = `${event.payload.backchannel_recovery_latency_ms.toFixed(1)} ms`;

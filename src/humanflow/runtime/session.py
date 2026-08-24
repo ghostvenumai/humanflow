@@ -55,6 +55,7 @@ class _SoftYieldEpisode:
     correlation_id: str
     speech_onset_ns: int
     possible_interruption_ns: int
+    duck_requested_ns: int | None = None
     speech_ended_ns: int | None = None
     duck_ack_ns: int | None = None
     resume_requested_ns: int | None = None
@@ -63,6 +64,9 @@ class _SoftYieldEpisode:
     cancel_signal_ns: int | None = None
     first_partial_ns: int | None = None
     final_transcript_ns: int | None = None
+    takeover_evidence_ns: int | None = None
+    takeover_evidence_type: str | None = None
+    queue_invalidated_ns: int | None = None
     classification: str = "PENDING"
     backchannel_recovery_recorded: bool = False
 
@@ -452,6 +456,7 @@ class RealtimeVoiceSession:
                 payload=payload,
             )
             duck_requested_ns = self._clock_ns()
+            self._soft_yield.duck_requested_ns = duck_requested_ns
             self.state_machine.record(
                 EventType.PLAYBACK_DUCK_REQUESTED,
                 correlation_id=correlation_id,
@@ -477,6 +482,11 @@ class RealtimeVoiceSession:
             if episode.hard_confirmed_ns is not None or self._cancel_event.is_set():
                 return
             episode.classification = "SUSTAINED_TAKEOVER"
+            self._record_takeover_evidence(
+                episode,
+                evidence_type="ACOUSTIC_SUSTAINED_TAKEOVER",
+                semantic=False,
+            )
             if self._soft_resume_task is not None:
                 self._soft_resume_task.cancel()
             self._acoustic_interrupt_task = asyncio.create_task(
@@ -507,6 +517,37 @@ class RealtimeVoiceSession:
                 self._resume_soft_yield_after_classification_window(episode),
                 name=f"humanflow-soft-resume-{response_id}",
             )
+
+    def _record_takeover_evidence(
+        self,
+        episode: _SoftYieldEpisode,
+        *,
+        evidence_type: str,
+        semantic: bool,
+    ) -> None:
+        """Record the first evidence that can promote soft yield to hard cancel."""
+
+        if episode.takeover_evidence_ns is not None:
+            return
+        evidence_ns = self._clock_ns()
+        episode.takeover_evidence_ns = evidence_ns
+        episode.takeover_evidence_type = evidence_type
+        self.state_machine.record(
+            EventType.TAKEOVER_EVIDENCE,
+            correlation_id=episode.correlation_id,
+            reason_code=evidence_type.casefold(),
+            payload={
+                "response_id": episode.response_id,
+                "speech_onset_ns": episode.speech_onset_ns,
+                "evidence_ns": evidence_ns,
+                "evidence_type": evidence_type,
+                "semantic_evidence": semantic,
+                "speech_onset_to_takeover_evidence_ms": max(
+                    0.0,
+                    (evidence_ns - episode.speech_onset_ns) / 1_000_000.0,
+                ),
+            },
+        )
 
     async def _resume_soft_yield_after_classification_window(
         self, episode: _SoftYieldEpisode
@@ -628,6 +669,17 @@ class RealtimeVoiceSession:
                 "speech_onset_to_hard_cancel_ms": max(
                     0.0, (request_ns - speech_onset_ns) / 1_000_000.0
                 ),
+                "takeover_evidence_type": (
+                    episode.takeover_evidence_type if episode is not None else None
+                ),
+                "takeover_evidence_to_confirmation_ms": (
+                    None
+                    if episode is None or episode.takeover_evidence_ns is None
+                    else max(
+                        0.0,
+                        (request_ns - episode.takeover_evidence_ns) / 1_000_000.0,
+                    )
+                ),
             },
         )
         if self._response_id is not None:
@@ -638,6 +690,8 @@ class RealtimeVoiceSession:
                     response_id=self._response_id,
                     speech_onset_ns=speech_onset_ns,
                 )
+            if episode is not None and episode.response_id == self._response_id:
+                episode.queue_invalidated_ns = self._clock_ns()
         cancel_signal_ns = self._clock_ns()
         if episode is not None and episode.response_id == self._response_id:
             episode.cancel_signal_ns = cancel_signal_ns
@@ -651,6 +705,26 @@ class RealtimeVoiceSession:
                 "cancel_signal_ns": cancel_signal_ns,
                 "speech_onset_to_cancel_signal_ms": max(
                     0.0, (cancel_signal_ns - speech_onset_ns) / 1_000_000.0
+                ),
+                "queue_invalidated_ns": (
+                    episode.queue_invalidated_ns if episode is not None else None
+                ),
+                "confirmation_to_queue_invalidation_ms": (
+                    None
+                    if episode is None or episode.queue_invalidated_ns is None
+                    else max(
+                        0.0,
+                        (episode.queue_invalidated_ns - request_ns) / 1_000_000.0,
+                    )
+                ),
+                "queue_invalidation_to_cancel_signal_ms": (
+                    None
+                    if episode is None or episode.queue_invalidated_ns is None
+                    else max(
+                        0.0,
+                        (cancel_signal_ns - episode.queue_invalidated_ns)
+                        / 1_000_000.0,
+                    )
                 ),
             },
         )
@@ -986,6 +1060,16 @@ class RealtimeVoiceSession:
                 correlation_id=correlation_id,
             )
         elif decision.decision is TurnDecisionType.INTERRUPTION:
+            if episode is not None and acoustic_episode_active:
+                self._record_takeover_evidence(
+                    episode,
+                    evidence_type=(
+                        "SEMANTIC_FINAL_TAKEOVER"
+                        if update.is_final
+                        else "SEMANTIC_PARTIAL_TAKEOVER"
+                    ),
+                    semantic=True,
+                )
             await self.interrupt(
                 correlation_id=(
                     episode.correlation_id
@@ -1859,6 +1943,14 @@ class RealtimeVoiceSession:
                 ),
                 "future_audible_audio_from_old_response": 0,
                 "cancelled_epoch_future_playback": "FORBIDDEN",
+                "latency_decomposition_ms": (
+                    _barge_in_latency_decomposition(
+                        episode,
+                        audible_stop_ns=receipt.playback_stopped_ns,
+                    )
+                    if episode is not None and speech_onset_ns is not None
+                    else None
+                ),
             },
         )
 
@@ -1872,3 +1964,45 @@ def _barge_in_followup(text: str) -> str:
     followup = match.group("followup").strip()
     words = re.findall(r"[a-zäöüß0-9]+", followup.casefold())
     return followup if len(words) >= 2 else ""
+
+
+def _barge_in_latency_decomposition(
+    episode: _SoftYieldEpisode,
+    *,
+    audible_stop_ns: int,
+) -> dict[str, float | str | None]:
+    def elapsed(start_ns: int | None, end_ns: int | None) -> float | None:
+        if start_ns is None or end_ns is None:
+            return None
+        return max(0.0, (end_ns - start_ns) / 1_000_000.0)
+
+    return {
+        "speech_onset_to_possible_interruption": elapsed(
+            episode.speech_onset_ns, episode.possible_interruption_ns
+        ),
+        "possible_interruption_to_duck_request": elapsed(
+            episode.possible_interruption_ns, episode.duck_requested_ns
+        ),
+        "duck_request_to_duck_ack": elapsed(
+            episode.duck_requested_ns, episode.duck_ack_ns
+        ),
+        "duck_ack_to_takeover_evidence": elapsed(
+            episode.duck_ack_ns, episode.takeover_evidence_ns
+        ),
+        "takeover_evidence_type": episode.takeover_evidence_type,
+        "takeover_evidence_to_confirmation": elapsed(
+            episode.takeover_evidence_ns, episode.hard_confirmed_ns
+        ),
+        "confirmation_to_queue_invalidation": elapsed(
+            episode.hard_confirmed_ns, episode.queue_invalidated_ns
+        ),
+        "queue_invalidation_to_cancel_signal": elapsed(
+            episode.queue_invalidated_ns, episode.cancel_signal_ns
+        ),
+        "cancel_signal_to_audible_stop": elapsed(
+            episode.cancel_signal_ns, audible_stop_ns
+        ),
+        "speech_onset_to_audible_stop": elapsed(
+            episode.speech_onset_ns, audible_stop_ns
+        ),
+    }

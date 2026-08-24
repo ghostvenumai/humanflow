@@ -201,6 +201,7 @@ async def _sample(index: int) -> dict[str, float | int]:
     stop = next(
         event for event in sink.events if event.event_type is EventType.AUDIBLE_STOP_ACK
     )
+    decomposition = dict(stop.payload["latency_decomposition_ms"])
     recovery = next(
         event for event in sink.events if event.event_type is EventType.BACKCHANNEL_RECOVERY
     )
@@ -227,6 +228,9 @@ async def _sample(index: int) -> dict[str, float | int]:
         ),
         "false_interruption_count": false_count,
     }
+    for name, value in decomposition.items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            result[f"decomposition_{name}_ms"] = float(value)
     await session.close(reason_code="acoustic_benchmark_complete")
     outbound.put_nowait(None)
     await browser
@@ -255,6 +259,14 @@ def main() -> None:
         "speech_onset_to_hard_cancel_ms",
         "speech_onset_to_audible_stop_ms",
         "backchannel_recovery_latency_ms",
+        "decomposition_speech_onset_to_possible_interruption_ms",
+        "decomposition_possible_interruption_to_duck_request_ms",
+        "decomposition_duck_request_to_duck_ack_ms",
+        "decomposition_duck_ack_to_takeover_evidence_ms",
+        "decomposition_takeover_evidence_to_confirmation_ms",
+        "decomposition_confirmation_to_queue_invalidation_ms",
+        "decomposition_queue_invalidation_to_cancel_signal_ms",
+        "decomposition_cancel_signal_to_audible_stop_ms",
     )
     report: dict[str, Any] = {
         "schema_version": 1,
