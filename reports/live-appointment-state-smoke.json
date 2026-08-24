@@ -1,0 +1,169 @@
+{
+  "captured_utc": "2026-08-24T14:30:29.501951Z",
+  "checks": {
+    "date_provenance_is_second_turn": true,
+    "final_date_is_thursday": true,
+    "final_time_is_15": true,
+    "four_turns_completed": true,
+    "old_friday_not_resurrected_in_later_assistant_text": true,
+    "time_only_deltas_preserve_date": true
+  },
+  "final_state": {
+    "date": {
+      "confidence": 0.99,
+      "raw_value": "donnerstag",
+      "source_turn": "cf414a6d-b6dd-479b-8339-dce36276f7fd",
+      "updated_at": "2026-08-24T14:30:22.089537Z",
+      "value": "2026-09-10"
+    },
+    "location": null,
+    "provider": null,
+    "purpose": null,
+    "specialty": null,
+    "status": {
+      "confidence": 0.96,
+      "raw_value": "collecting",
+      "source_turn": "a1e30ddc-6ff5-4d20-a33c-d7ed9d841a40",
+      "updated_at": "2026-08-24T14:30:19.037547Z",
+      "value": "collecting"
+    },
+    "time": {
+      "confidence": 0.99,
+      "raw_value": "15 Uhr",
+      "source_turn": "94783263-db1c-419b-8fdd-63ab39cf70c8",
+      "updated_at": "2026-08-24T14:30:26.782769Z",
+      "value": "15:00"
+    }
+  },
+  "manual_validation": "REQUIRED_NOT_ATTESTED",
+  "schema_version": 1,
+  "scope": "real Anthropic reasoning and ElevenLabs TTS websocket path",
+  "tts_ab_selection": "baseline",
+  "turns": [
+    {
+      "assistant": "Ich bin HumanFlow, ein KI-Assistent. Der Termin für nächsten Freitag, den 29. August, ist notiert. Um welche Uhrzeit soll es sein?",
+      "state": {
+        "date": {
+          "confidence": 0.94,
+          "raw_value": "freitag",
+          "source_turn": "a1e30ddc-6ff5-4d20-a33c-d7ed9d841a40",
+          "updated_at": "2026-08-24T14:30:19.037547Z",
+          "value": "2026-08-28"
+        },
+        "location": null,
+        "provider": null,
+        "purpose": null,
+        "specialty": null,
+        "status": {
+          "confidence": 0.96,
+          "raw_value": "collecting",
+          "source_turn": "a1e30ddc-6ff5-4d20-a33c-d7ed9d841a40",
+          "updated_at": "2026-08-24T14:30:19.037547Z",
+          "value": "collecting"
+        },
+        "time": null
+      },
+      "updated_slots": [
+        "date",
+        "status"
+      ],
+      "user": "Ich möchte den Termin nächsten Freitag."
+    },
+    {
+      "assistant": "Okay, Termin auf Donnerstag, den 4. September verschoben. Welche Uhrzeit passt dir?",
+      "state": {
+        "date": {
+          "confidence": 0.99,
+          "raw_value": "donnerstag",
+          "source_turn": "cf414a6d-b6dd-479b-8339-dce36276f7fd",
+          "updated_at": "2026-08-24T14:30:22.089537Z",
+          "value": "2026-09-10"
+        },
+        "location": null,
+        "provider": null,
+        "purpose": null,
+        "specialty": null,
+        "status": {
+          "confidence": 0.96,
+          "raw_value": "collecting",
+          "source_turn": "a1e30ddc-6ff5-4d20-a33c-d7ed9d841a40",
+          "updated_at": "2026-08-24T14:30:19.037547Z",
+          "value": "collecting"
+        },
+        "time": null
+      },
+      "updated_slots": [
+        "date"
+      ],
+      "user": "Äh, machen wir übernächste Woche Donnerstag, das wäre besser."
+    },
+    {
+      "assistant": "Perfekt, dein Termin ist auf Donnerstag, den 4. September um 14 Uhr festgehalten. Braucht es noch etwas?",
+      "state": {
+        "date": {
+          "confidence": 0.99,
+          "raw_value": "donnerstag",
+          "source_turn": "cf414a6d-b6dd-479b-8339-dce36276f7fd",
+          "updated_at": "2026-08-24T14:30:22.089537Z",
+          "value": "2026-09-10"
+        },
+        "location": null,
+        "provider": null,
+        "purpose": null,
+        "specialty": null,
+        "status": {
+          "confidence": 0.96,
+          "raw_value": "collecting",
+          "source_turn": "a1e30ddc-6ff5-4d20-a33c-d7ed9d841a40",
+          "updated_at": "2026-08-24T14:30:19.037547Z",
+          "value": "collecting"
+        },
+        "time": {
+          "confidence": 0.99,
+          "raw_value": "gegen 14 Uhr",
+          "source_turn": "e29f4d01-bf97-4f0c-bc50-ec632368fcf9",
+          "updated_at": "2026-08-24T14:30:24.439519Z",
+          "value": "14:00"
+        }
+      },
+      "updated_slots": [
+        "time"
+      ],
+      "user": "Am besten gegen 14 Uhr."
+    },
+    {
+      "assistant": "Okay, Termin auf 15 Uhr geändert. Donnerstag, den 4. September um 15 Uhr ist notiert.",
+      "state": {
+        "date": {
+          "confidence": 0.99,
+          "raw_value": "donnerstag",
+          "source_turn": "cf414a6d-b6dd-479b-8339-dce36276f7fd",
+          "updated_at": "2026-08-24T14:30:22.089537Z",
+          "value": "2026-09-10"
+        },
+        "location": null,
+        "provider": null,
+        "purpose": null,
+        "specialty": null,
+        "status": {
+          "confidence": 0.96,
+          "raw_value": "collecting",
+          "source_turn": "a1e30ddc-6ff5-4d20-a33c-d7ed9d841a40",
+          "updated_at": "2026-08-24T14:30:19.037547Z",
+          "value": "collecting"
+        },
+        "time": {
+          "confidence": 0.99,
+          "raw_value": "15 Uhr",
+          "source_turn": "94783263-db1c-419b-8fdd-63ab39cf70c8",
+          "updated_at": "2026-08-24T14:30:26.782769Z",
+          "value": "15:00"
+        }
+      },
+      "updated_slots": [
+        "time"
+      ],
+      "user": "Vielleicht 15 Uhr."
+    }
+  ]
+}

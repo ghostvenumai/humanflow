@@ -1,14 +1,14 @@
 {
   "budget": {
     "estimated_base_cost_usd": 0.0005,
-    "generated_audio_seconds": 2.693,
+    "generated_audio_seconds": 2.601,
     "maximum_audio_seconds": 60.0,
     "maximum_input_characters": 200,
     "reported_billable_characters": 10,
     "submitted_characters": 36
   },
   "manual_voice_quality_attested": false,
-  "observed_utc": "2026-08-24T10:14:02.509975Z",
+  "observed_utc": "2026-08-24T14:31:12.259934Z",
   "provider": {
     "mode": "REAL",
     "model": "eleven_flash_v2_5",
@@ -23,16 +23,16 @@
   },
   "status": "PASS",
   "stream": {
-    "audio_bytes": 86192,
-    "audio_chunks": 9,
-    "audio_seconds": 2.693,
-    "pcm_sha256": "45ce3d735e7b93cbbe0fd88258dfaddf4a732953f671c2d0a85866fcd4ab80bd",
+    "audio_bytes": 83220,
+    "audio_chunks": 8,
+    "audio_seconds": 2.601,
+    "pcm_sha256": "134a9ae8e74dc4327ee40b9baa12e0e882fd3da50e80e6cee3240cd028437662",
     "request_metrics": {
-      "audio_seconds": 2.693,
-      "first_pcm_latency_ms": 538.035082,
+      "audio_seconds": 2.601,
+      "first_pcm_latency_ms": 586.606628,
       "reported_billable_characters": 10,
       "text_characters": 36
     },
-    "wall_duration_ms": 618.882
+    "wall_duration_ms": 636.732
   }
 }

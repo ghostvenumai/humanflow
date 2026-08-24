@@ -1,5 +1,5 @@
 {
-  "captured_utc": "2026-08-24T12:55:39.945532Z",
+  "captured_utc": "2026-08-24T14:28:22.597831Z",
   "checks": {
     "all_responses_nonempty": true,
     "appointment_is_semantically_relevant": true,
@@ -45,6 +45,14 @@
       "runtime": "server"
     },
     {
+      "availability": "CONFIGURED_UNVERIFIED",
+      "mode": "REAL",
+      "model": "eleven_v3_conversational",
+      "provider": "elevenlabs-text-to-speech-stream",
+      "role": "tts-ab-candidate",
+      "runtime": "server"
+    },
+    {
       "availability": "BROWSER_CHECK_REQUIRED",
       "mode": "REAL",
       "model": "de-DE-system-voice",
@@ -56,77 +64,77 @@
   "schema_version": 1,
   "scope": "real reasoning websocket path; browser microphone/STT/TTS excluded",
   "summary": {
-    "first_model_output_ms_max": 1643.125,
-    "first_model_output_ms_median": 1032.237,
-    "input_tokens": 5235,
-    "output_tokens": 425,
+    "first_model_output_ms_max": 10809.478,
+    "first_model_output_ms_median": 1058.622,
+    "input_tokens": 5620,
+    "output_tokens": 318,
     "turns": 6
   },
   "turns": {
     "appointment": {
-      "first_model_output_ms": 1006.150825,
-      "generation_ms": 5975.837394,
+      "first_model_output_ms": 1000.559605,
+      "generation_ms": 9859.619248,
       "prompt": "Ich möchte einen Termin am Freitag.",
-      "response": "Gerne. Welcher Freitag ist gemeint, und wofür brauchst du den Termin?",
-      "speech_chunks": 2,
+      "response": "Der 28. August ist ein Freitag – passt dir dieses Datum für deinen Termin? Welche Uhrzeit würde dir passen?",
+      "speech_chunks": 3,
       "usage": {
-        "input_tokens": 1118,
-        "output_tokens": 31
+        "input_tokens": 1354,
+        "output_tokens": 42
       }
     },
     "arithmetic": {
-      "first_model_output_ms": 685.359483,
-      "generation_ms": 3776.844426,
+      "first_model_output_ms": 10809.478279,
+      "generation_ms": 12864.481768,
       "prompt": "Was ist 25 mal 17?",
-      "response": "Das ergibt vierhundertfünfundzwanzig.",
+      "response": "Das Ergebnis ist 425.",
       "speech_chunks": 1,
       "usage": {
-        "input_tokens": 823,
-        "output_tokens": 20
+        "input_tokens": 863,
+        "output_tokens": 12
       }
     },
     "capabilities": {
-      "first_model_output_ms": 1163.917862,
-      "generation_ms": 17022.8077,
+      "first_model_output_ms": 1116.684644,
+      "generation_ms": 17782.830292,
       "prompt": "Was kannst du?",
-      "response": "Ich bin HumanFlow, ein KI-Assistent. Ich kann dir bei vielem helfen – Fragen beantworten, Informationen recherchieren, Probleme durchdenken oder dich bei Aufgaben unterstützen. Sag mir einfach, worum es geht.",
+      "response": "Ich bin HumanFlow, ein KI-Assistent. Ich kann mit dir über verschiedenste Themen sprechen – Fragen beantworten, dir bei Planungen helfen, Informationen erklären oder einfach unterhalten. Was interessiert dich gerade?",
       "speech_chunks": 3,
       "usage": {
-        "input_tokens": 638,
-        "output_tokens": 77
+        "input_tokens": 698,
+        "output_tokens": 71
       }
     },
     "context_followup": {
-      "first_model_output_ms": 1058.322697,
-      "generation_ms": 5781.008995,
+      "first_model_output_ms": 770.901855,
+      "generation_ms": 2739.255211,
       "prompt": "Wie lautete noch einmal das Ergebnis meiner Rechenaufgabe?",
-      "response": "Vierhundertfünfundzwanzig – das war fünfundzwanzig mal siebzehn.",
+      "response": "Das Ergebnis war 425.",
       "speech_chunks": 1,
       "usage": {
-        "input_tokens": 1067,
-        "output_tokens": 33
+        "input_tokens": 1030,
+        "output_tokens": 12
       }
     },
     "erp": {
-      "first_model_output_ms": 1643.124791,
-      "generation_ms": 59769.094611,
+      "first_model_output_ms": 1245.173234,
+      "generation_ms": 25763.282472,
       "prompt": "Kannst du mir erklären, was ein ERP-System ist?",
-      "response": "Ein ERP-System ist eine große Software, die alle wichtigen Geschäftsprozesse eines Unternehmens verbindet – also Lagerwirtschaft, Finanzen, Personal, Verkauf und so weiter. Alle Daten fließen zentral zusammen, sodass niemand mit veralteten Informationen arbeitet. Das erspart viel manuelle Arbeit und hilft, schneller bessere Entscheidungen zu treffen. Große Unternehmen nutzen das fast immer, aber auch mittelständische Betriebe setzen zunehmend darauf. Möchtest du wissen, welche bekannten Systeme es gibt, oder interessiert dich ein konkreter Aspekt davon?",
-      "speech_chunks": 6,
+      "response": "Ein ERP-System ist eine Software, die alle wichtigen Prozesse eines Unternehmens verbindet – vom Einkauf übers Lager bis zur Buchhaltung und zum Verkauf. Alle Abteilungen arbeiten mit denselben Daten, was Fehler reduziert und alles transparenter macht. Möchtest du wissen, wie so ein System konkret funktioniert oder welche Vorteile es hat?",
+      "speech_chunks": 3,
       "usage": {
-        "input_tokens": 863,
-        "output_tokens": 179
+        "input_tokens": 895,
+        "output_tokens": 110
       }
     },
     "weather_limit": {
-      "first_model_output_ms": 924.880914,
-      "generation_ms": 17714.368623,
+      "first_model_output_ms": 840.812716,
+      "generation_ms": 13849.044571,
       "prompt": "Wie ist das Wetter?",
-      "response": "Ich habe keinen Zugriff auf aktuelle Wetterdaten. Aber wenn du mir sagst, wo du bist oder wie es gerade bei dir aussieht, kann ich dir helfen – zum Beispiel mit Tipps, was du anziehen solltest oder wie du dich auf bestimmte Bedingungen vorbeitest.",
-      "speech_chunks": 3,
+      "response": "Ich habe keinen Zugriff auf aktuelle Wetterdaten. Aber wenn du mir sagst, wo du bist oder wie es gerade bei dir aussieht, kann ich dir gerne helfen – zum Beispiel bei der Planung, was du anziehen solltest.",
+      "speech_chunks": 2,
       "usage": {
-        "input_tokens": 726,
-        "output_tokens": 85
+        "input_tokens": 780,
+        "output_tokens": 71
       }
     }
   }

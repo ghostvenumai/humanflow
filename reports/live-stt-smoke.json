@@ -1,10 +1,10 @@
 {
   "fixture": {
-    "audio_seconds": 2.229,
+    "audio_seconds": 2.276,
     "text": "Was ist fünfundzwanzig mal siebzehn?",
     "tts_budget": {
       "estimated_base_cost_usd": 0.0005,
-      "generated_audio_seconds": 2.229,
+      "generated_audio_seconds": 2.276,
       "maximum_audio_seconds": 15.0,
       "maximum_input_characters": 80,
       "reported_billable_characters": 10,
@@ -21,15 +21,15 @@
   "manual_microphone_quality_attested": false,
   "observed": {
     "committed_events_delivered": 1,
-    "committed_transcript": "Was ist 25 mal 17?",
-    "committed_transcript_ms": 3128.421,
-    "first_partial_ms": 2421.676,
-    "partial_events_delivered": 1,
-    "pcm_frames_sent": 32,
+    "committed_transcript": "Was is 25 mal 17?",
+    "committed_transcript_ms": 3348.114,
+    "first_partial_ms": 2436.062,
+    "partial_events_delivered": 2,
+    "pcm_frames_sent": 34,
     "semantic_numbers_preserved": true,
-    "wall_duration_ms": 3338.443
+    "wall_duration_ms": 3524.653
   },
-  "observed_utc": "2026-08-24T12:53:35.673051Z",
+  "observed_utc": "2026-08-24T14:30:53.465220Z",
   "provider": {
     "mode": "REAL",
     "model": "scribe_v2_realtime",
