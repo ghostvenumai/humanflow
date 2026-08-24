@@ -205,3 +205,30 @@ def test_live_prompt_requires_ai_disclosure_and_rejects_canned_acknowledgement()
     assert "ein bis zwei kurzen Sätzen" in DEFAULT_SYSTEM_PROMPT
     assert "stellst genau eine relevante nächste" in DEFAULT_SYSTEM_PROMPT
     assert "ungefragten Erklärungen oder langen Disclaimer" in DEFAULT_SYSTEM_PROMPT
+
+
+def test_authoritative_transaction_context_does_not_rewrite_provider_history() -> None:
+    async def scenario() -> None:
+        client = FakeClient([["Donnerstag bleibt bestehen. ", "Fünfzehn Uhr passt."]])
+        reasoner = AnthropicReasoner(
+            api_key="test-key-never-sent",
+            model="claude-test-real-adapter",
+            client=client,
+        )
+        context = (
+            '{"appointment_state":{"date":"2026-09-10","time":"15:00"},'
+            '"updated_slots_this_user_turn":["time"]}'
+        )
+        reasoner.set_authoritative_transaction_context(context)
+
+        await _collect(reasoner, "Vielleicht 15 Uhr.", 1)
+
+        call = client.messages.calls[0]
+        assert context in call["system"]
+        assert "Ältere widersprüchliche Werte" in call["system"]
+        assert call["messages"] == [
+            {"role": "user", "content": "Vielleicht 15 Uhr."}
+        ]
+        assert reasoner.history[0]["content"] == "Vielleicht 15 Uhr."
+
+    asyncio.run(scenario())

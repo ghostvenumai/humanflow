@@ -32,6 +32,7 @@ from .acoustic_barge_in import (
     AcousticBargeInEvent,
     AcousticEventType,
 )
+from .appointment_state import AppointmentState, AppointmentStateTracker
 from .prosody import ProsodyPlanner
 from .self_speech import SelfSpeechAssessment, SelfSpeechGuard
 from .transcript_events import (
@@ -82,6 +83,7 @@ class RealtimeVoiceSession:
         prosody_planner: ProsodyPlanner | None = None,
         self_speech_guard: SelfSpeechGuard | None = None,
         acoustic_barge_in_detector: AcousticBargeInDetector | None = None,
+        appointment_state_tracker: AppointmentStateTracker | None = None,
         soft_yield_recovery_delay_ms: float = 420.0,
         input_queue_size: int = 256,
         clock_ns: Callable[[], int] = monotonic_ns,
@@ -105,6 +107,9 @@ class RealtimeVoiceSession:
         self._self_speech_guard = self_speech_guard or SelfSpeechGuard()
         self._acoustic_barge_in = (
             acoustic_barge_in_detector or AcousticBargeInDetector()
+        )
+        self._appointment_state_tracker = (
+            appointment_state_tracker or AppointmentStateTracker()
         )
         self._soft_yield_recovery_delay_ms = soft_yield_recovery_delay_ms
         self._input_queue: asyncio.Queue[AudioFrame | None] = asyncio.Queue(input_queue_size)
@@ -164,6 +169,12 @@ class RealtimeVoiceSession:
             if role != expected:
                 raise RuntimeError("conversation_history_role_invariant_violated")
         return roles
+
+    @property
+    def appointment_state(self) -> AppointmentState:
+        """Controller-owned transaction truth; models cannot mutate this object."""
+
+        return self._appointment_state_tracker.state
 
     async def start(self) -> None:
         if self._closed:
@@ -1044,6 +1055,32 @@ class RealtimeVoiceSession:
             return
         if self.state is not ConversationState.LISTENING:
             return
+        appointment_delta = self._appointment_state_tracker.apply_user_turn(
+            transcript,
+            source_turn=user_transcript_id,
+        )
+        appointment_context = self._appointment_state_tracker.reasoning_context(
+            appointment_delta
+        )
+        set_context = getattr(
+            self._reasoner, "set_authoritative_transaction_context", None
+        )
+        if callable(set_context):
+            set_context(
+                appointment_context,
+                state=appointment_delta.state,
+            )
+        if appointment_delta.changed:
+            self.state_machine.record(
+                EventType.APPOINTMENT_STATE_UPDATED,
+                correlation_id=correlation_id,
+                reason_code="user_turn_delta_applied_to_authoritative_state",
+                payload={
+                    **appointment_delta.to_dict(),
+                    "assistant_history_used_as_state_source": False,
+                    "unchanged_slots_preserved": True,
+                },
+            )
         self.state_machine.transition(
             ConversationState.THINKING,
             reason_code="user_turn_complete",

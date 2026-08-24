@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -86,6 +87,7 @@ class AnthropicReasoner:
         self._max_history_messages = max_history_turns * 2
         self._history: list[dict[str, str]] = []
         self._last_usage: ReasoningUsage | None = None
+        self._authoritative_transaction_context: str | None = None
 
     @property
     def provider_info(self) -> ProviderInfo:
@@ -107,6 +109,17 @@ class AnthropicReasoner:
 
         return tuple(dict(message) for message in self._history)
 
+    def set_authoritative_transaction_context(
+        self,
+        context: str | None,
+        *,
+        state: Mapping[str, object] | None = None,
+    ) -> None:
+        """Set controller-owned state without rewriting the human transcript/history."""
+
+        del state
+        self._authoritative_transaction_context = context
+
     async def stream_response(
         self, transcript: str, token: OperationToken
     ) -> AsyncIterator[str]:
@@ -124,10 +137,22 @@ class AnthropicReasoner:
         pending = ""
         final_message: Any | None = None
 
+        system_prompt = self._system_prompt
+        if self._authoritative_transaction_context:
+            system_prompt += (
+                "\n\nAUTORITATIVER TRANSAKTIONSSTATUS (vom Conversation Controller, "
+                "nicht aus Freitext-Historie rekonstruiert):\n"
+                f"{self._authoritative_transaction_context}\n"
+                "Bei Terminantworten gilt dieser Status als einzige Wahrheit. "
+                "Nicht in updated_slots genannte Werte bleiben unverändert. "
+                "Ältere widersprüchliche Werte im Chatverlauf dürfen niemals "
+                "wiederaufleben."
+            )
+
         async with self._client.messages.stream(
             model=self._model,
             max_tokens=self._max_tokens,
-            system=self._system_prompt,
+            system=system_prompt,
             messages=request_messages,
         ) as stream:
             async for delta in stream.text_stream:

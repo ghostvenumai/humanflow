@@ -14,6 +14,12 @@ from .elevenlabs_stt_provider import (
     ElevenLabsRealtimeSTTProvider,
 )
 from .session import RealtimeVoiceSession
+from .appointment_state import (
+    AppointmentState,
+    AppointmentStateDelta,
+    AppointmentStateTracker,
+    SlotValue,
+)
 from .transcript_events import (
     ConversationEventKind,
     TranscriptOrigin,
@@ -27,6 +33,10 @@ __all__ = [
     "STTProviderCapabilities",
     "StreamingSTTProvider",
     "RealtimeVoiceSession",
+    "AppointmentState",
+    "AppointmentStateDelta",
+    "AppointmentStateTracker",
+    "SlotValue",
     "ConversationEventKind",
     "TranscriptOrigin",
     "TranscriptProvenance",
