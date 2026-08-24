@@ -1,21 +1,32 @@
 {
-  "benchmark": "appointment_delta_state",
+  "benchmark": "multi_appointment_delta_state",
   "iterations": 1000,
-  "turns_per_iteration": 4,
+  "turns_per_iteration": 7,
   "latency_ms": {
-    "median": 0.164963,
-    "p95": 0.327528,
-    "max": 1.145775
+    "median": 0.730758,
+    "p95": 1.379157,
+    "max": 2.479961
   },
   "correct_final_state_count": 1000,
   "expected_final_state": {
-    "date": "2026-09-10",
-    "time": "15:00"
+    "appointment_1": {
+      "purpose": "Orthopädie",
+      "date": "2026-09-03",
+      "time": "16:00",
+      "status": "READY_TO_BOOK"
+    },
+    "appointment_2": {
+      "purpose": "Friseur",
+      "date": "2026-09-02",
+      "time": "14:00",
+      "status": "CANCELLED"
+    }
   },
-  "unchanged_date_checks": 2000,
-  "expected_unchanged_date_checks": 2000,
+  "cross_contamination_checks": 1000,
   "provenance_checks": 1000,
+  "stable_appointment_ids": true,
+  "external_booking_claim_without_tool": false,
   "assistant_history_used_as_state_source": false,
   "result": "PASS",
-  "measurement_scope": "in-process deterministic German slot parsing; no provider call"
+  "measurement_scope": "in-process deterministic German multi-object reference, correction and cancellation parsing; no provider call"
 }
