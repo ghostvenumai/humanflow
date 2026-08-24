@@ -121,6 +121,7 @@ class ElevenLabsStreamingTTSProvider:
         budget: SynthesisBudget | None = None,
         first_chunk_ms: int = 140,
         following_chunk_ms: int = 360,
+        request_timeout_seconds: float = 30.0,
         client: Any | None = None,
     ) -> None:
         if not api_key.strip() or not voice_id.strip():
@@ -129,12 +130,15 @@ class ElevenLabsStreamingTTSProvider:
             raise ValueError("model must not be empty")
         if first_chunk_ms < 20 or following_chunk_ms < 20:
             raise ValueError("stream chunk durations must be at least 20ms")
+        if request_timeout_seconds <= 0:
+            raise ValueError("request timeout must be positive")
         self._api_key = api_key.strip()
         self._voice_id = voice_id.strip()
         self._model = model
         self._budget = budget or SynthesisBudget()
         self._first_chunk_bytes = first_chunk_ms * self.sample_rate_hz * 2 // 1_000
         self._following_chunk_bytes = following_chunk_ms * self.sample_rate_hz * 2 // 1_000
+        self._request_timeout_seconds = request_timeout_seconds
         self._client = client
         self._last_request_metrics: TTSRequestMetrics | None = None
 
@@ -171,13 +175,31 @@ class ElevenLabsStreamingTTSProvider:
         )
         sequence = request.sequence_start
         first = True
+        deadline = asyncio.get_running_loop().time() + self._request_timeout_seconds
         try:
             while not cancel_event.is_set():
                 item_task = asyncio.create_task(queue.get())
                 cancel_task = asyncio.create_task(cancel_event.wait())
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    item_task.cancel()
+                    cancel_task.cancel()
+                    await asyncio.gather(
+                        item_task, cancel_task, return_exceptions=True
+                    )
+                    raise TimeoutError("elevenlabs_request_timeout")
                 done, _ = await asyncio.wait(
-                    {item_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED
+                    {item_task, cancel_task},
+                    timeout=remaining,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
+                if not done:
+                    item_task.cancel()
+                    cancel_task.cancel()
+                    await asyncio.gather(
+                        item_task, cancel_task, return_exceptions=True
+                    )
+                    raise TimeoutError("elevenlabs_request_timeout")
                 if cancel_task in done:
                     item_task.cancel()
                     await asyncio.gather(item_task, return_exceptions=True)

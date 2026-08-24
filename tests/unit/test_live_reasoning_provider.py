@@ -7,7 +7,8 @@ from typing import Any
 
 from humanflow.domain.conversation import OperationToken
 from humanflow.runtime.anthropic_provider import DEFAULT_SYSTEM_PROMPT, AnthropicReasoner
-from humanflow.runtime.providers import GaplessSegmentTTSProvider, ProviderMode
+from humanflow.runtime.elevenlabs_provider import FallbackStreamingTTSProvider
+from humanflow.runtime.providers import ProviderMode
 from humanflow.web.app import load_demo_runtime_config
 
 
@@ -92,6 +93,12 @@ def test_real_reasoner_retains_multi_turn_context_and_semantic_output() -> None:
             {"role": "assistant", "content": first},
             {"role": "user", "content": "Was meinst du mit Datenbasis?"},
         ]
+        assert [message["role"] for message in reasoner.history] == [
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+        ]
         assert reasoner.provider_info.mode is ProviderMode.REAL
         assert reasoner.last_usage is not None
         assert reasoner.last_usage.to_dict() == {"input_tokens": 21, "output_tokens": 13}
@@ -124,7 +131,7 @@ def test_demo_factory_can_only_build_declared_real_reasoner() -> None:
     assert runtime.synthesizer_factory is not None
     synthesizer = runtime.synthesizer_factory()
     assert isinstance(reasoner, AnthropicReasoner)
-    assert isinstance(synthesizer, GaplessSegmentTTSProvider)
+    assert isinstance(synthesizer, FallbackStreamingTTSProvider)
     assert reasoner.provider_info.mode is ProviderMode.REAL
     assert all(status.info.mode is ProviderMode.REAL for status in runtime.providers)
 

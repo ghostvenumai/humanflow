@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from collections.abc import AsyncIterator
 from collections.abc import Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 from time import monotonic_ns
 from typing import Any
@@ -43,6 +43,13 @@ from humanflow.runtime.providers import (
     TranscriptUpdate,
 )
 from humanflow.runtime.session import RealtimeVoiceSession
+from humanflow.runtime.transcript_events import (
+    ConversationEventKind,
+    TranscriptOrigin,
+    TranscriptProvenance,
+    TranscriptRejected,
+    normalize_transcript,
+)
 from humanflow.telemetry.events import EventType
 from humanflow.turns.models import TurnSignals
 
@@ -116,6 +123,17 @@ class BrowserSessionLease:
         async with self._lock:
             if self._active_conversation_id == conversation_id:
                 self._active_conversation_id = None
+
+
+@dataclass(slots=True)
+class BrowserTranscriptRouteState:
+    current_recognition_session_id: str | None = None
+    current_audio_capture_id: str | None = None
+    seen_final_result_ids: set[str] = dataclass_field(default_factory=set)
+
+    def activate(self, *, recognition_session_id: str, audio_capture_id: str) -> None:
+        self.current_recognition_session_id = recognition_session_id
+        self.current_audio_capture_id = audio_capture_id
 
 
 def load_demo_runtime_config(
@@ -236,11 +254,9 @@ def load_demo_runtime_config(
             model=tts_model or DEFAULT_ELEVENLABS_MODEL,
             budget=tts_budget,
         )
-        return GaplessSegmentTTSProvider(
-            FallbackStreamingTTSProvider(
-                primary=primary,
-                fallback=BrowserSpeechSynthesisAdapter(),
-            )
+        return FallbackStreamingTTSProvider(
+            primary=GaplessSegmentTTSProvider(primary),
+            fallback=BrowserSpeechSynthesisAdapter(),
         )
 
     return DemoRuntimeConfig(
@@ -365,7 +381,7 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
         )
         sequence = 0
         controls: asyncio.Queue[str] = asyncio.Queue()
-        seen_final_transcript_ids: set[str] = set()
+        transcript_route_state = BrowserTranscriptRouteState()
 
         async def send_loop() -> None:
             while True:
@@ -389,7 +405,7 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                         session,
                         audio_output,
                         outbound,
-                        seen_final_transcript_ids=seen_final_transcript_ids,
+                        transcript_route_state=transcript_route_state,
                         input_only=input_only,
                     )
                 finally:
@@ -412,6 +428,15 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                 ),
                 "providers": runtime.provider_payload(),
                 "manual_validation": "REQUIRED_NOT_ATTESTED",
+                "conversation_history": {
+                    "status": "CLEAN_NEW_SESSION",
+                    "roles": [],
+                },
+                "input_topology": {
+                    "pcm_capture": "getUserMedia -> websocket -> NullTranscriber",
+                    "transcript_capture": "independent Browser SpeechRecognition",
+                    "recognition_input_binding": "UNVERIFIED_BROWSER_MANAGED",
+                },
                 "demo_limit": (
                     "INPUT-ONLY: kein Reasoning- oder TTS-Aufruf."
                     if input_only
@@ -600,6 +625,7 @@ async def _handle_json(
     outbound: asyncio.Queue[OutboundItem | None],
     *,
     seen_final_transcript_ids: set[str] | None = None,
+    transcript_route_state: BrowserTranscriptRouteState | None = None,
     input_only: bool = False,
 ) -> None:
     import json
@@ -613,6 +639,37 @@ async def _handle_json(
         outbound.put_nowait({"type": "error", "code": "json_object_required"})
         return
     message_type = message.get("type")
+    if message_type == "recognition_session_started":
+        recognition_session_id = message.get("browser_recognition_session_id")
+        audio_capture_id = message.get("audio_capture_id")
+        if (
+            transcript_route_state is None
+            or not isinstance(recognition_session_id, str)
+            or not recognition_session_id.strip()
+            or not isinstance(audio_capture_id, str)
+            or not audio_capture_id.strip()
+        ):
+            outbound.put_nowait(
+                {"type": "error", "code": "invalid_recognition_session"}
+            )
+            return
+        transcript_route_state.activate(
+            recognition_session_id=recognition_session_id,
+            audio_capture_id=audio_capture_id,
+        )
+        session.state_machine.record(
+            EventType.PROVIDER_STATUS,
+            correlation_id=str(uuid4()),
+            reason_code="browser_recognition_session_activated",
+            payload={
+                "browser_recognition_session_id": recognition_session_id,
+                "audio_capture_id": audio_capture_id,
+                "recognition_input_binding": message.get(
+                    "recognition_input_binding"
+                ),
+            },
+        )
+        return
     if message_type == "provider_capabilities":
         stt_available = message.get("stt_available") is True
         tts_available = message.get("tts_available") is True
@@ -635,6 +692,11 @@ async def _handle_json(
                     "mode": "REAL",
                     "available": tts_available,
                 },
+                "audio_capture_id": message.get("audio_capture_id"),
+                "microphone_stream_id": message.get("microphone_stream_id"),
+                "recognition_input_binding": message.get(
+                    "recognition_input_binding"
+                ),
             },
         )
         return
@@ -655,6 +717,73 @@ async def _handle_json(
         return
     is_final = bool(message.get("final", False))
     source = message.get("source")
+    try:
+        provenance = _parse_transcript_provenance(
+            message,
+            source=source,
+            is_final=is_final,
+        )
+    except (TypeError, ValueError) as error:
+        raw_provenance = message.get("provenance")
+        session.state_machine.record(
+            EventType.TRANSCRIPT_REJECTED,
+            correlation_id=str(uuid4()),
+            reason_code="invalid_transcript_provenance",
+            payload={
+                "raw_provenance": (
+                    dict(raw_provenance)
+                    if isinstance(raw_provenance, Mapping)
+                    else None
+                ),
+                "source": source,
+                "raw_text": text.strip(),
+                "normalized_text": normalize_transcript(text),
+                "is_partial": not is_final,
+                "is_final": is_final,
+                "accepted_by_user_ingestion": False,
+                "accepted_as_user_turn": False,
+                "rejection_reason": "invalid_transcript_provenance",
+            },
+        )
+        outbound.put_nowait(
+            {
+                "type": "transcript_result",
+                "accepted": False,
+                "raw_text": text.strip(),
+                "normalized_text": "",
+                "rejection_reason": "invalid_transcript_provenance",
+                "detail": type(error).__name__,
+            }
+        )
+        return
+    if source == "browser_stt" and transcript_route_state is not None and (
+        provenance.browser_recognition_session_id
+        != transcript_route_state.current_recognition_session_id
+        or provenance.audio_capture_id
+        != transcript_route_state.current_audio_capture_id
+    ):
+        session.state_machine.record(
+            EventType.TRANSCRIPT_REJECTED,
+            correlation_id=str(uuid4()),
+            reason_code="stale_recognition_session",
+            payload={
+                **provenance.to_dict(),
+                "raw_text": text,
+                "accepted_as_user_turn": False,
+                "rejection_reason": "stale_recognition_session",
+            },
+        )
+        outbound.put_nowait(
+            {
+                "type": "transcript_result",
+                "accepted": False,
+                "raw_text": text,
+                "normalized_text": "",
+                "rejection_reason": "stale_recognition_session",
+                "provenance": provenance.to_dict(),
+            }
+        )
+        return
     if source == "browser_stt" and is_final:
         recognition_result_id = message.get("recognition_result_id")
         if not isinstance(recognition_result_id, str) or not recognition_result_id.strip():
@@ -662,16 +791,40 @@ async def _handle_json(
                 {"type": "error", "code": "missing_recognition_result_id"}
             )
             return
-        final_ids = seen_final_transcript_ids if seen_final_transcript_ids is not None else set()
+        if transcript_route_state is not None:
+            final_ids = transcript_route_state.seen_final_result_ids
+        else:
+            final_ids = (
+                seen_final_transcript_ids
+                if seen_final_transcript_ids is not None
+                else set()
+            )
         if recognition_result_id in final_ids:
             session.state_machine.record(
                 EventType.DUPLICATE_TRANSCRIPT_REJECTED,
                 correlation_id=str(uuid4()),
                 reason_code="browser_final_result_id_already_processed",
-                payload={"recognition_result_id": recognition_result_id},
+                payload={
+                    **provenance.to_dict(),
+                    "recognition_result_id": recognition_result_id,
+                    "raw_text": text,
+                    "normalized_text": normalize_transcript(text),
+                    "is_partial": False,
+                    "is_final": True,
+                    "accepted_by_user_ingestion": False,
+                    "accepted_as_user_turn": False,
+                    "rejection_reason": "duplicate_final_transcript",
+                },
             )
             outbound.put_nowait(
-                {"type": "error", "code": "duplicate_final_transcript_rejected"}
+                {
+                    "type": "transcript_result",
+                    "accepted": False,
+                    "raw_text": text,
+                    "normalized_text": normalize_transcript(text),
+                    "rejection_reason": "duplicate_final_transcript",
+                    "provenance": provenance.to_dict(),
+                }
             )
             return
         if len(final_ids) >= 4_096:
@@ -715,17 +868,55 @@ async def _handle_json(
             text=text.strip(),
             is_final=is_final,
             signals=signals,
+            provenance=provenance,
             provider=transcript_provider,
+            raw_text=text,
         )
         if input_only:
+            if not provenance.is_allowlisted_user_input:
+                reason = (
+                    "assistant_origin_event_forbidden_from_user_history"
+                    if provenance.is_assistant_origin
+                    else "transcript_source_not_allowlisted"
+                )
+                session.state_machine.record(
+                    EventType.TRANSCRIPT_REJECTED,
+                    correlation_id=str(uuid4()),
+                    reason_code=reason,
+                    payload={
+                        **provenance.to_dict(),
+                        "raw_text": update.raw_text,
+                        "normalized_text": update.normalized_text,
+                        "accepted_by_user_ingestion": False,
+                        "accepted_as_user_turn": False,
+                        "rejection_reason": reason,
+                    },
+                )
+                outbound.put_nowait(
+                    {
+                        "type": "transcript_result",
+                        "accepted": False,
+                        "raw_text": update.raw_text,
+                        "normalized_text": update.normalized_text,
+                        "rejection_reason": reason,
+                        "provenance": provenance.to_dict(),
+                    }
+                )
+                return
             session.state_machine.record(
                 EventType.FINAL_TRANSCRIPT if is_final else EventType.PARTIAL_TRANSCRIPT,
                 correlation_id=str(uuid4()),
                 reason_code="input_only_browser_routing_probe",
                 payload={
-                    "text": update.text,
+                    **provenance.to_dict(),
+                    "raw_text": update.raw_text,
+                    "normalized_text": update.normalized_text,
+                    "is_partial": not update.is_final,
+                    "is_final": update.is_final,
+                    "accepted_by_user_ingestion": True,
+                    "accepted_as_user_turn": update.is_final,
+                    "rejection_reason": None,
                     "provider": transcript_provider.to_dict(),
-                    "recognition_result_id": message.get("recognition_result_id"),
                     "reasoning_called": False,
                     "tts_called": False,
                 },
@@ -736,15 +927,38 @@ async def _handle_json(
                     "text": update.text,
                     "final": update.is_final,
                     "recognition_result_id": message.get("recognition_result_id"),
+                    "provenance": provenance.to_dict(),
                 }
             )
             return
-        decision = await session.submit_transcript(update)
+        decision = await session.accept_user_transcript(update)
+    except TranscriptRejected as error:
+        outbound.put_nowait(
+            {
+                "type": "transcript_result",
+                "accepted": False,
+                "raw_text": text,
+                "normalized_text": update.normalized_text,
+                "rejection_reason": error.reason_code,
+                "provenance": provenance.to_dict(),
+            }
+        )
+        return
     except (TypeError, ValueError) as error:
         outbound.put_nowait(
             {"type": "error", "code": "invalid_signal_value", "detail": type(error).__name__}
         )
         return
+    outbound.put_nowait(
+        {
+            "type": "transcript_result",
+            "accepted": True,
+            "raw_text": update.raw_text,
+            "normalized_text": update.normalized_text,
+            "rejection_reason": None,
+            "provenance": provenance.to_dict(),
+        }
+    )
     outbound.put_nowait(
         {
             "type": "turn_decision",
@@ -753,6 +967,67 @@ async def _handle_json(
             "reason_codes": list(decision.reason_codes),
         }
     )
+
+
+def _parse_transcript_provenance(
+    message: Mapping[str, Any],
+    *,
+    source: Any,
+    is_final: bool,
+) -> TranscriptProvenance:
+    raw = message.get("provenance")
+    if not isinstance(raw, Mapping):
+        raise ValueError("provenance object required")
+    if not isinstance(source, str) or raw.get("source") != source:
+        raise ValueError("source and provenance source must match")
+    transcript_id = raw.get("transcript_id")
+    stream_id = raw.get("stream_id")
+    if not isinstance(transcript_id, str) or not isinstance(stream_id, str):
+        raise TypeError("transcript_id and stream_id must be strings")
+    browser_timestamp_ms = raw.get("browser_timestamp_ms")
+    if browser_timestamp_ms is not None and (
+        isinstance(browser_timestamp_ms, bool)
+        or not isinstance(browser_timestamp_ms, (int, float))
+    ):
+        raise TypeError("browser_timestamp_ms must be numeric")
+    expected_kind = (
+        ConversationEventKind.USER_TRANSCRIPT_FINAL
+        if is_final
+        else ConversationEventKind.USER_TRANSCRIPT_PARTIAL
+    )
+    event_kind = ConversationEventKind(str(raw.get("event_kind")))
+    if event_kind in {
+        ConversationEventKind.USER_TRANSCRIPT_FINAL,
+        ConversationEventKind.USER_TRANSCRIPT_PARTIAL,
+    } and event_kind is not expected_kind:
+        raise ValueError("event kind and finality mismatch")
+    return TranscriptProvenance(
+        transcript_id=transcript_id,
+        event_kind=event_kind,
+        source=source,
+        origin=TranscriptOrigin(str(raw.get("origin"))),
+        stream_id=stream_id,
+        timestamp_ns=monotonic_ns(),
+        browser_recognition_session_id=_optional_string(
+            raw.get("browser_recognition_session_id")
+        ),
+        audio_capture_id=_optional_string(raw.get("audio_capture_id")),
+        response_id=_optional_string(raw.get("response_id")),
+        browser_timestamp_ms=(
+            None if browser_timestamp_ms is None else float(browser_timestamp_ms)
+        ),
+        recognition_input_binding=_optional_string(
+            raw.get("recognition_input_binding")
+        ),
+    )
+
+
+def _optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError("optional provenance value must be a string")
+    return value or None
 
 
 app = create_app()

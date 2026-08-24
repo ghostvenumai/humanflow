@@ -19,6 +19,7 @@ from humanflow.runtime.providers import (
     TranscriptUpdate,
 )
 from humanflow.runtime.session import RealtimeVoiceSession
+from humanflow.runtime.transcript_events import TranscriptProvenance
 from humanflow.telemetry.sinks import JsonlTelemetrySink
 from humanflow.turns.models import TurnSignals
 
@@ -32,6 +33,9 @@ def _update(text: str) -> TranscriptUpdate:
     return TranscriptUpdate(
         text=text,
         is_final=True,
+        provenance=TranscriptProvenance.user_fixture(
+            final=True, source="replay_fixture"
+        ),
         signals=TurnSignals(
             speech_active=False,
             silence_duration_ms=350,
@@ -71,6 +75,9 @@ async def _capture() -> None:
                 TranscriptUpdate(
                     text="Moment, stopp",
                     is_final=True,
+                    provenance=TranscriptProvenance.user_fixture(
+                        final=True, source="replay_fixture"
+                    ),
                     signals=TurnSignals(
                         speech_active=True,
                         silence_duration_ms=0,

@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import json
 import statistics
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import websocket
 
@@ -43,6 +45,7 @@ def wait_until_ready(connection: websocket.WebSocket) -> dict[str, Any]:
 
 
 def run_turn(connection: websocket.WebSocket, prompt: str) -> dict[str, Any]:
+    print(f"live_turn_started={prompt}", flush=True)
     connection.send(
         json.dumps(
             {
@@ -50,6 +53,13 @@ def run_turn(connection: websocket.WebSocket, prompt: str) -> dict[str, Any]:
                 "source": "diagnostic_smoke",
                 "text": prompt,
                 "final": True,
+                "provenance": {
+                    "transcript_id": str(uuid4()),
+                    "event_kind": "USER_TRANSCRIPT_FINAL",
+                    "source": "diagnostic_smoke",
+                    "origin": "DIAGNOSTIC_TEXT_INPUT",
+                    "stream_id": "live-provider-smoke-text-input",
+                },
                 "signals": {
                     "speech_active": False,
                     "silence_duration_ms": 350,
@@ -65,13 +75,38 @@ def run_turn(connection: websocket.WebSocket, prompt: str) -> dict[str, Any]:
     generation_ms: float | None = None
     usage: dict[str, int] | None = None
     pending_chunk: dict[str, Any] | None = None
+    messages_seen = 0
+    last_milestone = "transcript_sent"
+    turn_started = time.monotonic()
+    event_counts: dict[str, int] = {}
+    connection.settimeout(1.0)
     while True:
-        message = connection.recv()
+        try:
+            message = connection.recv()
+        except websocket.WebSocketTimeoutException:
+            if time.monotonic() - turn_started > 90:
+                raise TimeoutError(
+                    "live turn exceeded 90 seconds "
+                    f"after {last_milestone}; event_counts={event_counts}"
+                ) from None
+            continue
+        messages_seen += 1
+        if time.monotonic() - turn_started > 90:
+            raise TimeoutError(
+                "live turn exceeded 90 seconds "
+                f"after {last_milestone}; event_counts={event_counts}"
+            )
+        if messages_seen > 2_000:
+            raise RuntimeError(
+                f"live turn message limit exceeded after {last_milestone}"
+            )
         if isinstance(message, bytes):
             if pending_chunk is None:
                 raise RuntimeError("audio bytes arrived without metadata")
             chunk_id = str(pending_chunk["chunk_id"])
             connection.send(json.dumps({"type": "playback_started", "chunk_id": chunk_id}))
+            decoded_duration_ms = float(pending_chunk["decoded_duration_ms"])
+            time.sleep(decoded_duration_ms / 1_000.0)
             connection.send(json.dumps({"type": "playback_completed", "chunk_id": chunk_id}))
             pending_chunk = None
             continue
@@ -81,22 +116,38 @@ def run_turn(connection: websocket.WebSocket, prompt: str) -> dict[str, Any]:
         if payload.get("type") == "audio_chunk":
             pending_chunk = payload
             chunks.append(str(payload["text_boundary"]))
+            last_milestone = "audio_chunk"
             continue
         if payload.get("type") != "telemetry":
             continue
         event = payload["event"]
         event_type = event["event_type"]
+        event_counts[event_type] = event_counts.get(event_type, 0) + 1
         if event_type == "FIRST_MODEL_OUTPUT":
             first_output_ms = float(event["payload"]["provider_latency_ms"])
+            last_milestone = "first_model_output"
+        elif event_type == "TTS_REQUEST_STARTED":
+            last_milestone = "tts_request_started"
+        elif event_type == "FIRST_AUDIO_CHUNK":
+            last_milestone = "first_audio_chunk"
         elif event_type == "AGENT_GENERATION_COMPLETED":
             generation_ms = float(event["payload"]["duration_ms"])
+            last_milestone = "generation_completed"
             raw_usage = event["payload"].get("usage")
             if isinstance(raw_usage, dict):
                 usage = {key: int(value) for key, value in raw_usage.items()}
         elif event_type == "RECOVERY_STARTED":
-            raise RuntimeError(f"provider recovery entered: {event['payload']}")
+            raise RuntimeError(
+                "provider recovery entered "
+                f"after {last_milestone}; event_counts={event_counts}; "
+                f"payload={event['payload']}"
+            )
         elif event_type == "AGENT_AUDIO_COMPLETED":
             break
+    print(
+        f"live_turn_completed={prompt} messages={messages_seen} chunks={len(chunks)}",
+        flush=True,
+    )
     return {
         "prompt": prompt,
         "response": " ".join(chunks),

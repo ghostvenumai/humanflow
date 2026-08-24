@@ -36,7 +36,7 @@ class ForbiddenControllerSession:
         self.state_machine = RecordingStateMachine()
         self.reasoning_or_tts_submissions = 0
 
-    async def submit_transcript(self, update: object) -> None:
+    async def accept_user_transcript(self, update: object) -> None:
         del update
         self.reasoning_or_tts_submissions += 1
         raise AssertionError("input-only mode called the conversation controller")
@@ -50,6 +50,18 @@ def browser_final(text: str, result_id: str) -> str:
             "recognition_result_id": result_id,
             "text": text,
             "final": True,
+            "provenance": {
+                "transcript_id": f"{result_id}:final",
+                "event_kind": "USER_TRANSCRIPT_FINAL",
+                "source": "browser_stt",
+                "origin": "BROWSER_SPEECH_RECOGNITION",
+                "stream_id": "browser-recognition:input-only",
+                "browser_recognition_session_id": "input-only",
+                "audio_capture_id": "input-only-capture",
+                "recognition_input_binding": (
+                    "UNVERIFIED_INDEPENDENT_BROWSER_CAPTURE"
+                ),
+            },
             "signals": {
                 "speech_active": False,
                 "silence_duration_ms": 350,
@@ -90,9 +102,19 @@ async def run() -> dict[str, object]:
     await _handle_json(  # type: ignore[arg-type]
         json.dumps(
             {
-                "type": "assistant_text",
-                "source": "reasoning_output",
+                "type": "transcript",
+                "source": "assistant_reasoning",
                 "text": "Dieser Assistententext darf nie Nutzertext werden.",
+                "final": True,
+                "provenance": {
+                    "transcript_id": "forbidden-assistant-text",
+                    "event_kind": "ASSISTANT_TEXT",
+                    "source": "assistant_reasoning",
+                    "origin": "ASSISTANT_REASONING",
+                    "stream_id": "assistant-response-stream",
+                    "response_id": "assistant-response-id",
+                },
+                "signals": {},
             }
         ),
         session,
@@ -112,13 +134,22 @@ async def run() -> dict[str, object]:
         for event_type, kwargs in session.state_machine.events
         if event_type is EventType.DUPLICATE_TRANSCRIPT_REJECTED
     ]
-    accepted_texts = [event["payload"]["text"] for event in final_events]
+    rejected_assistant_events = [
+        kwargs
+        for event_type, kwargs in session.state_machine.events
+        if event_type is EventType.TRANSCRIPT_REJECTED
+        and kwargs.get("reason_code")
+        == "assistant_origin_event_forbidden_from_user_history"
+    ]
+    accepted_texts = [event["payload"]["raw_text"] for event in final_events]
     if accepted_texts != list(TEXTS):
         raise RuntimeError("unexpected_text_entered_user_transcript_route")
     if session.reasoning_or_tts_submissions:
         raise RuntimeError("conversation_controller_called_in_input_only_mode")
     if len(duplicate_events) != 1:
         raise RuntimeError("duplicate_final_was_not_rejected_exactly_once")
+    if len(rejected_assistant_events) != 1:
+        raise RuntimeError("assistant_origin_event_was_not_hard_rejected")
     return {
         "status": "PASS_AUTOMATED_INPUT_ROUTING_ISOLATION",
         "observed_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -130,6 +161,7 @@ async def run() -> dict[str, object]:
         "unique_final_transcripts_accepted": len(final_events),
         "duplicate_final_transcripts_rejected": len(duplicate_events),
         "assistant_routing_payloads_attempted": 1,
+        "assistant_origin_events_hard_rejected": len(rejected_assistant_events),
         "assistant_payloads_accepted_as_user_transcript": 0,
         "conversation_controller_calls": session.reasoning_or_tts_submissions,
         "reasoning_calls": 0,

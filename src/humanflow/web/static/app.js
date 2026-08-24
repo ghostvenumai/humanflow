@@ -3,7 +3,9 @@ const ui = Object.fromEntries([
   "latency", "frames", "delivered", "unheard", "events", "clear", "conversation",
   "provider-stt", "provider-reasoning", "provider-tts", "provider-tts-fallback",
   "voice-candidate", "voice-sample-count", "voice-ratings", "voice-notes",
-  "save-voice-rating", "voice-rating-status"
+  "save-voice-rating", "voice-rating-status", "debug-stt-raw",
+  "debug-user-accepted", "debug-suppressed", "debug-assistant",
+  "debug-history-roles"
 ].map((id) => [id, document.getElementById(id)]));
 
 let socket;
@@ -12,6 +14,10 @@ let microphone;
 let processor;
 let recognition;
 let recognitionRun = 0;
+let recognitionSessionId = null;
+let audioCaptureId = null;
+let microphoneStreamId = null;
+let transcriptSequence = 0;
 let frameCount = 0;
 let nextAudioMeta = null;
 let partialTranscriptItem = null;
@@ -88,11 +94,11 @@ function activateTtsProvider(provider) {
   ui["save-voice-rating"].disabled = false;
 }
 
-function addConversation(role, text, extraClass = "") {
+function addConversation(role, text, badge, extraClass = "") {
   const item = document.createElement("li");
   item.className = `${role} ${extraClass}`.trim();
   const label = document.createElement("small");
-  label.textContent = role === "user" ? "Sie" : "HumanFlow";
+  label.textContent = badge;
   const body = document.createElement("span");
   body.textContent = text;
   item.append(label, body);
@@ -101,14 +107,16 @@ function addConversation(role, text, extraClass = "") {
   return item;
 }
 
-function showTranscript(text, isFinal) {
+function showTranscript(text, isFinal, provenance) {
+  const badge = provenance?.origin === "BROWSER_SPEECH_RECOGNITION"
+    ? "USER / Browser-STT" : "USER / Diagnostic-Text";
   if (isFinal) {
     partialTranscriptItem?.remove();
     partialTranscriptItem = null;
-    addConversation("user", text);
+    addConversation("user", text, badge);
     return;
   }
-  if (!partialTranscriptItem) partialTranscriptItem = addConversation("user", text, "partial");
+  if (!partialTranscriptItem) partialTranscriptItem = addConversation("user", text, badge, "partial");
   else partialTranscriptItem.querySelector("span").textContent = text;
 }
 
@@ -116,12 +124,33 @@ function showAssistantChunk(meta) {
   if (!meta.text_boundary) return;
   let item = assistantItems.get(meta.response_id);
   if (!item) {
-    item = addConversation("assistant", meta.text_boundary);
+    const provider = meta.tts_provider?.provider === "elevenlabs-text-to-speech-stream"
+      ? "ElevenLabs" : (meta.tts_provider?.provider || "TTS");
+    item = addConversation("assistant", meta.text_boundary, `ASSISTANT / Claude · TTS / ${provider}`);
     assistantItems.set(meta.response_id, item);
     return;
   }
   const body = item.querySelector("span");
   body.textContent = `${body.textContent} ${meta.text_boundary}`;
+}
+
+function appendDebug(target, text) {
+  const item = document.createElement("li");
+  item.textContent = text;
+  target.prepend(item);
+  while (target.children.length > 40) target.lastChild.remove();
+}
+
+function diagnosticProvenance(source, final = true) {
+  return {
+    transcript_id: `${browserSessionId}:diagnostic:${++transcriptSequence}`,
+    event_kind: final ? "USER_TRANSCRIPT_FINAL" : "USER_TRANSCRIPT_PARTIAL",
+    source,
+    origin: "DIAGNOSTIC_TEXT_INPUT",
+    stream_id: "diagnostic-text-input",
+    browser_timestamp_ms: performance.timeOrigin + performance.now(),
+    response_id: activePlaybackOwner
+  };
 }
 
 function send(payload) {
@@ -165,6 +194,9 @@ async function startMicrophone() {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
   });
+  const track = stream.getAudioTracks()[0];
+  audioCaptureId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+  microphoneStreamId = track?.id || `get-user-media-${audioCaptureId}`;
   microphone = audioContext.createMediaStreamSource(stream);
   processor = audioContext.createScriptProcessor(4096, 1, 1);
   processor.onaudioprocess = (event) => {
@@ -176,6 +208,16 @@ async function startMicrophone() {
   };
   microphone.connect(processor);
   processor.connect(audioContext.destination);
+}
+
+function stopMicrophone() {
+  try { processor?.disconnect(); } catch (_) { /* already disconnected */ }
+  try { microphone?.disconnect(); } catch (_) { /* already disconnected */ }
+  for (const track of microphone?.mediaStream?.getTracks?.() || []) track.stop();
+  processor = null;
+  microphone = null;
+  audioCaptureId = null;
+  microphoneStreamId = null;
 }
 
 function startBrowserStt() {
@@ -192,6 +234,15 @@ function startBrowserStt() {
   recognition.onspeechend = () => {
     speechEndedAt = performance.now();
   };
+  recognition.onstart = () => {
+    recognitionSessionId = `${browserSessionId}:${recognitionRun}`;
+    send({
+      type: "recognition_session_started",
+      browser_recognition_session_id: recognitionSessionId,
+      audio_capture_id: audioCaptureId,
+      recognition_input_binding: "UNVERIFIED_INDEPENDENT_BROWSER_CAPTURE"
+    });
+  };
   recognition.onresult = (event) => {
     const observedAt = performance.now();
     for (let index = event.resultIndex; index < event.results.length; index += 1) {
@@ -203,10 +254,24 @@ function startBrowserStt() {
       const utteranceDuration = speechStartedAt == null ? 0 : Math.max(0, (speechEndedAt || observedAt) - speechStartedAt);
       const silenceDuration = speechEndedAt == null ? 0 : Math.max(0, observedAt - speechEndedAt);
       const explicitInterruption = /^(moment|stopp|warte|nein stopp)(\b|[,.!?])/i.test(text);
-      showTranscript(text, result.isFinal);
+      const transcriptId = `${recognitionResultId}:${result.isFinal ? "final" : `partial-${++transcriptSequence}`}`;
+      const provenance = {
+        transcript_id: transcriptId,
+        event_kind: result.isFinal ? "USER_TRANSCRIPT_FINAL" : "USER_TRANSCRIPT_PARTIAL",
+        source: "browser_stt",
+        origin: "BROWSER_SPEECH_RECOGNITION",
+        stream_id: `browser-recognition:${recognitionSessionId}`,
+        browser_recognition_session_id: recognitionSessionId,
+        audio_capture_id: audioCaptureId,
+        response_id: activePlaybackOwner,
+        browser_timestamp_ms: performance.timeOrigin + observedAt,
+        recognition_input_binding: "UNVERIFIED_INDEPENDENT_BROWSER_CAPTURE"
+      };
+      appendDebug(ui["debug-stt-raw"], `${result.isFinal ? "FINAL" : "PARTIAL"} · ${text} · ${transcriptId}`);
       send({
         type: "transcript", source: "browser_stt", text, final: result.isFinal,
         recognition_result_id: recognitionResultId,
+        provenance,
         signals: {
           speech_active: !result.isFinal,
           silence_duration_ms: Math.round(silenceDuration),
@@ -466,6 +531,10 @@ function addEvent(event) {
     activateTtsProvider(event.payload.provider);
   }
   if (event.event_type === "TTS_PROVIDER_DEACTIVATED") renderProviders(declaredProviders);
+  if (event.event_type === "AGENT_GENERATION_COMPLETED") {
+    const roles = event.payload.conversation_history_roles || [];
+    ui["debug-history-roles"].textContent = JSON.stringify(roles);
+  }
 }
 
 ui.connect.addEventListener("click", async () => {
@@ -480,11 +549,19 @@ ui.connect.addEventListener("click", async () => {
     socket.onopen = () => {
       setConnected(true);
       startBrowserStt();
-      send({ type: "provider_capabilities", stt_available: capabilities.stt, tts_available: capabilities.tts });
+      send({
+        type: "provider_capabilities",
+        stt_available: capabilities.stt,
+        tts_available: capabilities.tts,
+        audio_capture_id: audioCaptureId,
+        microphone_stream_id: microphoneStreamId,
+        recognition_input_binding: "UNVERIFIED_INDEPENDENT_BROWSER_CAPTURE"
+      });
     };
     socket.onclose = () => {
       setConnected(false);
       recognition?.stop();
+      stopMicrophone();
       for (const chunkId of [...activeAudio.keys()]) cancelAudio(chunkId);
     };
     socket.onmessage = (message) => {
@@ -495,6 +572,11 @@ ui.connect.addEventListener("click", async () => {
       }
       const payload = JSON.parse(message.data);
       if (payload.type === "ready") {
+        ui.conversation.replaceChildren();
+        assistantItems.clear();
+        partialTranscriptItem = null;
+        ui["debug-history-roles"].textContent = "[] · CLEAN_NEW_SESSION";
+        addConversation("system", `Neue saubere Session ${payload.conversation_id}`, "SYSTEM");
         renderProviders(payload.providers);
         if (inputOnlyMode) {
           setProvider("reasoning", "DEAKTIVIERT · INPUT-ONLY-ISOLATION", "unavailable");
@@ -510,11 +592,30 @@ ui.connect.addEventListener("click", async () => {
         }
         nextAudioMeta = payload;
         showAssistantChunk(payload);
+        appendDebug(ui["debug-assistant"], `${payload.response_id} · ${payload.text_boundary}`);
         if (payload.tts_provider?.provider) {
           activateTtsProvider(payload.tts_provider);
         }
       }
       else if (payload.type === "cancel_audio") cancelAudio(payload.chunk_id);
+      else if (payload.type === "transcript_result") {
+        const final = payload.provenance?.event_kind === "USER_TRANSCRIPT_FINAL";
+        if (payload.accepted) {
+          showTranscript(payload.raw_text, final, payload.provenance);
+          appendDebug(ui["debug-user-accepted"], `${payload.provenance?.transcript_id || "unknown"} · ${payload.raw_text}`);
+        } else {
+          partialTranscriptItem?.remove();
+          partialTranscriptItem = null;
+          appendDebug(ui["debug-suppressed"], `${payload.rejection_reason} · ${payload.raw_text}`);
+          if (payload.rejection_reason === "probable_assistant_self_speech") {
+            addConversation("suppressed", payload.raw_text, "SUPPRESSED / Self-Echo");
+          }
+        }
+      }
+      else if (payload.type === "input_probe_transcript") {
+        showTranscript(payload.text, payload.final, payload.provenance);
+        appendDebug(ui["debug-user-accepted"], `${payload.provenance?.transcript_id || "input-only"} · ${payload.text}`);
+      }
       else if (payload.type === "telemetry") addEvent(payload.event);
       else if (payload.type === "turn_decision") ui.decision.textContent = `${payload.decision} · ${payload.confidence.toFixed(2)}`;
       else if (payload.type === "error") ui.status.textContent = `Fehler: ${payload.code}`;
@@ -527,11 +628,12 @@ ui.connect.addEventListener("click", async () => {
 ui.interrupt.addEventListener("click", () => send({ type: "interrupt" }));
 ui.send.addEventListener("click", () => send({
   type: "transcript", source: "manual_diagnostic", text: ui.transcript.value, final: true,
+  provenance: diagnosticProvenance("manual_diagnostic"),
   signals: { speech_active: false, silence_duration_ms: 350, utterance_duration_ms: 900, semantic_complete: true, acoustic_completion: 0.9 }
 }));
-ui.send.addEventListener("click", () => showTranscript(ui.transcript.value, true));
 document.querySelectorAll(".quick button").forEach((button) => button.addEventListener("click", () => send({
   type: "transcript", source: "manual_diagnostic", text: button.dataset.phrase, final: true,
+  provenance: diagnosticProvenance("manual_diagnostic"),
   signals: {
     speech_active: true, silence_duration_ms: 0, utterance_duration_ms: 250,
     semantic_complete: false, acoustic_completion: 0,

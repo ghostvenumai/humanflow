@@ -28,6 +28,11 @@ from .providers import (
     provider_info,
 )
 from .prosody import ProsodyPlanner
+from .self_speech import SelfSpeechAssessment, SelfSpeechGuard
+from .transcript_events import (
+    ConversationEventKind,
+    TranscriptRejected,
+)
 
 
 _BARGE_IN_PREFIX = re.compile(
@@ -51,6 +56,7 @@ class RealtimeVoiceSession:
         audio_output: AudioOutput,
         turn_policy: HybridTurnPolicy | None = None,
         prosody_planner: ProsodyPlanner | None = None,
+        self_speech_guard: SelfSpeechGuard | None = None,
         input_queue_size: int = 256,
         clock_ns: Callable[[], int] = monotonic_ns,
     ) -> None:
@@ -68,6 +74,7 @@ class RealtimeVoiceSession:
         self._audio_output = audio_output
         self._turn_policy = turn_policy or HybridTurnPolicy()
         self._prosody_planner = prosody_planner or ProsodyPlanner()
+        self._self_speech_guard = self_speech_guard or SelfSpeechGuard()
         self._input_queue: asyncio.Queue[AudioFrame | None] = asyncio.Queue(input_queue_size)
         self._clock_ns = clock_ns
         self._input_task: asyncio.Task[None] | None = None
@@ -104,6 +111,22 @@ class RealtimeVoiceSession:
     def last_playback_receipt(self) -> PlaybackReceipt | None:
         return self._last_playback_receipt
 
+    @property
+    def conversation_history_roles(self) -> tuple[str, ...]:
+        history = getattr(self._reasoner, "history", ())
+        if not isinstance(history, (list, tuple)):
+            return ()
+        roles = tuple(
+            str(message.get("role"))
+            for message in history
+            if isinstance(message, dict)
+        )
+        for index, role in enumerate(roles):
+            expected = "user" if index % 2 == 0 else "assistant"
+            if role != expected:
+                raise RuntimeError("conversation_history_role_invariant_violated")
+        return roles
+
     async def start(self) -> None:
         if self._closed:
             raise RuntimeError("session is closed")
@@ -129,10 +152,105 @@ class RealtimeVoiceSession:
             raise BufferError("realtime input queue is full") from error
 
     async def submit_transcript(self, update: TranscriptUpdate) -> TurnDecision:
-        """Accept transcript/signals from browser, telephony, or an STT adapter."""
+        """Compatibility entry point routed through the authoritative user gate."""
+        return await self.accept_user_transcript(update)
+
+    async def accept_user_transcript(self, update: TranscriptUpdate) -> TurnDecision:
+        """Accept only allowlisted user provenance and suppress probable self-speech."""
         if self._closed or self._input_task is None:
             raise RuntimeError("session is not running")
-        return await self._handle_transcript(update)
+        correlation_id = str(uuid4())
+        provenance = update.provenance
+        if not provenance.is_allowlisted_user_input:
+            reason = (
+                "assistant_origin_event_forbidden_from_user_history"
+                if provenance.is_assistant_origin
+                else "transcript_source_not_allowlisted"
+            )
+            self._record_transcript_provenance(
+                update=update,
+                correlation_id=correlation_id,
+                accepted_by_user_ingestion=False,
+                accepted_as_user_turn=False,
+                rejection_reason=reason,
+            )
+            self.state_machine.record(
+                EventType.TRANSCRIPT_REJECTED,
+                correlation_id=correlation_id,
+                reason_code=reason,
+                payload={
+                    "transcript_id": provenance.transcript_id,
+                    "origin": provenance.origin.value,
+                    "event_kind": provenance.event_kind.value,
+                    "assistant_origin_event_to_user_history": "FORBIDDEN",
+                },
+            )
+            raise TranscriptRejected(reason)
+
+        observed_ns = self._clock_ns()
+        playback_active = self.state in {
+            ConversationState.SPEAKING,
+            ConversationState.POSSIBLE_INTERRUPTION,
+            ConversationState.OVERLAP,
+        }
+        assessment = self._self_speech_guard.assess(
+            text=update.text,
+            observed_ns=observed_ns,
+            origin=provenance.origin,
+            playback_active=playback_active,
+        )
+        if assessment.candidate:
+            self._record_self_speech_event(
+                EventType.SELF_SPEECH_CANDIDATE,
+                update=update,
+                assessment=assessment,
+                correlation_id=correlation_id,
+                reason_code="recent_assistant_speech_content_and_timing_match",
+            )
+        if assessment.suppress:
+            reason = assessment.rejection_reason or "probable_assistant_self_speech"
+            self._record_transcript_provenance(
+                update=update,
+                correlation_id=correlation_id,
+                accepted_by_user_ingestion=False,
+                accepted_as_user_turn=False,
+                rejection_reason=reason,
+                response_id=assessment.matched_response_id,
+            )
+            self._record_self_speech_event(
+                EventType.SELF_SPEECH_SUPPRESSED,
+                update=update,
+                assessment=assessment,
+                correlation_id=correlation_id,
+                reason_code=reason,
+            )
+            raise TranscriptRejected(reason)
+
+        decision = await self._handle_transcript(update)
+        accepted_as_user_turn = update.is_final and (
+            decision.decision is TurnDecisionType.COMPLETE
+            or (
+                decision.decision is TurnDecisionType.INTERRUPTION
+                and bool(_barge_in_followup(update.text))
+            )
+        )
+        self._record_transcript_provenance(
+            update=update,
+            correlation_id=correlation_id,
+            accepted_by_user_ingestion=True,
+            accepted_as_user_turn=accepted_as_user_turn,
+            rejection_reason=None,
+            response_id=assessment.matched_response_id,
+        )
+        if assessment.candidate:
+            self._record_self_speech_event(
+                EventType.SELF_SPEECH_ACCEPTED_AS_REAL_USER,
+                update=update,
+                assessment=assessment,
+                correlation_id=correlation_id,
+                reason_code="candidate_below_conservative_suppression_threshold",
+            )
+        return decision
 
     async def interrupt(self, *, correlation_id: str | None = None) -> float | None:
         """Stop audible output and return request-to-actual-stop latency in milliseconds."""
@@ -237,7 +355,7 @@ class RealtimeVoiceSession:
                     return
                 updates = await self._transcriber.ingest(frame)
                 for update in updates:
-                    await self._handle_transcript(update)
+                    await self.accept_user_transcript(update)
             finally:
                 self._input_queue.task_done()
 
@@ -269,6 +387,8 @@ class RealtimeVoiceSession:
             reason_code="provider_transcript",
             payload={
                 "text": update.text,
+                "event_kind": update.provenance.event_kind.value,
+                "transcript_id": update.provenance.transcript_id,
                 "provider": transcript_provider.to_dict(),
                 "signals": {
                     "speech_active": update.signals.speech_active,
@@ -448,6 +568,8 @@ class RealtimeVoiceSession:
                         "semantic_chunk_sequence": semantic_chunk_sequence,
                         "characters": len(text),
                         "provider": reasoning_provider.to_dict(),
+                        "event_kind": ConversationEventKind.ASSISTANT_TEXT.value,
+                        "origin": "ASSISTANT_REASONING",
                     },
                 )
                 semantic_chunk_sequence += 1
@@ -482,6 +604,10 @@ class RealtimeVoiceSession:
                             "characters": len(segment.text),
                             "speaking_rate": segment.speaking_rate,
                             "pause_after_ms": segment.pause_after_ms,
+                            "event_kind": (
+                                ConversationEventKind.ASSISTANT_TTS_AUDIO.value
+                            ),
+                            "origin": "ASSISTANT_TTS",
                         },
                     )
                     stream = self._synthesizer.stream_speech(
@@ -535,6 +661,11 @@ class RealtimeVoiceSession:
                             self.ledger.register_generated(chunk, generated_ns=generated_ns)
                             self.ledger.mark_queued(
                                 chunk.chunk_id, queued_ns=self._clock_ns()
+                            )
+                            self._self_speech_guard.register_pending(
+                                chunk_id=chunk.chunk_id,
+                                response_id=response_id,
+                                text=chunk.semantic_text,
                             )
                             if self._cancel_event.is_set() or not self.state_machine.accept_result(
                                 token, correlation_id=correlation_id
@@ -592,6 +723,10 @@ class RealtimeVoiceSession:
                             )
                             self._last_playback_receipt = receipt
                             self.ledger.record_playback(receipt)
+                            self._self_speech_guard.mark_stopped(
+                                chunk_id=chunk.chunk_id,
+                                stopped_ns=receipt.playback_stopped_ns,
+                            )
                             self.state_machine.record(
                                 EventType.AUDIO_CHUNK_PLAYED,
                                 correlation_id=correlation_id,
@@ -693,6 +828,9 @@ class RealtimeVoiceSession:
                         "speech_segments": speech_segment_count,
                         "audio_chunks": audio_chunk_sequence,
                         "usage": usage_payload,
+                        "conversation_history_roles": list(
+                            self.conversation_history_roles
+                        ),
                     },
                 )
                 self.state_machine.record(
@@ -935,6 +1073,10 @@ class RealtimeVoiceSession:
         response_id: str,
         correlation_id: str,
     ) -> None:
+        self._self_speech_guard.mark_started(
+            chunk_id=chunk.chunk_id,
+            started_ns=started_ns,
+        )
         self.ledger.mark_playback_started(chunk.chunk_id, started_ns=started_ns)
         self.state_machine.record(
             EventType.AGENT_AUDIO_STARTED,
@@ -945,6 +1087,8 @@ class RealtimeVoiceSession:
                 "chunk_id": chunk.chunk_id,
                 "playback_started_ns": started_ns,
                 "provider": dict(chunk.provider),
+                "event_kind": ConversationEventKind.ASSISTANT_PLAYBACK.value,
+                "origin": "ASSISTANT_TTS",
                 "semantic_to_playback_start_ms": max(
                     0.0, (started_ns - semantic_ready_ns) / 1_000_000.0
                 ),
@@ -954,6 +1098,62 @@ class RealtimeVoiceSession:
                 "audio_ready_to_playback_start_ms": max(
                     0.0, (started_ns - audio_ready_ns) / 1_000_000.0
                 ),
+            },
+        )
+
+    def _record_transcript_provenance(
+        self,
+        *,
+        update: TranscriptUpdate,
+        correlation_id: str,
+        accepted_by_user_ingestion: bool,
+        accepted_as_user_turn: bool,
+        rejection_reason: str | None,
+        response_id: str | None = None,
+    ) -> None:
+        provenance = update.provenance
+        self.state_machine.record(
+            EventType.TRANSCRIPT_PROVENANCE_RECORDED,
+            correlation_id=correlation_id,
+            reason_code=(
+                "user_transcript_accepted"
+                if accepted_by_user_ingestion
+                else rejection_reason or "user_transcript_rejected"
+            ),
+            payload={
+                **provenance.to_dict(),
+                "response_id": response_id or provenance.response_id,
+                "is_partial": not update.is_final,
+                "is_final": update.is_final,
+                "raw_text": update.raw_text,
+                "normalized_text": update.normalized_text,
+                "accepted_by_user_ingestion": accepted_by_user_ingestion,
+                "accepted_as_user_turn": accepted_as_user_turn,
+                "rejection_reason": rejection_reason,
+            },
+        )
+
+    def _record_self_speech_event(
+        self,
+        event_type: EventType,
+        *,
+        update: TranscriptUpdate,
+        assessment: SelfSpeechAssessment,
+        correlation_id: str,
+        reason_code: str,
+    ) -> None:
+        self.state_machine.record(
+            event_type,
+            correlation_id=correlation_id,
+            reason_code=reason_code,
+            payload={
+                "transcript_id": update.provenance.transcript_id,
+                "raw_text": update.raw_text,
+                "normalized_text": update.normalized_text,
+                "confidence": assessment.confidence,
+                "matched_response_id": assessment.matched_response_id,
+                "matched_chunk_id": assessment.matched_chunk_id,
+                "signals": assessment.signals,
             },
         )
 

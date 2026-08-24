@@ -13,6 +13,7 @@ from humanflow.runtime.providers import (
     TranscriptUpdate,
 )
 from humanflow.runtime.session import RealtimeVoiceSession
+from humanflow.runtime.transcript_events import TranscriptProvenance
 from humanflow.telemetry.events import EventType
 from humanflow.telemetry.sinks import InMemoryTelemetrySink
 from humanflow.turns.models import TurnDecisionType, TurnSignals
@@ -52,6 +53,7 @@ def _complete(text: str = "Ich brauche einen Termin") -> TranscriptUpdate:
     return TranscriptUpdate(
         text=text,
         is_final=True,
+        provenance=TranscriptProvenance.user_fixture(final=True),
         signals=TurnSignals(
             speech_active=False,
             silence_duration_ms=350,
@@ -103,6 +105,7 @@ def test_full_duplex_backchannel_and_audible_barge_in() -> None:
             TranscriptUpdate(
                 text="mhm",
                 is_final=True,
+                provenance=TranscriptProvenance.user_fixture(final=True),
                 signals=TurnSignals(
                     speech_active=True,
                     silence_duration_ms=0,
@@ -117,6 +120,7 @@ def test_full_duplex_backchannel_and_audible_barge_in() -> None:
             TranscriptUpdate(
                 text="Moment, stopp",
                 is_final=True,
+                provenance=TranscriptProvenance.user_fixture(final=True),
                 signals=TurnSignals(
                     speech_active=True,
                     silence_duration_ms=0,
@@ -198,6 +202,7 @@ def test_final_barge_in_followup_stops_audio_then_starts_contextual_turn() -> No
             TranscriptUpdate(
                 text="Moment, stopp. Was ist 25 mal 17?",
                 is_final=True,
+                provenance=TranscriptProvenance.user_fixture(final=True),
                 signals=TurnSignals(
                     speech_active=False,
                     silence_duration_ms=0,
@@ -289,6 +294,7 @@ def test_background_speech_uses_explicit_non_interrupting_overlap_lifecycle() ->
             TranscriptUpdate(
                 text="Nachrichten im Hintergrund",
                 is_final=True,
+                provenance=TranscriptProvenance.user_fixture(final=True),
                 signals=TurnSignals(
                     speech_active=True,
                     silence_duration_ms=0,

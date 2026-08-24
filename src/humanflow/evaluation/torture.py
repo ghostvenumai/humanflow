@@ -20,6 +20,7 @@ from humanflow.runtime.providers import (
     TranscriptUpdate,
 )
 from humanflow.runtime.session import RealtimeVoiceSession
+from humanflow.runtime.transcript_events import TranscriptProvenance
 from humanflow.telemetry.events import EventType
 from humanflow.telemetry.sinks import InMemoryTelemetrySink
 from humanflow.tools.executor import ResilientToolExecutor
@@ -85,6 +86,9 @@ def _complete_update(text: str = "Ich brauche bitte einen Termin") -> Transcript
     return TranscriptUpdate(
         text=text,
         is_final=True,
+        provenance=TranscriptProvenance.user_fixture(
+            final=True, source="evaluation_fixture"
+        ),
         signals=TurnSignals(
             speech_active=False,
             silence_duration_ms=350,
@@ -99,6 +103,9 @@ def _talkover_update(text: str, *, interruption_probability: float = 0.0) -> Tra
     return TranscriptUpdate(
         text=text,
         is_final=True,
+        provenance=TranscriptProvenance.user_fixture(
+            final=True, source="evaluation_fixture"
+        ),
         signals=TurnSignals(
             speech_active=True,
             silence_duration_ms=0,

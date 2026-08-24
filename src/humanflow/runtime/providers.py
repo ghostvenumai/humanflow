@@ -22,12 +22,39 @@ from humanflow.audio.models import (
 from humanflow.domain.conversation import OperationToken
 from humanflow.turns.models import TurnSignals
 
+from .transcript_events import (
+    ConversationEventKind,
+    TranscriptProvenance,
+    USER_TRANSCRIPT_KINDS,
+    normalize_transcript,
+)
+
 
 class ProviderMode(StrEnum):
     """Whether a runtime provider performs real work or deterministic test work."""
 
     REAL = "REAL"
     MOCK = "MOCK"
+
+
+@dataclass(frozen=True, slots=True)
+class STTProviderCapabilities:
+    streaming_audio: bool
+    source_bound: bool
+    partial_transcripts: bool
+    final_transcripts: bool
+    provider_endpointing: bool
+    cancellation: bool
+
+    def to_dict(self) -> dict[str, bool]:
+        return {
+            "streaming_audio": self.streaming_audio,
+            "source_bound": self.source_bound,
+            "partial_transcripts": self.partial_transcripts,
+            "final_transcripts": self.final_transcripts,
+            "provider_endpointing": self.provider_endpointing,
+            "cancellation": self.cancellation,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,17 +99,40 @@ class TranscriptUpdate:
     text: str
     is_final: bool
     signals: TurnSignals
+    provenance: TranscriptProvenance
     provider: ProviderInfo | None = None
+    raw_text: str = ""
 
     def __post_init__(self) -> None:
         if not self.text.strip():
             raise ValueError("text must not be empty")
+        expected_kind = (
+            ConversationEventKind.USER_TRANSCRIPT_FINAL
+            if self.is_final
+            else ConversationEventKind.USER_TRANSCRIPT_PARTIAL
+        )
+        if (
+            self.provenance.event_kind in USER_TRANSCRIPT_KINDS
+            and self.provenance.event_kind is not expected_kind
+        ):
+            raise ValueError("transcript finality does not match event provenance")
+        object.__setattr__(self, "raw_text", self.raw_text or self.text)
+
+    @property
+    def normalized_text(self) -> str:
+        return normalize_transcript(self.text)
 
 
 class StreamingTranscriber(Protocol):
+    provider_info: ProviderInfo
+    capabilities: STTProviderCapabilities
+
     async def ingest(self, frame: AudioFrame) -> tuple[TranscriptUpdate, ...]: ...
 
     async def close(self) -> None: ...
+
+
+StreamingSTTProvider = StreamingTranscriber
 
 
 class StreamingReasoner(Protocol):
@@ -162,6 +212,14 @@ class NullTranscriber:
         model="none",
         mode=ProviderMode.MOCK,
         runtime="server",
+    )
+    capabilities = STTProviderCapabilities(
+        streaming_audio=True,
+        source_bound=True,
+        partial_transcripts=False,
+        final_transcripts=False,
+        provider_endpointing=False,
+        cancellation=False,
     )
 
     async def ingest(self, frame: AudioFrame) -> tuple[TranscriptUpdate, ...]:

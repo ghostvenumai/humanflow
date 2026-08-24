@@ -110,6 +110,7 @@ class AnthropicReasoner:
         user_text = transcript.strip()
         if not user_text:
             raise ValueError("transcript must not be empty")
+        _assert_history_roles(self._history)
 
         request_messages = [
             *self._history,
@@ -148,6 +149,7 @@ class AnthropicReasoner:
             )
         )
         self._history = self._history[-self._max_history_messages :]
+        _assert_history_roles(self._history)
         usage = getattr(final_message, "usage", None)
         self._last_usage = ReasoningUsage(
             input_tokens=int(getattr(usage, "input_tokens", 0)),
@@ -175,3 +177,10 @@ def _take_speech_boundaries(text: str) -> tuple[list[str], str]:
                 pending = pending[split_at + 1 :]
                 continue
         return fragments, pending
+
+
+def _assert_history_roles(history: list[dict[str, str]]) -> None:
+    for index, message in enumerate(history):
+        expected = "user" if index % 2 == 0 else "assistant"
+        if message.get("role") != expected or not message.get("content", "").strip():
+            raise RuntimeError("conversation_history_role_invariant_violated")

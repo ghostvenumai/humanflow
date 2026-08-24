@@ -48,6 +48,18 @@
         <ol id="conversation"></ol>
       </section>
 
+      <details class="debug-panel" open>
+        <summary>Provenienz-Debugging</summary>
+        <div class="debug-grid">
+          <div><strong>Browser-STT roh</strong><ol id="debug-stt-raw"></ol></div>
+          <div><strong>Akzeptierter Nutzertext</strong><ol id="debug-user-accepted"></ol></div>
+          <div><strong>Unterdrückt</strong><ol id="debug-suppressed"></ol></div>
+          <div><strong>Assistententext</strong><ol id="debug-assistant"></ol></div>
+        </div>
+        <p><strong>Conversation-History-Rollen:</strong> <code id="debug-history-roles">[] · CLEAN_NEW_SESSION</code></p>
+        <p class="note">Browser SpeechRecognition ist eine separate, browserverwaltete Erkennung und technisch nicht an den parallel erfassten getUserMedia-PCM-Stream gebunden.</p>
+      </details>
+
       <section class="manual" aria-label="Menschliche Voice-Qualitätsbewertung">
         <h2>Menschliche Voice-Qualität · getrennt von Korrektheit</h2>
         <p class="note">Bitte erst nach echtem Hören bewerten. Die Skala reicht von eins (schwach) bis fünf (sehr gut). HumanFlow erzeugt oder bestätigt diese Werte nicht selbst.</p>

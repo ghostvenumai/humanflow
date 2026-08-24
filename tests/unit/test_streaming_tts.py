@@ -58,6 +58,12 @@ class FakeClient:
         return self.response
 
 
+class HangingResponse(FakeResponse):
+    async def aiter_bytes(self) -> AsyncIterator[bytes]:
+        yield b"\x01\x00" * 3_000
+        await asyncio.Event().wait()
+
+
 def _request(text: str = "Ja, klar. Freitag passt.") -> SpeechSynthesisRequest:
     return SpeechSynthesisRequest(
         text=text,
@@ -228,6 +234,37 @@ def test_primary_failure_before_audio_uses_explicit_real_browser_fallback() -> N
         assert chunks[0].provider["provider"] == "browser-web-speech-api"
         assert provider.active_provider_info.provider == "browser-web-speech-api"
         assert provider.last_fallback_reason == "RuntimeError"
+
+    asyncio.run(scenario())
+
+
+def test_incomplete_provider_stream_times_out_before_playback_and_uses_fallback() -> None:
+    async def scenario() -> None:
+        primary = GaplessSegmentTTSProvider(
+            ElevenLabsStreamingTTSProvider(
+                api_key="test-key-never-sent",
+                voice_id="test-voice-never-logged",
+                client=FakeClient(HangingResponse([])),
+                request_timeout_seconds=0.01,
+            )
+        )
+        provider = FallbackStreamingTTSProvider(
+            primary=primary,
+            fallback=BrowserSpeechSynthesisAdapter(),
+        )
+
+        chunks = [
+            chunk
+            async for chunk in provider.stream_speech(
+                _request("Zeitlich begrenzter Fallback."),
+                cancel_event=asyncio.Event(),
+            )
+        ]
+
+        assert len(chunks) == 1
+        assert chunks[0].playback_mode is AudioPlaybackMode.BROWSER_SPEECH
+        assert chunks[0].provider["provider"] == "browser-web-speech-api"
+        assert provider.last_fallback_reason == "TimeoutError"
 
     asyncio.run(scenario())
 

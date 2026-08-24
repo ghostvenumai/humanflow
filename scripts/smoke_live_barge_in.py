@@ -7,6 +7,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import websocket
 
@@ -24,6 +25,13 @@ def send_transcript(connection: websocket.WebSocket, text: str) -> None:
                 "source": "diagnostic_smoke",
                 "text": text,
                 "final": True,
+                "provenance": {
+                    "transcript_id": str(uuid4()),
+                    "event_kind": "USER_TRANSCRIPT_FINAL",
+                    "source": "diagnostic_smoke",
+                    "origin": "DIAGNOSTIC_TEXT_INPUT",
+                    "stream_id": "live-barge-in-smoke-text-input",
+                },
                 "signals": {
                     "speech_active": False,
                     "silence_duration_ms": 0,

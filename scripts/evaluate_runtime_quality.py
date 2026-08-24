@@ -17,6 +17,7 @@ from humanflow.runtime.providers import (
     TranscriptUpdate,
 )
 from humanflow.runtime.session import RealtimeVoiceSession
+from humanflow.runtime.transcript_events import TranscriptProvenance
 from humanflow.telemetry.events import EventType
 from humanflow.telemetry.sinks import InMemoryTelemetrySink
 from humanflow.turns.models import TurnSignals
@@ -42,6 +43,9 @@ async def _run_scenario(scenario: dict[str, object]) -> dict[str, object]:
         TranscriptUpdate(
             text="Bitte nennen Sie mir einen Termin",
             is_final=True,
+            provenance=TranscriptProvenance.user_fixture(
+                final=True, source="evaluation_fixture"
+            ),
             signals=TurnSignals(
                 speech_active=False,
                 silence_duration_ms=350,
@@ -63,6 +67,9 @@ async def _run_scenario(scenario: dict[str, object]) -> dict[str, object]:
         TranscriptUpdate(
             text=str(raw_input["text"]),
             is_final=True,
+            provenance=TranscriptProvenance.user_fixture(
+                final=True, source="evaluation_fixture"
+            ),
             signals=TurnSignals(
                 speech_active=True,
                 silence_duration_ms=0,

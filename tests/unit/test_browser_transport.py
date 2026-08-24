@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from humanflow.audio.models import AudioChunk, AudioFrame
 from humanflow.web.app import (
+    BrowserTranscriptRouteState,
     BrowserSessionLease,
     PROJECT_ROOT,
     STATIC_DIR,
@@ -20,6 +21,25 @@ from humanflow.web.app import (
 from humanflow.web.transport import BrowserAcknowledgedAudioOutput
 from humanflow.telemetry.events import EventType
 from humanflow.turns.models import TurnDecisionType
+
+
+def _browser_provenance(
+    result_id: str,
+    *,
+    recognition_session_id: str = "test-session",
+    audio_capture_id: str = "test-capture",
+) -> dict[str, object]:
+    return {
+        "transcript_id": f"{result_id}:final",
+        "event_kind": "USER_TRANSCRIPT_FINAL",
+        "source": "browser_stt",
+        "origin": "BROWSER_SPEECH_RECOGNITION",
+        "stream_id": f"browser-recognition:{recognition_session_id}",
+        "browser_recognition_session_id": recognition_session_id,
+        "audio_capture_id": audio_capture_id,
+        "browser_timestamp_ms": 1234.5,
+        "recognition_input_binding": "UNVERIFIED_INDEPENDENT_BROWSER_CAPTURE",
+    }
 
 
 def _chunk() -> AudioChunk:
@@ -170,6 +190,16 @@ def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
     assert 'active_tts_playback_providers_exceeded' in source
     assert 'event.event_type === "TTS_PROVIDER_DEACTIVATED"' in source
     assert "function activateTtsProvider(provider)" in source
+    recognition_handler = source.split("recognition.onresult =", 1)[1].split(
+        "recognition.onerror =", 1
+    )[0]
+    assert "showTranscript(" not in recognition_handler
+    assert 'payload.type === "transcript_result"' in source
+    assert "USER / Browser-STT" in source
+    assert "ASSISTANT / Claude" in source
+    assert "SUPPRESSED / Self-Echo" in source
+    assert "Provenienz-Debugging" in markup
+    assert "debug-history-roles" in markup
     assert "provider-reasoning" in markup
     assert "provider-tts-fallback" in markup
     assert "kein stiller Mock-Fallback" in markup
@@ -201,7 +231,7 @@ def test_duplicate_browser_final_transcript_is_rejected_before_controller() -> N
             self.state_machine = FakeStateMachine()
             self.submissions = 0
 
-        async def submit_transcript(self, update: object) -> SimpleNamespace:
+        async def accept_user_transcript(self, update: object) -> SimpleNamespace:
             del update
             self.submissions += 1
             return SimpleNamespace(
@@ -220,6 +250,7 @@ def test_duplicate_browser_final_transcript_is_rejected_before_controller() -> N
                 "type": "transcript",
                 "source": "browser_stt",
                 "recognition_result_id": "browser-run-1-result-0",
+                "provenance": _browser_provenance("browser-run-1-result-0"),
                 "text": "Nur einmal verarbeiten.",
                 "final": True,
                 "signals": {
@@ -251,11 +282,12 @@ def test_duplicate_browser_final_transcript_is_rejected_before_controller() -> N
         assert [event[0] for event in session.state_machine.events] == [
             EventType.DUPLICATE_TRANSCRIPT_REJECTED
         ]
+        assert (await outbound.get())["type"] == "transcript_result"  # type: ignore[index]
         assert (await outbound.get())["type"] == "turn_decision"  # type: ignore[index]
-        assert await outbound.get() == {
-            "type": "error",
-            "code": "duplicate_final_transcript_rejected",
-        }
+        duplicate = await outbound.get()
+        assert duplicate["type"] == "transcript_result"  # type: ignore[index]
+        assert duplicate["accepted"] is False  # type: ignore[index]
+        assert duplicate["rejection_reason"] == "duplicate_final_transcript"  # type: ignore[index]
 
     asyncio.run(scenario())
 
@@ -293,6 +325,9 @@ def test_input_only_mode_records_microphone_transcript_without_reasoning_or_tts(
                     "type": "transcript",
                     "source": "browser_stt",
                     "recognition_result_id": f"browser-input-only:{index}",
+                    "provenance": _browser_provenance(
+                        f"browser-input-only:{index}"
+                    ),
                     "text": text,
                     "final": True,
                     "signals": {
@@ -319,21 +354,74 @@ def test_input_only_mode_records_microphone_transcript_without_reasoning_or_tts(
             for event_type, kwargs in session.state_machine.events
             if event_type is EventType.FINAL_TRANSCRIPT
         ]
-        assert [event["payload"]["text"] for event in final_events] == list(texts)  # type: ignore[index]
+        assert [event["payload"]["raw_text"] for event in final_events] == list(texts)  # type: ignore[index]
         assert all(
             event["payload"]["reasoning_called"] is False  # type: ignore[index]
             and event["payload"]["tts_called"] is False  # type: ignore[index]
             for event in final_events
         )
-        assert [await outbound.get() for _ in texts] == [
+        results = [await outbound.get() for _ in texts]
+        assert [result["text"] for result in results] == list(texts)  # type: ignore[index]
+        assert all(result["type"] == "input_probe_transcript" for result in results)  # type: ignore[index]
+
+    asyncio.run(scenario())
+
+
+def test_stale_browser_recognition_session_is_rejected() -> None:
+    class FakeStateMachine:
+        def __init__(self) -> None:
+            self.events: list[EventType] = []
+
+        def record(self, event_type: EventType, **kwargs: object) -> None:
+            del kwargs
+            self.events.append(event_type)
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.state_machine = FakeStateMachine()
+            self.submissions = 0
+
+        async def accept_user_transcript(self, update: object) -> None:
+            del update
+            self.submissions += 1
+
+    async def scenario() -> None:
+        session = FakeSession()
+        outbound: asyncio.Queue[dict[str, object] | bytes | None] = asyncio.Queue()
+        route = BrowserTranscriptRouteState()
+        route.activate(
+            recognition_session_id="current-session",
+            audio_capture_id="current-capture",
+        )
+        payload = json.dumps(
             {
-                "type": "input_probe_transcript",
-                "text": text,
+                "type": "transcript",
+                "source": "browser_stt",
+                "recognition_result_id": "stale-result",
+                "text": "Ein verspätetes altes Ergebnis.",
                 "final": True,
-                "recognition_result_id": f"browser-input-only:{index}",
+                "provenance": _browser_provenance(
+                    "stale-result",
+                    recognition_session_id="old-session",
+                    audio_capture_id="old-capture",
+                ),
+                "signals": {},
             }
-            for index, text in enumerate(texts)
-        ]
+        )
+
+        await _handle_json(  # type: ignore[arg-type]
+            payload,
+            session,
+            BrowserAcknowledgedAudioOutput(outbound),
+            outbound,
+            transcript_route_state=route,
+        )
+
+        assert session.submissions == 0
+        assert session.state_machine.events == [EventType.TRANSCRIPT_REJECTED]
+        result = await outbound.get()
+        assert result["accepted"] is False  # type: ignore[index]
+        assert result["rejection_reason"] == "stale_recognition_session"  # type: ignore[index]
 
     asyncio.run(scenario())
 
