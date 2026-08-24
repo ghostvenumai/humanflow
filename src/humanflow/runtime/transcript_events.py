@@ -36,7 +36,6 @@ USER_TRANSCRIPT_KINDS = frozenset(
     }
 )
 ALLOWED_USER_SOURCE_BINDINGS = {
-    TranscriptOrigin.BROWSER_SPEECH_RECOGNITION: frozenset({"browser_stt"}),
     TranscriptOrigin.STREAMING_STT_PROVIDER: frozenset({"streaming_stt"}),
     TranscriptOrigin.DIAGNOSTIC_TEXT_INPUT: frozenset(
         {
@@ -66,8 +65,11 @@ class TranscriptProvenance:
     browser_recognition_session_id: str | None = None
     audio_capture_id: str | None = None
     response_id: str | None = None
+    stt_session_id: str | None = None
     browser_timestamp_ms: float | None = None
     recognition_input_binding: str | None = None
+    audio_frame_sequence: int | None = None
+    provider_event_type: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("transcript_id", "source", "stream_id"):
@@ -82,6 +84,11 @@ class TranscriptProvenance:
                 raise ValueError("browser recognition session id required")
             if not self.audio_capture_id:
                 raise ValueError("browser audio capture id required")
+        if self.origin is TranscriptOrigin.STREAMING_STT_PROVIDER:
+            if not self.stt_session_id:
+                raise ValueError("streaming STT session id required")
+            if not self.audio_capture_id:
+                raise ValueError("streaming STT audio capture id required")
 
     @property
     def is_allowlisted_user_input(self) -> bool:
@@ -111,9 +118,12 @@ class TranscriptProvenance:
             "browser_recognition_session_id": self.browser_recognition_session_id,
             "audio_capture_id": self.audio_capture_id,
             "response_id": self.response_id,
+            "stt_session_id": self.stt_session_id,
             "timestamp_ns": self.timestamp_ns,
             "browser_timestamp_ms": self.browser_timestamp_ms,
             "recognition_input_binding": self.recognition_input_binding,
+            "audio_frame_sequence": self.audio_frame_sequence,
+            "provider_event_type": self.provider_event_type,
         }
 
     @classmethod

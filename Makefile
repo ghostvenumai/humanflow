@@ -1,4 +1,4 @@
-.PHONY: status test torture-test benchmark realtime-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report release-readiness demo demo-benchmark demo-package dashboard-capture challenge-demo dashboard turn-tournament checkpoint
+.PHONY: status test torture-test benchmark realtime-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report release-readiness demo demo-benchmark demo-package dashboard-capture challenge-demo dashboard turn-tournament live-stt-smoke checkpoint
 
 status:
 	python3 scripts/status.py
@@ -46,6 +46,11 @@ demo:
 	PYTHONPATH=src uvicorn humanflow.web.app:app --host 127.0.0.1 --port 8765
 
 demo-benchmark:
+	@set -a; \
+	if [ -f "$$HOME/.config/humanflow/runtime.env" ]; then \
+		. "$$HOME/.config/humanflow/runtime.env"; \
+	fi; \
+	set +a; \
 	PYTHONPATH=src python3 scripts/benchmark_browser_demo.py
 
 demo-package:
@@ -59,6 +64,14 @@ challenge-demo: demo-package demo
 dashboard: demo
 
 turn-tournament: benchmark
+
+live-stt-smoke:
+	@set -a; \
+	if [ -f "$$HOME/.config/humanflow/runtime.env" ]; then \
+		. "$$HOME/.config/humanflow/runtime.env"; \
+	fi; \
+	set +a; \
+	PYTHONPATH=src python3 scripts/smoke_live_stt.py
 
 checkpoint:
 	python3 scripts/checkpoint.py

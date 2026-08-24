@@ -127,13 +127,50 @@ def test_demo_factory_can_only_build_declared_real_reasoner() -> None:
 
     assert runtime.ready
     assert runtime.reasoner_factory is not None
+    assert runtime.transcriber_factory is not None
+    transcriber = runtime.transcriber_factory()
     reasoner = runtime.reasoner_factory()
     assert runtime.synthesizer_factory is not None
     synthesizer = runtime.synthesizer_factory()
     assert isinstance(reasoner, AnthropicReasoner)
+    assert transcriber.provider_info.provider == "elevenlabs-scribe-realtime"
+    assert transcriber.provider_info.mode is ProviderMode.REAL
     assert isinstance(synthesizer, FallbackStreamingTTSProvider)
     assert reasoner.provider_info.mode is ProviderMode.REAL
-    assert all(status.info.mode is ProviderMode.REAL for status in runtime.providers)
+    browser_diagnostic = next(
+        status for status in runtime.providers if status.info.role == "stt-browser-diagnostic"
+    )
+    assert browser_diagnostic.info.mode is ProviderMode.MOCK
+    assert browser_diagnostic.availability == "OFF_PRODUCTION"
+
+
+def test_demo_accepts_dedicated_scribe_key_without_exposing_it() -> None:
+    runtime = load_demo_runtime_config(
+        {
+            "ANTHROPIC_API_KEY": "reasoning-test-key",
+            "ELEVENLABS_API_KEY": "tts-test-key",
+            "ELEVENLABS_STT_API_KEY": "stt-test-key",
+            "ELEVENLABS_VOICE_ID": "voice-test-id",
+        }
+    )
+
+    assert runtime.ready
+    stt = next(status for status in runtime.providers if status.info.role == "stt")
+    assert stt.availability == "CONFIGURED_UNVERIFIED"
+    assert "stt-test-key" not in str(runtime.provider_payload())
+
+
+def test_dedicated_scribe_key_does_not_hide_missing_tts_key() -> None:
+    runtime = load_demo_runtime_config(
+        {
+            "ANTHROPIC_API_KEY": "reasoning-test-key",
+            "ELEVENLABS_STT_API_KEY": "stt-test-key",
+            "ELEVENLABS_VOICE_ID": "voice-test-id",
+        }
+    )
+
+    assert not runtime.ready
+    assert runtime.blocker == "missing TTS configuration: ELEVENLABS_API_KEY"
 
 
 def test_demo_fails_closed_when_high_quality_tts_configuration_is_missing() -> None:

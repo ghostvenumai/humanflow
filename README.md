@@ -62,11 +62,14 @@ make demo
 
 Set `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` in
 `$HOME/.config/humanflow/runtime.env`, then open `http://127.0.0.1:8765`. `make
-demo` loads that file without printing its contents. The browser sends live
-PCM16 microphone frames while Browser Web Speech emits real German partial/final
-transcripts. A session-scoped Anthropic reasoner streams context-aware German
+demo` loads that file without printing its contents. The ElevenLabs key must have
+Speech-to-Text access; alternatively set a separately scoped
+`ELEVENLABS_STT_API_KEY`. The browser sends one live PCM16 microphone stream to
+ElevenLabs Scribe Realtime, which emits German partial and committed transcripts.
+Browser SpeechRecognition is OFF in production and exists only behind the explicit
+diagnostic query mode. A session-scoped Anthropic reasoner streams context-aware German
 answers into a modular ElevenLabs Flash v2.5 PCM stream. Browser Web Speech remains
-a visibly reported fallback for transient provider failures; invalid credentials
+a visibly reported TTS fallback for transient provider failures; invalid credentials
 or voice configuration fail closed. Playback start, completion and cancellation
 are acknowledged by the browser and define the demo ledger's played boundary. The
 live demo never substitutes deterministic echo/tone adapters used by tests. This

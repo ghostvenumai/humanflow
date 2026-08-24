@@ -51,8 +51,9 @@ all transitions and meaningful timings
   `TOOL_WAIT` and `RECOVERING` transitions. Injected latency, failure, timeout,
   malformed and duplicate responses cannot write stale state; exhausted attempts
   use an explicit safe fallback.
-- `humanflow.web`: a loopback FastAPI/WebSocket demo streams browser microphone
-  PCM into the core and accepts real `de-DE` Web Speech hypotheses. A modular,
+- `humanflow.web`: a loopback FastAPI/WebSocket demo streams one browser microphone
+  PCM source into the core and a source-bound ElevenLabs Scribe Realtime adapter.
+  Browser SpeechRecognition is production-OFF and diagnostic-only. A modular,
   fail-closed Anthropic reasoner retains per-session multi-turn context. A
   vendor-neutral streaming TTS contract uses ElevenLabs Flash v2.5 as the primary
   PCM provider and Web Speech as an explicit fallback for transient failures only.
@@ -77,8 +78,9 @@ all transitions and meaningful timings
 
 ## Next runtime components
 
-1. Human voice-quality validation of the passing ElevenLabs live-provider path.
-2. Controlled KEEP/REVERT evaluation using the submitted human assessment.
+1. Resolve the Scribe `auth_error` by granting Speech-to-Text scope to the runtime key.
+2. Human conversation-integrity and voice-quality validation of the real provider path.
+3. Controlled KEEP/REVERT evaluation using the submitted human assessment.
 
 ## Controlled quality loop
 

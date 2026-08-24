@@ -111,6 +111,22 @@ def main() -> None:
                 ),
                 None,
             )
+            stt = next(
+                (
+                    provider
+                    for provider in payload.get("providers", [])
+                    if provider.get("role") == "stt"
+                ),
+                None,
+            )
+            browser_stt = next(
+                (
+                    provider
+                    for provider in payload.get("providers", [])
+                    if provider.get("role") == "stt-browser-diagnostic"
+                ),
+                None,
+            )
             tts = next(
                 (
                     provider
@@ -123,6 +139,13 @@ def main() -> None:
                 status != 200
                 or payload.get("production_claim") is not False
                 or payload.get("mock_conversation_provider") is not False
+                or stt is None
+                or stt.get("provider") != "elevenlabs-scribe-realtime"
+                or stt.get("mode") != "REAL"
+                or stt.get("availability") != "CONFIGURED_UNVERIFIED"
+                or browser_stt is None
+                or browser_stt.get("mode") != "MOCK"
+                or browser_stt.get("availability") != "OFF_PRODUCTION"
                 or reasoning is None
                 or reasoning.get("mode") != "REAL"
                 or reasoning.get("availability") != "CONFIGURED"
@@ -171,7 +194,8 @@ def main() -> None:
             "audio_device_executed": False,
             "claim_limit": (
                 "Measures process readiness and HTTP loopback only. Browser microphone, "
-                "WebAudio scheduling and websocket playback require the manual demo."
+                "Scribe authentication/audio, WebAudio scheduling and websocket playback "
+                "require separate live or manual evidence."
             ),
         },
         "metrics": {

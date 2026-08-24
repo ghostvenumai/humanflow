@@ -59,6 +59,12 @@ def main() -> None:
     manual = json.loads(manual_path.read_text(encoding="utf-8"))
     if not manual.get("approved") or manual.get("representative_calls", 0) < 3:
         _fail("manual validation is incomplete")
+    live_stt_path = ROOT / "reports" / "live-stt-smoke.json"
+    if not live_stt_path.is_file():
+        _fail("real streaming STT smoke evidence is missing")
+    live_stt = json.loads(live_stt_path.read_text(encoding="utf-8"))
+    if live_stt.get("status") != "PASS":
+        _fail("real streaming STT provider is not validated")
 
     start = json.loads((ROOT / "sprint" / "start.json").read_text(encoding="utf-8"))
     now = datetime.now(UTC)
@@ -100,6 +106,7 @@ def main() -> None:
         "everlast-demo-manifest.json",
         "dashboard-capture.json",
         "dashboard.png",
+        "live-stt-smoke.json",
     )
     frozen_at = datetime.now(UTC)
     started_at = datetime.fromisoformat(start["sprint"]["start_utc"].replace("Z", "+00:00"))

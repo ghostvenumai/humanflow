@@ -1,20 +1,28 @@
-# Source-bound streaming STT candidate contract
+# Source-bound production streaming STT contract
 
-The current browser demo uses two independent capture mechanisms:
+The production browser demo has one authoritative user-audio chain:
 
-- `getUserMedia` PCM is sent over the websocket and consumed by `NullTranscriber`.
-- Browser SpeechRecognition produces the actual transcripts from a separate,
-  browser-managed input that cannot be bound to the selected PCM stream.
+- `getUserMedia` captures one selected microphone track.
+- The browser sends that track as mono PCM16 at 16 kHz over the HumanFlow websocket.
+- `ElevenLabsRealtimeSTTProvider` binds immutably to its `audio_capture_id` and
+  `stream_id` and sends exactly those frames to Scribe v2 Realtime.
+- Only Scribe `committed_transcript` events become FINAL user transcripts.
 
-A production STT candidate must implement `StreamingSTTProvider` and consume only
-the exact `AudioFrame` stream identified by `audio_capture_id` and `stream_id`.
-It must return immutable `TranscriptUpdate` objects with
+The provider implements `StreamingSTTProvider` and returns immutable
+`TranscriptUpdate` objects with
 `TranscriptOrigin.STREAMING_STT_PROVIDER`, partial/final provenance, provider
 endpointing, and stable transcript IDs.
 
-Required benchmark dimensions are German semantic preservation, numbers, dates,
-times, compounds, corrections, hesitations, names, short utterances, partial/final
-stability, source binding, and speech during assistant playback. No provider may be
-selected until the same recorded German inputs are compared and actual human
-transcripts are stored. Browser SpeechRecognition remains explicitly marked as an
-unverified independent capture path until then.
+PARTIAL and provider `final_transcript` hypotheses are ephemeral. They may support
+turn detection, preview and barge-in, but cannot write history or invoke reasoning.
+Only the provider's immutable committed event can pass `accept_user_transcript()`.
+
+Browser SpeechRecognition is not allowlisted for production history. It remains only
+as an explicit `?browser-stt-diagnostic=1` comparison and is labelled MOCK/FALLBACK.
+It never replaces a failed Scribe provider.
+
+The live provider handshake currently returns the sanitized code `auth_error` for
+the configured key. The key works for TTS, so production microphone validation is
+blocked until the key is granted Speech-to-Text access or a separately scoped
+`ELEVENLABS_STT_API_KEY` is configured. No manual STT quality claim is made before
+that blocker is resolved.

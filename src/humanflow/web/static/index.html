@@ -11,7 +11,7 @@
       <header>
         <p class="eyebrow">HumanFlow · Realtime Engineering Lab</p>
         <h1>Gesprächsmechanik, live sichtbar.</h1>
-        <p class="lead">HumanFlow ist ein KI-Assistent. Die Demo verbindet deutsche Browser-Spracherkennung, adaptiven Turn-Controller, reales Reasoning mit Gesprächskontext und echtes Streaming-TTS.</p>
+        <p class="lead">HumanFlow ist ein KI-Assistent. Die Demo überträgt genau einen getUserMedia-PCM-Strom an echtes ElevenLabs-Scribe-Streaming-STT, den adaptiven Turn-Controller, reales Reasoning mit Gesprächskontext und echtes Streaming-TTS.</p>
         <p><a href="/dashboard">Evidence Dashboard öffnen →</a></p>
       </header>
 
@@ -23,6 +23,11 @@
           <div><span>TTS</span><strong id="provider-tts">wird geprüft</strong></div>
           <div><span>TTS-Fallback</span><strong id="provider-tts-fallback">wird geprüft</strong></div>
         </div>
+        <dl>
+          <div><dt>Mikrofonquelle</dt><dd id="mic-source">noch nicht gebunden</dd></div>
+          <div><dt>PCM-Quelle</dt><dd id="pcm-source">noch nicht gebunden</dd></div>
+          <div><dt>Browser SpeechRecognition</dt><dd id="browser-stt-status">OFF · nicht im Produktionspfad</dd></div>
+        </dl>
       </section>
 
       <section class="controls" aria-label="Demo-Steuerung">
@@ -51,13 +56,15 @@
       <details class="debug-panel" open>
         <summary>Provenienz-Debugging</summary>
         <div class="debug-grid">
-          <div><strong>Browser-STT roh</strong><ol id="debug-stt-raw"></ol></div>
+          <div><strong>Browser-STT Diagnose roh · Produktion OFF</strong><ol id="debug-stt-raw"></ol></div>
+          <div><strong>Streaming-STT PARTIAL · ephemer</strong><ol id="debug-stt-partial"></ol></div>
+          <div><strong>Streaming-STT FINAL</strong><ol id="debug-stt-final"></ol></div>
           <div><strong>Akzeptierter Nutzertext</strong><ol id="debug-user-accepted"></ol></div>
           <div><strong>Unterdrückt</strong><ol id="debug-suppressed"></ol></div>
           <div><strong>Assistententext</strong><ol id="debug-assistant"></ol></div>
         </div>
         <p><strong>Conversation-History-Rollen:</strong> <code id="debug-history-roles">[] · CLEAN_NEW_SESSION</code></p>
-        <p class="note">Browser SpeechRecognition ist eine separate, browserverwaltete Erkennung und technisch nicht an den parallel erfassten getUserMedia-PCM-Stream gebunden.</p>
+        <p class="note">Browser SpeechRecognition ist im Produktionspfad ausgeschaltet. PARTIAL-Transkripte dienen nur Turn Detection, Barge-in und Vorschau; nur ein akzeptiertes FINAL darf als USER in die Conversation-History gelangen.</p>
       </details>
 
       <section class="manual" aria-label="Menschliche Voice-Qualitätsbewertung">

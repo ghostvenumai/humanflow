@@ -4,6 +4,8 @@ import asyncio
 from collections.abc import AsyncIterator
 from time import monotonic_ns
 
+import pytest
+
 from humanflow.audio.ledger import LedgerState
 from humanflow.audio.models import AudioFrame
 from humanflow.domain.conversation import ConversationState, OperationToken
@@ -31,6 +33,12 @@ class CountingTranscriber:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class FailingTranscriber(CountingTranscriber):
+    async def ingest(self, frame: AudioFrame) -> tuple[TranscriptUpdate, ...]:
+        del frame
+        raise RuntimeError("sanitized_provider_failure")
 
 
 class WordReasoner:
@@ -148,6 +156,47 @@ def test_full_duplex_backchannel_and_audible_barge_in() -> None:
         await session.close()
         assert transcriber.closed
         assert session.state is ConversationState.IDLE
+
+    asyncio.run(scenario())
+
+
+def test_stt_failure_drains_pcm_queue_and_session_closes_without_hanging() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        transcriber = FailingTranscriber()
+        session = RealtimeVoiceSession(
+            conversation_id="stt-failure-recovery",
+            sink=sink,
+            transcriber=transcriber,
+            reasoner=WordReasoner(),
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=5),
+            audio_output=TimedPcmOutput(quantum_ms=1),
+        )
+        await session.start()
+        for sequence in range(4):
+            session.receive_audio(
+                AudioFrame(
+                    stream_id="caller",
+                    sequence=sequence,
+                    pcm16=b"\x00\x00" * 320,
+                )
+            )
+
+        with pytest.raises(RuntimeError, match="streaming STT input pipeline"):
+            await session.wait_for_input()
+        with pytest.raises(RuntimeError, match="streaming STT input pipeline"):
+            session.receive_audio(
+                AudioFrame(
+                    stream_id="caller",
+                    sequence=5,
+                    pcm16=b"\x00\x00" * 320,
+                )
+            )
+        assert any(
+            event.event_type is EventType.STT_PROVIDER_FAILED for event in sink.events
+        )
+        await asyncio.wait_for(session.close(), timeout=0.2)
+        assert transcriber.closed
 
     asyncio.run(scenario())
 

@@ -7,11 +7,13 @@ from types import SimpleNamespace
 
 from humanflow.audio.models import AudioChunk, AudioFrame
 from humanflow.web.app import (
+    PcmAudioRouteState,
     BrowserTranscriptRouteState,
     BrowserSessionLease,
     PROJECT_ROOT,
     STATIC_DIR,
     _acknowledge_transport_message,
+    _activate_pcm_stream_message,
     _handle_json,
     build_evidence_summary,
     build_voice_quality_summary,
@@ -19,6 +21,7 @@ from humanflow.web.app import (
     validate_voice_quality_assessment,
 )
 from humanflow.web.transport import BrowserAcknowledgedAudioOutput
+from humanflow.runtime.elevenlabs_stt_provider import ElevenLabsRealtimeSTTProvider
 from humanflow.telemetry.events import EventType
 from humanflow.turns.models import TurnDecisionType
 
@@ -195,7 +198,10 @@ def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
     )[0]
     assert "showTranscript(" not in recognition_handler
     assert 'payload.type === "transcript_result"' in source
-    assert "USER / Browser-STT" in source
+    assert '? "ElevenLabs Scribe" : "Diagnostic-Text"' in source
+    assert "`USER / ${provider}`" in source
+    assert "if (browserSttDiagnosticMode) startBrowserStt();" in source
+    assert "browser_speech_recognition_production_status" in source
     assert "ASSISTANT / Claude" in source
     assert "SUPPRESSED / Self-Echo" in source
     assert "Provenienz-Debugging" in markup
@@ -218,7 +224,50 @@ def test_browser_session_lease_allows_only_one_playback_owner() -> None:
     asyncio.run(scenario())
 
 
-def test_duplicate_browser_final_transcript_is_rejected_before_controller() -> None:
+def test_pcm_stream_binding_pins_real_stt_to_exact_microphone_source() -> None:
+    class FakeStateMachine:
+        def __init__(self) -> None:
+            self.events: list[tuple[EventType, dict[str, object]]] = []
+
+        def record(self, event_type: EventType, **kwargs: object) -> None:
+            self.events.append((event_type, kwargs))
+
+    transcriber = ElevenLabsRealtimeSTTProvider(api_key="test-key-never-sent")
+    route = PcmAudioRouteState()
+    outbound: asyncio.Queue[dict[str, object] | bytes | None] = asyncio.Queue()
+    session = SimpleNamespace(state_machine=FakeStateMachine())
+
+    assert _activate_pcm_stream_message(
+        json.dumps(
+            {
+                "type": "pcm_stream_started",
+                "audio_capture_id": "capture-authoritative",
+                "microphone_stream_id": "track-authoritative",
+            }
+        ),
+        transcriber=transcriber,
+        route_state=route,
+        session=session,  # type: ignore[arg-type]
+        outbound=outbound,
+    )
+
+    assert route.active
+    assert session.state_machine.events[0][0] is EventType.PROVIDER_STATUS
+    payload = outbound.get_nowait()
+    assert payload["accepted"] is True  # type: ignore[index]
+    assert payload["browser_speech_recognition_production_status"] == "OFF"  # type: ignore[index]
+    try:
+        transcriber.bind_audio_source(
+            audio_capture_id="another-capture",
+            stream_id="another-track",
+        )
+    except RuntimeError as error:
+        assert str(error) == "stt_audio_source_binding_is_immutable"
+    else:
+        raise AssertionError("PCM/STT binding unexpectedly changed")
+
+
+def test_duplicate_browser_diagnostic_final_is_rejected_without_controller() -> None:
     class FakeStateMachine:
         def __init__(self) -> None:
             self.events: list[tuple[EventType, dict[str, object]]] = []
@@ -269,6 +318,7 @@ def test_duplicate_browser_final_transcript_is_rejected_before_controller() -> N
             output,
             outbound,
             seen_final_transcript_ids=seen,
+            input_only=True,
         )
         await _handle_json(  # type: ignore[arg-type]
             payload,
@@ -276,14 +326,16 @@ def test_duplicate_browser_final_transcript_is_rejected_before_controller() -> N
             output,
             outbound,
             seen_final_transcript_ids=seen,
+            input_only=True,
         )
 
-        assert session.submissions == 1
+        assert session.submissions == 0
         assert [event[0] for event in session.state_machine.events] == [
+            EventType.FINAL_TRANSCRIPT,
             EventType.DUPLICATE_TRANSCRIPT_REJECTED
         ]
-        assert (await outbound.get())["type"] == "transcript_result"  # type: ignore[index]
-        assert (await outbound.get())["type"] == "turn_decision"  # type: ignore[index]
+        first = await outbound.get()
+        assert first["type"] == "input_probe_transcript"  # type: ignore[index]
         duplicate = await outbound.get()
         assert duplicate["type"] == "transcript_result"  # type: ignore[index]
         assert duplicate["accepted"] is False  # type: ignore[index]
@@ -415,6 +467,7 @@ def test_stale_browser_recognition_session_is_rejected() -> None:
             BrowserAcknowledgedAudioOutput(outbound),
             outbound,
             transcript_route_state=route,
+            input_only=True,
         )
 
         assert session.submissions == 0

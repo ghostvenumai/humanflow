@@ -32,13 +32,17 @@ from humanflow.runtime.elevenlabs_provider import (
     FallbackStreamingTTSProvider,
     SynthesisBudget,
 )
+from humanflow.runtime.elevenlabs_stt_provider import (
+    DEFAULT_ELEVENLABS_STT_MODEL,
+    ElevenLabsRealtimeSTTProvider,
+)
 from humanflow.runtime.providers import (
     BrowserSpeechSynthesisAdapter,
     GaplessSegmentTTSProvider,
-    NullTranscriber,
     ProviderInfo,
     ProviderMode,
     StreamingReasoner,
+    StreamingSTTProvider,
     StreamingTTSProvider,
     TranscriptUpdate,
 )
@@ -88,6 +92,7 @@ class ProviderStatus:
 
 @dataclass(frozen=True, slots=True)
 class DemoRuntimeConfig:
+    transcriber_factory: Callable[[], StreamingSTTProvider] | None
     reasoner_factory: Callable[[], StreamingReasoner] | None
     synthesizer_factory: Callable[[], StreamingTTSProvider] | None
     providers: tuple[ProviderStatus, ...]
@@ -96,7 +101,8 @@ class DemoRuntimeConfig:
     @property
     def ready(self) -> bool:
         return (
-            self.reasoner_factory is not None
+            self.transcriber_factory is not None
+            and self.reasoner_factory is not None
             and self.synthesizer_factory is not None
             and self.blocker is None
         )
@@ -136,6 +142,25 @@ class BrowserTranscriptRouteState:
         self.current_audio_capture_id = audio_capture_id
 
 
+@dataclass(slots=True)
+class PcmAudioRouteState:
+    audio_capture_id: str | None = None
+    microphone_stream_id: str | None = None
+
+    @property
+    def active(self) -> bool:
+        return self.audio_capture_id is not None and self.microphone_stream_id is not None
+
+    def activate(self, *, audio_capture_id: str, microphone_stream_id: str) -> None:
+        binding = (audio_capture_id.strip(), microphone_stream_id.strip())
+        if not all(binding):
+            raise ValueError("PCM source identifiers must not be empty")
+        current = (self.audio_capture_id, self.microphone_stream_id)
+        if current != (None, None) and current != binding:
+            raise RuntimeError("pcm_audio_source_binding_is_immutable")
+        self.audio_capture_id, self.microphone_stream_id = binding
+
+
 def load_demo_runtime_config(
     environ: Mapping[str, str] | None = None,
 ) -> DemoRuntimeConfig:
@@ -144,15 +169,31 @@ def load_demo_runtime_config(
     values = os.environ if environ is None else environ
     selected = values.get("HUMANFLOW_REASONING_PROVIDER", "anthropic").strip().lower()
     model = values.get("HUMANFLOW_REASONING_MODEL", DEFAULT_ANTHROPIC_MODEL).strip()
+    stt_model = values.get(
+        "HUMANFLOW_STT_MODEL", DEFAULT_ELEVENLABS_STT_MODEL
+    ).strip()
+    stt_api_key = values.get("ELEVENLABS_STT_API_KEY", "") or values.get(
+        "ELEVENLABS_API_KEY", ""
+    )
     stt = ProviderStatus(
         ProviderInfo(
             role="stt",
+            provider="elevenlabs-scribe-realtime",
+            model=stt_model or DEFAULT_ELEVENLABS_STT_MODEL,
+            mode=ProviderMode.REAL,
+            runtime="server",
+        ),
+        "CONFIGURED_UNVERIFIED" if stt_api_key.strip() else "MISSING_API_KEY",
+    )
+    browser_stt_diagnostic = ProviderStatus(
+        ProviderInfo(
+            role="stt-browser-diagnostic",
             provider="browser-web-speech-api",
             model="de-DE",
-            mode=ProviderMode.REAL,
+            mode=ProviderMode.MOCK,
             runtime="browser",
         ),
-        "BROWSER_CHECK_REQUIRED",
+        "OFF_PRODUCTION",
     )
     tts_model = values.get("HUMANFLOW_TTS_MODEL", DEFAULT_ELEVENLABS_MODEL).strip()
     tts_info = ProviderInfo(
@@ -196,9 +237,16 @@ def load_demo_runtime_config(
             "UNSUPPORTED",
         )
         return DemoRuntimeConfig(
+            transcriber_factory=None,
             reasoner_factory=None,
             synthesizer_factory=None,
-            providers=(stt, reasoning, tts_status, tts_fallback),
+            providers=(
+                stt,
+                browser_stt_diagnostic,
+                reasoning,
+                tts_status,
+                tts_fallback,
+            ),
             blocker=f"unsupported reasoning provider: {selected or 'empty'}",
         )
     api_key = values.get("ANTHROPIC_API_KEY", "")
@@ -209,12 +257,34 @@ def load_demo_runtime_config(
         mode=ProviderMode.REAL,
         runtime="server",
     )
-    if not api_key.strip():
+    if not stt_api_key.strip():
         return DemoRuntimeConfig(
+            transcriber_factory=None,
             reasoner_factory=None,
             synthesizer_factory=None,
             providers=(
                 stt,
+                browser_stt_diagnostic,
+                ProviderStatus(
+                    reasoning_info,
+                    "CONFIGURED" if api_key.strip() else "MISSING_API_KEY",
+                ),
+                tts_status,
+                tts_fallback,
+            ),
+            blocker=(
+                "BLOCKER_REAL_STREAMING_STT_PROVIDER_REQUIRED: "
+                "ELEVENLABS_STT_API_KEY or ELEVENLABS_API_KEY with STT scope"
+            ),
+        )
+    if not api_key.strip():
+        return DemoRuntimeConfig(
+            transcriber_factory=None,
+            reasoner_factory=None,
+            synthesizer_factory=None,
+            providers=(
+                stt,
+                browser_stt_diagnostic,
                 ProviderStatus(reasoning_info, "MISSING_API_KEY"),
                 tts_status,
                 tts_fallback,
@@ -228,15 +298,24 @@ def load_demo_runtime_config(
 
     if tts_missing:
         return DemoRuntimeConfig(
+            transcriber_factory=None,
             reasoner_factory=None,
             synthesizer_factory=None,
             providers=(
                 stt,
+                browser_stt_diagnostic,
                 ProviderStatus(reasoning_info, "CONFIGURED"),
                 tts_status,
                 tts_fallback,
             ),
             blocker=f"missing TTS configuration: {', '.join(tts_missing)}",
+        )
+
+    def create_transcriber() -> StreamingSTTProvider:
+        return ElevenLabsRealtimeSTTProvider(
+            api_key=stt_api_key,
+            model=stt_model or DEFAULT_ELEVENLABS_STT_MODEL,
+            language_code="de",
         )
 
     def create_reasoner() -> StreamingReasoner:
@@ -260,10 +339,12 @@ def load_demo_runtime_config(
         )
 
     return DemoRuntimeConfig(
+        transcriber_factory=create_transcriber,
         reasoner_factory=create_reasoner,
         synthesizer_factory=create_synthesizer,
         providers=(
             stt,
+            browser_stt_diagnostic,
             ProviderStatus(reasoning_info, "CONFIGURED"),
             tts_status,
             tts_fallback,
@@ -349,7 +430,11 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
     @application.websocket("/ws")
     async def websocket_session(websocket: WebSocket) -> None:
         await websocket.accept()
-        if runtime.reasoner_factory is None or runtime.synthesizer_factory is None:
+        if (
+            runtime.transcriber_factory is None
+            or runtime.reasoner_factory is None
+            or runtime.synthesizer_factory is None
+        ):
             await websocket.send_json(
                 {"type": "error", "code": "real_reasoning_provider_unavailable"}
             )
@@ -371,17 +456,20 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             outbound, acknowledgement_timeout_s=15.0
         )
         sink = BrowserTelemetrySink(outbound)
+        transcriber = runtime.transcriber_factory()
         session = RealtimeVoiceSession(
             conversation_id=conversation_id,
             sink=sink,
-            transcriber=NullTranscriber(),
+            transcriber=transcriber,
             reasoner=runtime.reasoner_factory(),
             synthesizer=runtime.synthesizer_factory(),
             audio_output=audio_output,
         )
         sequence = 0
+        stt_input_failed = False
         controls: asyncio.Queue[str] = asyncio.Queue()
         transcript_route_state = BrowserTranscriptRouteState()
+        pcm_audio_route_state = PcmAudioRouteState()
 
         async def send_loop() -> None:
             while True:
@@ -433,14 +521,16 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                     "roles": [],
                 },
                 "input_topology": {
-                    "pcm_capture": "getUserMedia -> websocket -> NullTranscriber",
-                    "transcript_capture": "independent Browser SpeechRecognition",
-                    "recognition_input_binding": "UNVERIFIED_BROWSER_MANAGED",
+                    "microphone_source": "getUserMedia",
+                    "pcm_source": "mono pcm_s16le 16000 Hz over HumanFlow websocket",
+                    "transcript_source": "same PCM -> ElevenLabs Scribe realtime",
+                    "recognition_input_binding": "EXACT_GETUSERMEDIA_PCM16",
+                    "browser_speech_recognition_production_status": "OFF",
                 },
                 "demo_limit": (
                     "INPUT-ONLY: kein Reasoning- oder TTS-Aufruf."
                     if input_only
-                    else "Browser STT, echtes ElevenLabs Streaming-TTS und reales Reasoning; kein Web- oder Kalender-Tool."
+                    else "Scribe Realtime, echtes ElevenLabs Streaming-TTS und reales Reasoning; kein Web- oder Kalender-Tool."
                 ),
             }
         )
@@ -451,22 +541,50 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                     break
                 binary = message.get("bytes")
                 if binary is not None:
+                    if not pcm_audio_route_state.active:
+                        outbound.put_nowait(
+                            {"type": "error", "code": "pcm_audio_source_not_bound"}
+                        )
+                        continue
                     if not binary or len(binary) % 2:
                         outbound.put_nowait({"type": "error", "code": "invalid_pcm16_frame"})
                         continue
-                    session.receive_audio(
-                        AudioFrame(
-                            stream_id="browser-microphone",
-                            sequence=sequence,
-                            pcm16=binary,
-                            sample_rate_hz=16_000,
-                            captured_ns=monotonic_ns(),
+                    if stt_input_failed:
+                        continue
+                    try:
+                        session.receive_audio(
+                            AudioFrame(
+                                stream_id=str(
+                                    pcm_audio_route_state.microphone_stream_id
+                                ),
+                                sequence=sequence,
+                                pcm16=binary,
+                                sample_rate_hz=16_000,
+                                captured_ns=monotonic_ns(),
+                            )
                         )
-                    )
+                    except RuntimeError:
+                        stt_input_failed = True
+                        outbound.put_nowait(
+                            {
+                                "type": "error",
+                                "code": "real_streaming_stt_unavailable",
+                                "browser_speech_recognition_fallback": "FORBIDDEN",
+                            }
+                        )
+                        continue
                     sequence += 1
                     continue
                 payload = message.get("text")
                 if payload is None:
+                    continue
+                if _activate_pcm_stream_message(
+                    payload,
+                    transcriber=transcriber,
+                    route_state=pcm_audio_route_state,
+                    session=session,
+                    outbound=outbound,
+                ):
                     continue
                 if not _acknowledge_transport_message(payload, audio_output, outbound):
                     controls.put_nowait(payload)
@@ -618,6 +736,79 @@ def _acknowledge_transport_message(
     return True
 
 
+def _activate_pcm_stream_message(
+    payload: str,
+    *,
+    transcriber: StreamingSTTProvider,
+    route_state: PcmAudioRouteState,
+    session: RealtimeVoiceSession,
+    outbound: asyncio.Queue[OutboundItem | None],
+) -> bool:
+    """Bind the production STT provider before accepting the first PCM frame."""
+
+    try:
+        message = json.loads(payload)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(message, dict) or message.get("type") != "pcm_stream_started":
+        return False
+    audio_capture_id = message.get("audio_capture_id")
+    microphone_stream_id = message.get("microphone_stream_id")
+    if not isinstance(audio_capture_id, str) or not isinstance(
+        microphone_stream_id, str
+    ):
+        outbound.put_nowait(
+            {"type": "error", "code": "invalid_pcm_audio_source_binding"}
+        )
+        return True
+    try:
+        route_state.activate(
+            audio_capture_id=audio_capture_id,
+            microphone_stream_id=microphone_stream_id,
+        )
+        bind_audio_source = getattr(transcriber, "bind_audio_source", None)
+        if not callable(bind_audio_source):
+            raise RuntimeError("stt_provider_is_not_source_bindable")
+        bind_audio_source(
+            audio_capture_id=audio_capture_id,
+            stream_id=microphone_stream_id,
+        )
+    except (TypeError, ValueError, RuntimeError) as error:
+        outbound.put_nowait(
+            {
+                "type": "error",
+                "code": "pcm_audio_source_binding_rejected",
+                "detail": type(error).__name__,
+            }
+        )
+        return True
+    provider = transcriber.provider_info
+    session.state_machine.record(
+        EventType.PROVIDER_STATUS,
+        correlation_id=str(uuid4()),
+        reason_code="production_stt_bound_to_authoritative_pcm_source",
+        payload={
+            "provider": provider.to_dict(),
+            "capabilities": transcriber.capabilities.to_dict(),
+            "audio_capture_id": audio_capture_id,
+            "microphone_stream_id": microphone_stream_id,
+            "recognition_input_binding": "EXACT_GETUSERMEDIA_PCM16",
+            "browser_speech_recognition_production_status": "OFF",
+        },
+    )
+    outbound.put_nowait(
+        {
+            "type": "pcm_stream_result",
+            "accepted": True,
+            "audio_capture_id": audio_capture_id,
+            "microphone_stream_id": microphone_stream_id,
+            "stt_provider": provider.to_dict(),
+            "browser_speech_recognition_production_status": "OFF",
+        }
+    )
+    return True
+
+
 async def _handle_json(
     payload: str,
     session: RealtimeVoiceSession,
@@ -671,21 +862,21 @@ async def _handle_json(
         )
         return
     if message_type == "provider_capabilities":
-        stt_available = message.get("stt_available") is True
+        microphone_available = message.get("microphone_available") is True
         tts_available = message.get("tts_available") is True
         session.state_machine.record(
             EventType.PROVIDER_STATUS,
             correlation_id=str(uuid4()),
             reason_code=(
-                "browser_stt_and_tts_fallback_available"
-                if stt_available and tts_available
+                "browser_pcm_capture_and_tts_fallback_available"
+                if microphone_available and tts_available
                 else "browser_capability_missing"
             ),
             payload={
-                "stt": {
-                    "provider": "browser-web-speech-api",
-                    "mode": "REAL",
-                    "available": stt_available,
+                "microphone_pcm": {
+                    "source": "getUserMedia",
+                    "available": microphone_available,
+                    "format": "pcm_s16le_16000_mono",
                 },
                 "tts_fallback": {
                     "provider": "browser-web-speech-api",
@@ -697,6 +888,7 @@ async def _handle_json(
                 "recognition_input_binding": message.get(
                     "recognition_input_binding"
                 ),
+                "browser_speech_recognition_production_status": "OFF",
             },
         )
         return
@@ -753,6 +945,60 @@ async def _handle_json(
                 "normalized_text": "",
                 "rejection_reason": "invalid_transcript_provenance",
                 "detail": type(error).__name__,
+            }
+        )
+        return
+    if provenance.origin is TranscriptOrigin.STREAMING_STT_PROVIDER:
+        reason = "client_cannot_emit_streaming_stt_transcript"
+        session.state_machine.record(
+            EventType.TRANSCRIPT_REJECTED,
+            correlation_id=str(uuid4()),
+            reason_code=reason,
+            payload={
+                **provenance.to_dict(),
+                "raw_text": text,
+                "accepted_as_user_turn": False,
+                "rejection_reason": reason,
+            },
+        )
+        outbound.put_nowait(
+            {
+                "type": "transcript_result",
+                "accepted": False,
+                "accepted_as_user_turn": False,
+                "raw_text": text,
+                "normalized_text": normalize_transcript(text),
+                "rejection_reason": reason,
+                "provenance": provenance.to_dict(),
+            }
+        )
+        return
+    if (
+        provenance.origin is TranscriptOrigin.BROWSER_SPEECH_RECOGNITION
+        and not input_only
+    ):
+        reason = "browser_speech_recognition_off_production"
+        session.state_machine.record(
+            EventType.TRANSCRIPT_REJECTED,
+            correlation_id=str(uuid4()),
+            reason_code=reason,
+            payload={
+                **provenance.to_dict(),
+                "raw_text": text,
+                "accepted_as_user_turn": False,
+                "browser_speech_recognition_production_status": "OFF",
+                "rejection_reason": reason,
+            },
+        )
+        outbound.put_nowait(
+            {
+                "type": "transcript_result",
+                "accepted": False,
+                "accepted_as_user_turn": False,
+                "raw_text": text,
+                "normalized_text": normalize_transcript(text),
+                "rejection_reason": reason,
+                "provenance": provenance.to_dict(),
             }
         )
         return
@@ -837,10 +1083,10 @@ async def _handle_json(
     try:
         if source == "browser_stt":
             transcript_provider = ProviderInfo(
-                role="stt",
+                role="stt-browser-diagnostic",
                 provider="browser-web-speech-api",
                 model="de-DE",
-                mode=ProviderMode.REAL,
+                mode=ProviderMode.MOCK,
                 runtime="browser",
             )
         else:
@@ -873,7 +1119,10 @@ async def _handle_json(
             raw_text=text,
         )
         if input_only:
-            if not provenance.is_allowlisted_user_input:
+            diagnostic_browser_input = (
+                provenance.origin is TranscriptOrigin.BROWSER_SPEECH_RECOGNITION
+            )
+            if not provenance.is_allowlisted_user_input and not diagnostic_browser_input:
                 reason = (
                     "assistant_origin_event_forbidden_from_user_history"
                     if provenance.is_assistant_origin

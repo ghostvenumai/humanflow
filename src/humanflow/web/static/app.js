@@ -5,7 +5,8 @@ const ui = Object.fromEntries([
   "voice-candidate", "voice-sample-count", "voice-ratings", "voice-notes",
   "save-voice-rating", "voice-rating-status", "debug-stt-raw",
   "debug-user-accepted", "debug-suppressed", "debug-assistant",
-  "debug-history-roles"
+  "debug-history-roles", "debug-stt-partial", "debug-stt-final",
+  "mic-source", "pcm-source", "browser-stt-status"
 ].map((id) => [id, document.getElementById(id)]));
 
 let socket;
@@ -32,6 +33,7 @@ const cancelledResponseIds = new Set();
 const sentFinalRecognitionIds = new Set();
 const browserSessionId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 const inputOnlyMode = new URLSearchParams(location.search).get("mode") === "input-only";
+const browserSttDiagnosticMode = new URLSearchParams(location.search).get("browser-stt-diagnostic") === "1";
 let activePlaybackProvider = null;
 let activePlaybackOwner = null;
 let sourceNodeSequence = 0;
@@ -60,7 +62,8 @@ function initializeVoiceRatings() {
 
 function browserCapabilities() {
   return {
-    stt: Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
+    microphone: Boolean(navigator.mediaDevices?.getUserMedia),
+    browserSttDiagnostic: Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
     tts: Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance)
   };
 }
@@ -80,7 +83,9 @@ function renderProviders(providers) {
     setProvider(item.role, `${item.provider} · ${item.model} · ${item.mode} · ${item.availability}`, state);
   }
   const capabilities = browserCapabilities();
-  setProvider("stt", `Browser Web Speech · de-DE · REAL · ${capabilities.stt ? "AVAILABLE" : "UNAVAILABLE"}`, capabilities.stt ? "real" : "unavailable");
+  ui["browser-stt-status"].textContent = browserSttDiagnosticMode
+    ? `MOCK/DIAGNOSTIC · ${capabilities.browserSttDiagnostic ? "AVAILABLE" : "UNAVAILABLE"}`
+    : "OFF · nicht im Produktionspfad";
   setProvider("tts-fallback", `Browser Web Speech · Systemstimme · REAL · ${capabilities.tts ? "AVAILABLE" : "UNAVAILABLE"}`, capabilities.tts ? "real" : "unavailable");
 }
 
@@ -107,17 +112,17 @@ function addConversation(role, text, badge, extraClass = "") {
   return item;
 }
 
-function showTranscript(text, isFinal, provenance) {
-  const badge = provenance?.origin === "BROWSER_SPEECH_RECOGNITION"
-    ? "USER / Browser-STT" : "USER / Diagnostic-Text";
-  if (isFinal) {
-    partialTranscriptItem?.remove();
-    partialTranscriptItem = null;
-    addConversation("user", text, badge);
-    return;
-  }
-  if (!partialTranscriptItem) partialTranscriptItem = addConversation("user", text, badge, "partial");
+function showPartialTranscript(text, provider = "ElevenLabs Scribe") {
+  if (!partialTranscriptItem) partialTranscriptItem = addConversation("partial", text, `PARTIAL / ${provider}`, "partial");
   else partialTranscriptItem.querySelector("span").textContent = text;
+}
+
+function showAcceptedUser(text, provenance) {
+  partialTranscriptItem?.remove();
+  partialTranscriptItem = null;
+  const provider = provenance?.origin === "STREAMING_STT_PROVIDER"
+    ? "ElevenLabs Scribe" : "Diagnostic-Text";
+  addConversation("user", text, `USER / ${provider}`);
 }
 
 function showAssistantChunk(meta) {
@@ -293,7 +298,7 @@ function startBrowserStt() {
     if (event.error === "no-speech") return;
     ui.status.textContent = `STT-Fehler: ${event.error}`;
     if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-      setProvider("stt", `Browser Web Speech · de-DE · REAL · ${event.error.toUpperCase()}`, "unavailable");
+      ui["browser-stt-status"].textContent = `DIAGNOSTIC MOCK/FALLBACK · ${event.error.toUpperCase()}`;
     }
   };
   recognition.onend = () => {
@@ -527,6 +532,32 @@ function addEvent(event) {
   }
   if (event.event_type === "AGENT_AUDIO_COMPLETED") ui.delivered.textContent = event.payload.delivered_text || "—";
   if (event.event_type === "RECOVERY_STARTED") ui.status.textContent = "Providerfehler · weiter im Hörmodus";
+  if (event.event_type === "STT_PROVIDER_FAILED") {
+    ui.status.textContent = "Streaming-STT ausgefallen · kein Browser-Fallback";
+    setProvider("stt", "ElevenLabs Scribe · REAL · FAILED", "unavailable");
+  }
+  if (
+    event.event_type === "TRANSCRIPT_PROVENANCE_RECORDED"
+    && event.payload.source === "streaming_stt"
+  ) {
+    const transcriptId = event.payload.transcript_id || "unknown";
+    const text = event.payload.raw_text || "";
+    if (event.payload.is_partial) {
+      showPartialTranscript(text);
+      appendDebug(ui["debug-stt-partial"], `${transcriptId} · ${text}`);
+    } else {
+      appendDebug(ui["debug-stt-final"], `${transcriptId} · ${text}`);
+      partialTranscriptItem?.remove();
+      partialTranscriptItem = null;
+      if (event.payload.accepted_as_user_turn) {
+        showAcceptedUser(text, event.payload);
+        appendDebug(ui["debug-user-accepted"], `${transcriptId} · ${text}`);
+      } else if (event.payload.rejection_reason) {
+        appendDebug(ui["debug-suppressed"], `${event.payload.rejection_reason} · ${text}`);
+        addConversation("suppressed", text, "SUPPRESSED / Self-Echo or Invalid");
+      }
+    }
+  }
   if (event.event_type === "TTS_PROVIDER_ACTIVATED" && event.payload.provider) {
     activateTtsProvider(event.payload.provider);
   }
@@ -541,21 +572,27 @@ ui.connect.addEventListener("click", async () => {
   try {
     const capabilities = browserCapabilities();
     renderProviders([]);
-    if (!capabilities.stt) throw new Error("Echter Browser-STT-Provider fehlt");
+    if (!capabilities.microphone) throw new Error("getUserMedia-Mikrofon fehlt");
     await startMicrophone();
     const scheme = location.protocol === "https:" ? "wss" : "ws";
     socket = new WebSocket(`${scheme}://${location.host}/ws${inputOnlyMode ? "?mode=input-only" : ""}`);
     socket.binaryType = "arraybuffer";
     socket.onopen = () => {
       setConnected(true);
-      startBrowserStt();
+      send({
+        type: "pcm_stream_started",
+        audio_capture_id: audioCaptureId,
+        microphone_stream_id: microphoneStreamId,
+        format: "pcm_s16le_16000_mono"
+      });
+      if (browserSttDiagnosticMode) startBrowserStt();
       send({
         type: "provider_capabilities",
-        stt_available: capabilities.stt,
+        microphone_available: capabilities.microphone,
         tts_available: capabilities.tts,
         audio_capture_id: audioCaptureId,
         microphone_stream_id: microphoneStreamId,
-        recognition_input_binding: "UNVERIFIED_INDEPENDENT_BROWSER_CAPTURE"
+        recognition_input_binding: "EXACT_GETUSERMEDIA_PCM16"
       });
     };
     socket.onclose = () => {
@@ -578,12 +615,20 @@ ui.connect.addEventListener("click", async () => {
         ui["debug-history-roles"].textContent = "[] · CLEAN_NEW_SESSION";
         addConversation("system", `Neue saubere Session ${payload.conversation_id}`, "SYSTEM");
         renderProviders(payload.providers);
+        ui["mic-source"].textContent = payload.input_topology?.microphone_source || "getUserMedia";
+        ui["pcm-source"].textContent = payload.input_topology?.pcm_source || "pcm_s16le 16000 Hz mono";
+        ui["browser-stt-status"].textContent = payload.input_topology?.browser_speech_recognition_production_status || "OFF";
         if (inputOnlyMode) {
           setProvider("reasoning", "DEAKTIVIERT · INPUT-ONLY-ISOLATION", "unavailable");
           setProvider("tts", "DEAKTIVIERT · INPUT-ONLY-ISOLATION", "unavailable");
           setProvider("tts-fallback", "DEAKTIVIERT · INPUT-ONLY-ISOLATION", "unavailable");
-          ui.status.textContent = "online · INPUT-ONLY";
+          ui.status.textContent = "online · INPUT-ONLY-DIAGNOSE";
         }
+      }
+      else if (payload.type === "pcm_stream_result") {
+        ui["mic-source"].textContent = `getUserMedia · ${payload.audio_capture_id}`;
+        ui["pcm-source"].textContent = `${payload.microphone_stream_id} · pcm_s16le 16000 Hz mono`;
+        ui["browser-stt-status"].textContent = payload.browser_speech_recognition_production_status;
       }
       else if (payload.type === "audio_chunk") {
         if (!acceptAudioMeta(payload)) {
@@ -600,8 +645,8 @@ ui.connect.addEventListener("click", async () => {
       else if (payload.type === "cancel_audio") cancelAudio(payload.chunk_id);
       else if (payload.type === "transcript_result") {
         const final = payload.provenance?.event_kind === "USER_TRANSCRIPT_FINAL";
-        if (payload.accepted) {
-          showTranscript(payload.raw_text, final, payload.provenance);
+        if (payload.accepted && final) {
+          showAcceptedUser(payload.raw_text, payload.provenance);
           appendDebug(ui["debug-user-accepted"], `${payload.provenance?.transcript_id || "unknown"} · ${payload.raw_text}`);
         } else {
           partialTranscriptItem?.remove();
@@ -613,7 +658,8 @@ ui.connect.addEventListener("click", async () => {
         }
       }
       else if (payload.type === "input_probe_transcript") {
-        showTranscript(payload.text, payload.final, payload.provenance);
+        if (payload.final) showAcceptedUser(payload.text, payload.provenance);
+        else showPartialTranscript(payload.text, "Diagnostic");
         appendDebug(ui["debug-user-accepted"], `${payload.provenance?.transcript_id || "input-only"} · ${payload.text}`);
       }
       else if (payload.type === "telemetry") addEvent(payload.event);

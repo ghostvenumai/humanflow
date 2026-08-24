@@ -9,6 +9,10 @@ from .providers import (
     ToneSpeechSynthesizer,
     TranscriptUpdate,
 )
+from .elevenlabs_stt_provider import (
+    DEFAULT_ELEVENLABS_STT_MODEL,
+    ElevenLabsRealtimeSTTProvider,
+)
 from .session import RealtimeVoiceSession
 from .transcript_events import (
     ConversationEventKind,
@@ -30,4 +34,6 @@ __all__ = [
     "TimedPcmOutput",
     "ToneSpeechSynthesizer",
     "TranscriptUpdate",
+    "DEFAULT_ELEVENLABS_STT_MODEL",
+    "ElevenLabsRealtimeSTTProvider",
 ]

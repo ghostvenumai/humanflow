@@ -29,6 +29,7 @@ def main() -> None:
         )
     )
     timeline = json.loads((REPORTS / "timeline-replay.json").read_text(encoding="utf-8"))
+    live_stt = json.loads((REPORTS / "live-stt-smoke.json").read_text(encoding="utf-8"))
     commit = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=ROOT,
@@ -37,7 +38,7 @@ def main() -> None:
         stdout=subprocess.PIPE,
     ).stdout.strip()
     steps = [
-        {"step": 1, "name": "normal_german_browser_conversation", "status": "MANUAL_REQUIRED", "evidence": ["/", "reports/browser-demo-benchmark.json"]},
+        {"step": 1, "name": "normal_german_browser_conversation", "status": "MANUAL_REQUIRED" if live_stt["status"] == "PASS" else "FAIL", "evidence": ["/", "reports/browser-demo-benchmark.json", "reports/live-stt-smoke.json"]},
         {"step": 2, "name": "backchannel_mhm", "status": "AUTOMATED_PASS" if torture_by_id["T01"]["passed"] else "FAIL", "evidence": ["reports/torture-run.json#T01"]},
         {"step": 3, "name": "intentional_barge_in", "status": "LOCAL_AUTOMATED_PASS_MANUAL_AUDIO_REQUIRED" if torture_by_id["T03"]["passed"] else "FAIL", "evidence": ["reports/torture-run.json#T03", "reports/realtime-core-benchmark.json"]},
         {"step": 4, "name": "thursday_to_friday_correction", "status": "AUTOMATED_PASS" if torture_by_id["T04"]["passed"] else "FAIL", "evidence": ["reports/torture-run.json#T04"]},
@@ -64,6 +65,7 @@ def main() -> None:
         "browser-demo-benchmark.json",
         "dashboard-capture.json",
         "dashboard.png",
+        "live-stt-smoke.json",
     )
     manifest = {
         "schema_version": 1,
@@ -77,7 +79,7 @@ def main() -> None:
         "artifact_hashes": {name: _sha(REPORTS / name) for name in report_files},
         "manual_requirements": [
             "Run the browser demo with microphone and audible output",
-            "Validate German browser STT/TTS behavior on an actual supported browser",
+            "Validate source-bound Scribe STT and TTS behavior on an actual supported browser",
             "Repeat representative calls before release freeze",
             "Freeze only after manual evidence is accepted"
         ]

@@ -31,6 +31,7 @@ from .prosody import ProsodyPlanner
 from .self_speech import SelfSpeechAssessment, SelfSpeechGuard
 from .transcript_events import (
     ConversationEventKind,
+    TranscriptOrigin,
     TranscriptRejected,
 )
 
@@ -92,7 +93,10 @@ class RealtimeVoiceSession:
         self._seen_audio_chunk_ids: set[str] = set()
         self._seen_audio_sequences: set[tuple[str, int]] = set()
         self._cancelled_response_ids: set[str] = set()
+        self._seen_final_transcript_ids: set[str] = set()
+        self._accepted_user_turn_ids: set[str] = set()
         self._user_audio_active = False
+        self._stt_failure_type: str | None = None
         self._closed = False
 
     @property
@@ -146,6 +150,8 @@ class RealtimeVoiceSession:
         """Accept PCM without waiting on agent playback or downstream providers."""
         if self._closed or self._input_task is None:
             raise RuntimeError("session is not running")
+        if self._stt_failure_type is not None or self._input_task.done():
+            raise RuntimeError("streaming STT input pipeline is unavailable")
         try:
             self._input_queue.put_nowait(frame)
         except asyncio.QueueFull as error:
@@ -183,6 +189,87 @@ class RealtimeVoiceSession:
                     "origin": provenance.origin.value,
                     "event_kind": provenance.event_kind.value,
                     "assistant_origin_event_to_user_history": "FORBIDDEN",
+                },
+            )
+            raise TranscriptRejected(reason)
+
+        if provenance.origin is TranscriptOrigin.STREAMING_STT_PROVIDER:
+            rejection_reason: str | None = None
+            if provenance.recognition_input_binding != "EXACT_GETUSERMEDIA_PCM16":
+                rejection_reason = "streaming_stt_source_binding_not_authoritative"
+            expected_source_binding = getattr(
+                self._transcriber, "audio_source_binding", None
+            )
+            if (
+                rejection_reason is None
+                and isinstance(expected_source_binding, tuple)
+                and len(expected_source_binding) == 2
+                and (provenance.audio_capture_id, provenance.stream_id)
+                != expected_source_binding
+            ):
+                rejection_reason = "streaming_stt_pcm_source_mismatch"
+            if rejection_reason is not None:
+                self._record_transcript_provenance(
+                    update=update,
+                    correlation_id=correlation_id,
+                    accepted_by_user_ingestion=False,
+                    accepted_as_user_turn=False,
+                    rejection_reason=rejection_reason,
+                )
+                self.state_machine.record(
+                    EventType.TRANSCRIPT_REJECTED,
+                    correlation_id=correlation_id,
+                    reason_code=rejection_reason,
+                    payload={
+                        "transcript_id": provenance.transcript_id,
+                        "non_authoritative_pcm_to_user_history": "FORBIDDEN",
+                    },
+                )
+                raise TranscriptRejected(rejection_reason)
+
+        expected_stt_session_id = getattr(
+            self._transcriber, "provider_session_id", None
+        )
+        if (
+            provenance.origin is TranscriptOrigin.STREAMING_STT_PROVIDER
+            and isinstance(expected_stt_session_id, str)
+            and provenance.stt_session_id != expected_stt_session_id
+        ):
+            reason = "stale_stt_session"
+            self._record_transcript_provenance(
+                update=update,
+                correlation_id=correlation_id,
+                accepted_by_user_ingestion=False,
+                accepted_as_user_turn=False,
+                rejection_reason=reason,
+            )
+            self.state_machine.record(
+                EventType.TRANSCRIPT_REJECTED,
+                correlation_id=correlation_id,
+                reason_code=reason,
+                payload={
+                    "transcript_id": provenance.transcript_id,
+                    "stale_stt_session_to_user_history": "FORBIDDEN",
+                },
+            )
+            raise TranscriptRejected(reason)
+
+        if update.is_final and provenance.transcript_id in self._seen_final_transcript_ids:
+            reason = "duplicate_final_transcript"
+            self._record_transcript_provenance(
+                update=update,
+                correlation_id=correlation_id,
+                accepted_by_user_ingestion=False,
+                accepted_as_user_turn=False,
+                rejection_reason=reason,
+            )
+            self.state_machine.record(
+                EventType.DUPLICATE_TRANSCRIPT_REJECTED,
+                correlation_id=correlation_id,
+                reason_code="final_transcript_id_already_processed",
+                payload={
+                    "transcript_id": provenance.transcript_id,
+                    "duplicate_final_to_user_history": "FORBIDDEN",
                 },
             )
             raise TranscriptRejected(reason)
@@ -226,14 +313,20 @@ class RealtimeVoiceSession:
             )
             raise TranscriptRejected(reason)
 
+        if update.is_final:
+            self._seen_final_transcript_ids.add(provenance.transcript_id)
+
+        response_task_before = self._response_task
         decision = await self._handle_transcript(update)
-        accepted_as_user_turn = update.is_final and (
-            decision.decision is TurnDecisionType.COMPLETE
-            or (
-                decision.decision is TurnDecisionType.INTERRUPTION
-                and bool(_barge_in_followup(update.text))
-            )
+        accepted_as_user_turn = (
+            update.is_final and self._response_task is not response_task_before
         )
+        if not update.is_final and accepted_as_user_turn:
+            raise RuntimeError("partial_transcript_to_user_history_forbidden")
+        if accepted_as_user_turn:
+            if provenance.transcript_id in self._accepted_user_turn_ids:
+                raise RuntimeError("user_history_write_count_per_turn_exceeded")
+            self._accepted_user_turn_ids.add(provenance.transcript_id)
         self._record_transcript_provenance(
             update=update,
             correlation_id=correlation_id,
@@ -311,6 +404,8 @@ class RealtimeVoiceSession:
     async def wait_for_input(self) -> None:
         """Wait until all PCM frames accepted so far have reached the transcriber."""
         await self._input_queue.join()
+        if self._stt_failure_type is not None:
+            raise RuntimeError("streaming STT input pipeline is unavailable")
 
     async def close(self, *, reason_code: str = "normal_shutdown") -> None:
         if self._closed:
@@ -320,8 +415,12 @@ class RealtimeVoiceSession:
             await self.wait_for_response()
         self._closed = True
         if self._input_task is not None:
-            await self._input_queue.put(None)
-            await self._input_task
+            if self._input_task.done():
+                await asyncio.gather(self._input_task, return_exceptions=True)
+                self._drain_input_queue()
+            else:
+                await self._input_queue.put(None)
+                await self._input_task
         await self._transcriber.close()
         correlation_id = str(uuid4())
         if self.state is not ConversationState.LISTENING:
@@ -355,8 +454,35 @@ class RealtimeVoiceSession:
                     return
                 updates = await self._transcriber.ingest(frame)
                 for update in updates:
-                    await self.accept_user_transcript(update)
+                    try:
+                        await self.accept_user_transcript(update)
+                    except TranscriptRejected:
+                        continue
+            except Exception as error:
+                self._stt_failure_type = type(error).__name__
+                self.state_machine.record(
+                    EventType.STT_PROVIDER_FAILED,
+                    correlation_id=str(uuid4()),
+                    reason_code="streaming_stt_input_pipeline_failed",
+                    payload={
+                        "exception_type": type(error).__name__,
+                        "provider": provider_info(
+                            self._transcriber, role="stt"
+                        ).to_dict(),
+                    },
+                )
+                self._drain_input_queue()
+                return
             finally:
+                self._input_queue.task_done()
+
+    def _drain_input_queue(self) -> None:
+        while True:
+            try:
+                self._input_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            else:
                 self._input_queue.task_done()
 
     async def _handle_transcript(self, update: TranscriptUpdate) -> TurnDecision:
@@ -390,6 +516,9 @@ class RealtimeVoiceSession:
                 "event_kind": update.provenance.event_kind.value,
                 "transcript_id": update.provenance.transcript_id,
                 "provider": transcript_provider.to_dict(),
+                "partial_transcript_to_user_history": (
+                    "FORBIDDEN" if not update.is_final else None
+                ),
                 "signals": {
                     "speech_active": update.signals.speech_active,
                     "silence_duration_ms": update.signals.silence_duration_ms,
@@ -467,7 +596,11 @@ class RealtimeVoiceSession:
                         "stt_provider": transcript_provider.to_dict(),
                     },
                 )
-                await self._begin_response(followup, correlation_id=correlation_id)
+                await self._begin_response(
+                    followup,
+                    correlation_id=correlation_id,
+                    user_transcript_id=update.provenance.transcript_id,
+                )
         elif decision.decision is TurnDecisionType.COMPLETE and update.is_final:
             self.state_machine.record(
                 EventType.TURN_CONFIRMED,
@@ -479,10 +612,20 @@ class RealtimeVoiceSession:
                     "stt_provider": transcript_provider.to_dict(),
                 },
             )
-            await self._begin_response(update.text, correlation_id=correlation_id)
+            await self._begin_response(
+                update.text,
+                correlation_id=correlation_id,
+                user_transcript_id=update.provenance.transcript_id,
+            )
         return decision
 
-    async def _begin_response(self, transcript: str, *, correlation_id: str) -> None:
+    async def _begin_response(
+        self,
+        transcript: str,
+        *,
+        correlation_id: str,
+        user_transcript_id: str,
+    ) -> None:
         if self.response_active:
             return
         if self.state is not ConversationState.LISTENING:
@@ -499,12 +642,19 @@ class RealtimeVoiceSession:
         self._last_playback_receipt = None
         self._response_id = str(uuid4())
         self._response_token = self.state_machine.issue_operation(kind="reasoning_and_speech")
+        history_user_count_before = (
+            self.conversation_history_roles.count("user")
+            if hasattr(self._reasoner, "history")
+            else None
+        )
         self._response_task = asyncio.create_task(
             self._run_response(
                 transcript=transcript,
                 response_id=self._response_id,
                 token=self._response_token,
                 correlation_id=correlation_id,
+                user_transcript_id=user_transcript_id,
+                history_user_count_before=history_user_count_before,
             ),
             name=f"humanflow-response-{self._response_id}",
         )
@@ -516,6 +666,8 @@ class RealtimeVoiceSession:
         response_id: str,
         token: OperationToken,
         correlation_id: str,
+        user_transcript_id: str,
+        history_user_count_before: int | None,
     ) -> None:
         first_model_output = True
         first_audio = True
@@ -812,6 +964,16 @@ class RealtimeVoiceSession:
             if not self._cancel_event.is_set():
                 usage = getattr(self._reasoner, "last_usage", None)
                 usage_payload = usage.to_dict() if hasattr(usage, "to_dict") else None
+                history_roles = self.conversation_history_roles
+                user_history_writes = None
+                if history_user_count_before is not None:
+                    user_history_writes = (
+                        history_roles.count("user") - history_user_count_before
+                    )
+                    if user_history_writes != 1:
+                        raise RuntimeError(
+                            "user_history_write_count_per_turn_invariant_violated"
+                        )
                 self.state_machine.record(
                     EventType.AGENT_GENERATION_COMPLETED,
                     correlation_id=correlation_id,
@@ -828,9 +990,10 @@ class RealtimeVoiceSession:
                         "speech_segments": speech_segment_count,
                         "audio_chunks": audio_chunk_sequence,
                         "usage": usage_payload,
-                        "conversation_history_roles": list(
-                            self.conversation_history_roles
-                        ),
+                        "conversation_history_roles": list(history_roles),
+                        "user_transcript_id": user_transcript_id,
+                        "user_history_writes_for_turn": user_history_writes,
+                        "number_of_user_history_writes_per_turn_maximum": 1,
                     },
                 )
                 self.state_machine.record(
@@ -1130,6 +1293,14 @@ class RealtimeVoiceSession:
                 "accepted_by_user_ingestion": accepted_by_user_ingestion,
                 "accepted_as_user_turn": accepted_as_user_turn,
                 "rejection_reason": rejection_reason,
+                "provider": (
+                    update.provider.to_dict()
+                    if update.provider is not None
+                    else provider_info(self._transcriber, role="stt").to_dict()
+                ),
+                "partial_transcript_to_user_history": (
+                    "FORBIDDEN" if not update.is_final else None
+                ),
             },
         )
 

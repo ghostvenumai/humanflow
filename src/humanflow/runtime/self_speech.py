@@ -108,13 +108,51 @@ class SelfSpeechGuard:
     ) -> SelfSpeechAssessment:
         normalized = normalize_transcript(text)
         tokens = normalized.split()
-        if origin is not TranscriptOrigin.BROWSER_SPEECH_RECOGNITION or not tokens:
+        if origin not in {
+            TranscriptOrigin.BROWSER_SPEECH_RECOGNITION,
+            TranscriptOrigin.STREAMING_STT_PROVIDER,
+        } or not tokens:
             return self._not_candidate("non_browser_or_empty")
         if len(tokens) <= 3 and any(token in _EXPLICIT_HUMAN_CONTROL for token in tokens):
             return self._not_candidate("explicit_human_control_phrase")
 
         best: tuple[float, SpokenSegment, dict[str, float | bool | int | str | None]] | None = None
-        for segment in reversed(self._segments):
+        candidates = list(self._segments)
+        relevant_response_ids = {
+            segment.response_id
+            for segment in candidates
+            if segment.started_ns is not None
+            and (
+                (segment.stopped_ns is None and playback_active)
+                or (
+                    segment.stopped_ns is not None
+                    and observed_ns - segment.stopped_ns <= self._recent_window_ns
+                )
+            )
+        }
+        for response_id in relevant_response_ids:
+            response_segments = [
+                segment
+                for segment in candidates
+                if segment.response_id == response_id and segment.started_ns is not None
+            ]
+            normalized_response = " ".join(
+                segment.normalized_text for segment in response_segments
+            ).strip()
+            if len(response_segments) > 1 and normalized_response:
+                timing_segment = response_segments[-1]
+                candidates.append(
+                    SpokenSegment(
+                        chunk_id=timing_segment.chunk_id,
+                        response_id=response_id,
+                        text=" ".join(segment.text for segment in response_segments),
+                        normalized_text=normalized_response,
+                        started_ns=timing_segment.started_ns,
+                        stopped_ns=timing_segment.stopped_ns,
+                    )
+                )
+
+        for segment in reversed(candidates):
             if segment.started_ns is None:
                 continue
             active = segment.stopped_ns is None and playback_active
