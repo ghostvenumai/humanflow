@@ -398,6 +398,21 @@ class AppointmentStateTracker:
             }
             for appointment_id, appointment in self._appointments.items()
         }
+        resolved_state = (
+            compact.get(delta.appointment_id, {})
+            if delta.appointment_id is not None
+            else {}
+        )
+        known_slots = tuple(
+            name
+            for name in ("purpose", "specialty", "date", "time", "location", "provider")
+            if resolved_state.get(name)
+        )
+        missing_slots = tuple(
+            name
+            for name in ("purpose", "date", "time", "location", "provider")
+            if not resolved_state.get(name)
+        )
         payload = {
             "appointments": compact,
             "active_focus_appointment_id": self.active_focus_appointment_id,
@@ -406,6 +421,17 @@ class AppointmentStateTracker:
             "clarification_required": delta.clarification_required,
             "clarification_options": list(delta.clarification_options),
             "external_action_performed": delta.external_action_performed,
+            "response_contract": {
+                "must_use_word": "Termin",
+                "must_acknowledge_updated_values": {
+                    name: resolved_state[name]
+                    for name in delta.updated_slots
+                    if name in resolved_state and name != "status"
+                },
+                "known_slots_never_ask_again": list(known_slots),
+                "ask_at_most_one_of_missing_slots": list(missing_slots),
+                "clarify_instead_of_guessing": delta.clarification_required,
+            },
             "action_truthfulness": (
                 "BOOKED requires successful real tool result. Without tool success say "
                 "Terminwunsch notiert, never booked. Local CANCELLED means only the "
