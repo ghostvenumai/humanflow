@@ -234,6 +234,8 @@ def test_authoritative_transaction_context_does_not_rewrite_provider_history() -
         call = client.messages.calls[0]
         assert context in call["system"]
         assert "Ältere widersprüchliche Werte" in call["system"]
+        assert "Frage nie erneut nach einem bereits gesetzten Slot" in call["system"]
+        assert "höchstens eine Frage zum nächsten" in call["system"]
         assert call["messages"] == [
             {"role": "user", "content": "Vielleicht 15 Uhr."}
         ]

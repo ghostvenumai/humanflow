@@ -145,6 +145,11 @@ class AnthropicReasoner:
                 f"{self._authoritative_transaction_context}\n"
                 "Bei Terminantworten gilt dieser Status als einzige Wahrheit. "
                 "Nicht in updated_slots genannte Werte bleiben unverändert. "
+                "Frage nie erneut nach einem bereits gesetzten Slot. Bestätige die "
+                "in updated_slots genannten Änderungen knapp und benenne den Vorgang "
+                "natürlich als Termin; stelle danach höchstens eine Frage zum nächsten "
+                "noch fehlenden relevanten Slot. ISO-Daten sprichst du als natürliches "
+                "deutsches Datum aus. "
                 "Ältere widersprüchliche Werte im Chatverlauf dürfen niemals "
                 "wiederaufleben."
             )
