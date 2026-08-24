@@ -218,6 +218,11 @@ class ElevenLabsStreamingTTSProvider:
                     text=request.text if item.final else "",
                     semantic_id=f"{request.response_id}:{request.sequence_start}",
                     semantic_text=request.text,
+                    tts_session_id=request.tts_session_id or request.response_id,
+                    segment_id=(
+                        request.segment_id
+                        or f"{request.response_id}:{request.sequence_start}"
+                    ),
                     frame=AudioFrame(
                         stream_id=request.response_id,
                         sequence=sequence,

@@ -600,7 +600,7 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             return
         outbound: asyncio.Queue[OutboundItem | None] = asyncio.Queue()
         audio_output = BrowserAcknowledgedAudioOutput(
-            outbound, acknowledgement_timeout_s=15.0
+            outbound, acknowledgement_timeout_s=60.0
         )
         sink = BrowserTelemetrySink(
             outbound, observer=live_barge_in_metrics.observe

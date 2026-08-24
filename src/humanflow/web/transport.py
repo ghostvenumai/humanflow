@@ -27,6 +27,11 @@ class _PendingPlayback:
     source_node_id: str | None = None
     browser_scheduled_start_ms: float | None = None
     browser_actual_playback_start_ms: float | None = None
+    browser_actual_playback_end_ms: float | None = None
+    previous_segment_end_ms: float | None = None
+    inter_segment_gap_ms: float | None = None
+    queue_depth_ms: float | None = None
+    underrun_count: int = 0
 
 
 class BrowserTelemetrySink(InMemoryTelemetrySink):
@@ -64,7 +69,7 @@ class BrowserAcknowledgedAudioOutput:
         self._outbound = outbound
         self._timeout = acknowledgement_timeout_s
         self._clock_ns = clock_ns
-        self._pending: _PendingPlayback | None = None
+        self._pending: dict[str, _PendingPlayback] = {}
         self._playback_epoch = 0
         self._invalidated_response_ids: set[str] = set()
 
@@ -133,15 +138,15 @@ class BrowserAcknowledgedAudioOutput:
                 playback_stopped_ns=stopped_ns,
                 cancelled=True,
             )
-        if self._pending is not None:
-            raise RuntimeError("browser output accepts one ordered chunk at a time")
         loop = asyncio.get_running_loop()
         pending = _PendingPlayback(
             chunk=chunk,
             started=loop.create_future(),
             stopped=loop.create_future(),
         )
-        self._pending = pending
+        if chunk.chunk_id in self._pending:
+            raise RuntimeError("browser output received duplicate pending chunk")
+        self._pending[chunk.chunk_id] = pending
         self._outbound.put_nowait(
             {
                 "type": "audio_chunk",
@@ -223,14 +228,22 @@ class BrowserAcknowledgedAudioOutput:
                 browser_actual_playback_start_ms=(
                     pending.browser_actual_playback_start_ms
                 ),
+                browser_actual_playback_end_ms=pending.browser_actual_playback_end_ms,
+                previous_segment_end_ms=pending.previous_segment_end_ms,
+                inter_segment_gap_ms=pending.inter_segment_gap_ms,
+                queue_depth_ms=pending.queue_depth_ms,
+                underrun_count=pending.underrun_count,
             )
         finally:
             cancel_wait.cancel()
-            self._pending = None
+            self._pending.pop(chunk.chunk_id, None)
 
     def acknowledge(self, message: dict[str, Any]) -> bool:
-        pending = self._pending
-        if pending is None or message.get("chunk_id") != pending.chunk.chunk_id:
+        chunk_id = message.get("chunk_id")
+        if not isinstance(chunk_id, str):
+            return False
+        pending = self._pending.get(chunk_id)
+        if pending is None:
             return False
         message_type = message.get("type")
         now_ns = self._clock_ns()
@@ -247,6 +260,18 @@ class BrowserAcknowledgedAudioOutput:
             pending.browser_actual_playback_start_ms = _nonnegative_float(
                 message.get("browser_actual_playback_start_ms")
             )
+            pending.previous_segment_end_ms = _nonnegative_float(
+                message.get("previous_segment_end_ms")
+            )
+            pending.inter_segment_gap_ms = _nonnegative_float(
+                message.get("inter_segment_gap_ms")
+            )
+            pending.queue_depth_ms = _nonnegative_float(
+                message.get("queue_depth_ms")
+            )
+            raw_underruns = message.get("underrun_count", 0)
+            if isinstance(raw_underruns, int) and raw_underruns >= 0:
+                pending.underrun_count = raw_underruns
             source_node_id = message.get("source_node_id")
             if isinstance(source_node_id, str) and source_node_id.strip():
                 pending.source_node_id = source_node_id[:256]
@@ -258,6 +283,9 @@ class BrowserAcknowledgedAudioOutput:
             if pending.stopped.done():
                 return False
             total = pending.chunk.frame.samples_per_channel
+            pending.browser_actual_playback_end_ms = _nonnegative_float(
+                message.get("browser_actual_playback_end_ms")
+            )
             if message_type == "playback_completed":
                 played_samples = total
                 cancelled = False
@@ -276,14 +304,12 @@ class BrowserAcknowledgedAudioOutput:
 
     def disconnect(self) -> None:
         """Release a pending play immediately when its browser transport disappears."""
-        pending = self._pending
-        if pending is None:
-            return
         now_ns = self._clock_ns()
-        if not pending.started.done():
-            pending.started.set_result(now_ns)
-        if not pending.stopped.done():
-            pending.stopped.set_result((now_ns, 0, True))
+        for pending in tuple(self._pending.values()):
+            if not pending.started.done():
+                pending.started.set_result(now_ns)
+            if not pending.stopped.done():
+                pending.stopped.set_result((now_ns, 0, True))
 
 
 def _nonnegative_float(value: Any) -> float | None:

@@ -11,6 +11,8 @@ const ui = Object.fromEntries([
   "metric-backchannel-recovery", "metric-false-interruptions",
   "metric-first-partial", "metric-final-stt"
   , "tts-ab-selection", "metric-barge-in-breakdown"
+  , "metric-audio-level", "metric-audio-gap", "metric-audio-queue",
+  "metric-audio-underruns", "metric-tts-requests", "metric-audio-segment"
 ].map((id) => [id, document.getElementById(id)]));
 
 let socket;
@@ -37,6 +39,10 @@ const responsePlaybackProviders = new Map();
 const cancelledResponseIds = new Set();
 const cancelledChunkIds = new Set();
 const responsePlaybackEpochs = new Map();
+const responseNextPlaybackStart = new Map();
+const responseLastScheduledAudioEnd = new Map();
+const responsePreviousPauseMs = new Map();
+const responseUnderrunCounts = new Map();
 const sentFinalRecognitionIds = new Set();
 const browserSessionId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 const inputOnlyMode = new URLSearchParams(location.search).get("mode") === "input-only";
@@ -353,8 +359,8 @@ function acceptAudioMeta(meta) {
     rejectPlayback(meta, "tts_provider_changed_within_response");
     return false;
   }
-  if (nextAudioMeta || activeAudio.size > 0) {
-    rejectPlayback(meta, "multiple_playback_consumers");
+  if (nextAudioMeta) {
+    rejectPlayback(meta, "audio_metadata_without_pcm_payload");
     return false;
   }
   receivedChunkIds.add(meta.chunk_id);
@@ -388,7 +394,9 @@ function acquirePlayback(meta) {
 }
 
 function playSpeech(meta) {
-  window.speechSynthesis.cancel();
+  if (![...activeAudio.values()].some((item) => item.mode === "speech")) {
+    window.speechSynthesis.cancel();
+  }
   const utterance = new SpeechSynthesisUtterance(meta.text_boundary);
   utterance.lang = "de-DE";
   utterance.rate = meta.speaking_rate || 1.0;
@@ -438,6 +446,7 @@ function finishPlayback(chunkId, cancelled, playedSamples, stopCallbackLatencyMs
   playback.finished = true;
   if (playback.pauseTimer != null) window.clearTimeout(playback.pauseTimer);
   if (playback.stopFallbackTimer != null) window.clearTimeout(playback.stopFallbackTimer);
+  if (playback.startAckTimer != null) window.clearTimeout(playback.startAckTimer);
   activeAudio.delete(chunkId);
   if (activeAudio.size === 0) {
     activePlaybackProvider = null;
@@ -446,10 +455,14 @@ function finishPlayback(chunkId, cancelled, playedSamples, stopCallbackLatencyMs
   if (cancelled) {
     send({
       type: "playback_stopped", chunk_id: chunkId, played_samples: playedSamples,
-      player_stop_callback_latency_ms: stopCallbackLatencyMs
+      player_stop_callback_latency_ms: stopCallbackLatencyMs,
+      browser_actual_playback_end_ms: playback.actualAudioEndMs
     });
   } else {
-    send({ type: "playback_completed", chunk_id: chunkId });
+    send({
+      type: "playback_completed", chunk_id: chunkId,
+      browser_actual_playback_end_ms: playback.actualAudioEndMs
+    });
   }
 }
 
@@ -470,17 +483,41 @@ function playPcm(buffer, meta) {
   source.connect(ensurePlaybackGain());
   if (softYieldResponseId !== meta.response_id) setPlaybackGain(1, 0.006);
   const sourceNodeId = `pcm-${meta.response_id}-${meta.sequence}-${++sourceNodeSequence}`;
-  const scheduledStartMs = audioContext.currentTime * 1000;
+  const now = audioContext.currentTime;
+  const schedulingLeadSeconds = 0.012;
+  const previousSegmentEnd = responseLastScheduledAudioEnd.get(meta.response_id);
+  const previousPauseMs = responsePreviousPauseMs.get(meta.response_id) || 0;
+  const plannedStart = responseNextPlaybackStart.get(meta.response_id) || (now + schedulingLeadSeconds);
+  const scheduledStart = Math.max(now + schedulingLeadSeconds, plannedStart);
+  const scheduledStartMs = scheduledStart * 1000;
+  const durationSeconds = frames / meta.sample_rate_hz;
+  const interSegmentGapMs = previousSegmentEnd == null
+    ? null : Math.max(0, (scheduledStart - previousSegmentEnd) * 1000);
+  const unplannedGapMs = interSegmentGapMs == null
+    ? 0 : Math.max(0, interSegmentGapMs - previousPauseMs);
+  const previousUnderruns = responseUnderrunCounts.get(meta.response_id) || 0;
+  const underrunCount = previousUnderruns + (unplannedGapMs > 18 ? 1 : 0);
+  const queueDepthMs = Math.max(0, (scheduledStart - now) * 1000);
+  const scheduledAudioEnd = scheduledStart + durationSeconds;
+  responseLastScheduledAudioEnd.set(meta.response_id, scheduledAudioEnd);
+  responsePreviousPauseMs.set(meta.response_id, meta.pause_after_ms || 0);
+  responseNextPlaybackStart.set(
+    meta.response_id,
+    scheduledAudioEnd + (meta.pause_after_ms || 0) / 1000
+  );
+  responseUnderrunCounts.set(meta.response_id, underrunCount);
   const playback = {
     source, cancelled: false, finished: false, samples: meta.samples,
-    sampleRate: meta.sample_rate_hz, startedAt: audioContext.currentTime,
+    sampleRate: meta.sample_rate_hz, startedAt: scheduledStart,
     mode: "pcm", pauseTimer: null, sourceEnded: false,
     stopRequestedAt: null, stopFallbackTimer: null, playedSamplesAtStop: 0,
-    responseId: meta.response_id, providerKey: playbackProviderKey(meta), sourceNodeId
+    responseId: meta.response_id, providerKey: playbackProviderKey(meta), sourceNodeId,
+    startAckTimer: null, actualAudioEndMs: null
   };
   activeAudio.set(meta.chunk_id, playback);
   source.onended = () => {
     playback.sourceEnded = true;
+    playback.actualAudioEndMs = audioContext.currentTime * 1000;
     if (playback.cancelled) {
       const latency = playback.stopRequestedAt == null
         ? null : Math.max(0, performance.now() - playback.stopRequestedAt);
@@ -490,17 +527,24 @@ function playPcm(buffer, meta) {
     const complete = () => finishPlayback(meta.chunk_id, false, meta.samples);
     playback.pauseTimer = window.setTimeout(complete, meta.pause_after_ms || 0);
   };
-  source.start(0);
-  const actualPlaybackStartMs = audioContext.currentTime * 1000;
-  send({
-    type: "playback_started",
-    chunk_id: meta.chunk_id,
-    browser_audio_context_base_latency_ms: (audioContext.baseLatency || 0) * 1000,
-    browser_audio_context_output_latency_ms: (audioContext.outputLatency || 0) * 1000,
-    source_node_id: sourceNodeId,
-    browser_scheduled_start_ms: scheduledStartMs,
-    browser_actual_playback_start_ms: actualPlaybackStartMs
-  });
+  source.start(scheduledStart);
+  playback.startAckTimer = window.setTimeout(() => {
+    if (playback.cancelled || playback.finished) return;
+    const actualPlaybackStartMs = audioContext.currentTime * 1000;
+    send({
+      type: "playback_started",
+      chunk_id: meta.chunk_id,
+      browser_audio_context_base_latency_ms: (audioContext.baseLatency || 0) * 1000,
+      browser_audio_context_output_latency_ms: (audioContext.outputLatency || 0) * 1000,
+      source_node_id: sourceNodeId,
+      browser_scheduled_start_ms: scheduledStartMs,
+      browser_actual_playback_start_ms: actualPlaybackStartMs,
+      previous_segment_end_ms: previousSegmentEnd == null ? null : previousSegmentEnd * 1000,
+      inter_segment_gap_ms: interSegmentGapMs,
+      queue_depth_ms: queueDepthMs,
+      underrun_count: underrunCount
+    });
+  }, Math.max(0, (scheduledStart - audioContext.currentTime) * 1000));
 }
 
 function playOutput(buffer, meta) {
@@ -533,6 +577,7 @@ function cancelAudio(chunkId) {
   cancelledResponseIds.add(playback.responseId);
   playback.cancelled = true;
   if (playback.pauseTimer != null) window.clearTimeout(playback.pauseTimer);
+  if (playback.startAckTimer != null) window.clearTimeout(playback.startAckTimer);
   let playedSamples = 0;
   if (playback.mode === "pcm") {
     const elapsed = Math.max(0, audioContext.currentTime - playback.startedAt);
@@ -644,6 +689,20 @@ function addEvent(event) {
   }
   if (event.event_type === "FINAL_TRANSCRIPT" && event.payload.final_stt_ms != null) {
     ui["metric-final-stt"].textContent = `${event.payload.final_stt_ms.toFixed(1)} ms`;
+  }
+  if (event.event_type === "AUDIO_SEGMENT_METRICS") {
+    const rms = event.payload.rms_dbfs == null ? "Stille" : `${event.payload.rms_dbfs.toFixed(1)} dBFS`;
+    const peak = event.payload.peak_dbfs == null ? "Stille" : `${event.payload.peak_dbfs.toFixed(1)} dBFS`;
+    ui["metric-audio-level"].textContent = `${rms} / ${peak}`;
+    ui["metric-audio-gap"].textContent = event.payload.inter_segment_gap_ms == null
+      ? "erstes Segment" : `${event.payload.inter_segment_gap_ms.toFixed(1)} ms`;
+    ui["metric-audio-queue"].textContent = event.payload.queue_depth_ms == null
+      ? "—" : `${event.payload.queue_depth_ms.toFixed(1)} ms`;
+    ui["metric-audio-underruns"].textContent = String(event.payload.underrun_count || 0);
+    ui["metric-audio-segment"].textContent = event.payload.segment_id || "—";
+  }
+  if (event.event_type === "AGENT_AUDIO_COMPLETED") {
+    ui["metric-tts-requests"].textContent = `${event.payload.physical_tts_requests || 0} / ${event.payload.logical_tts_sessions || 0}`;
   }
   if (event.event_type === "AGENT_AUDIO_COMPLETED") ui.delivered.textContent = event.payload.delivered_text || "—";
   if (event.event_type === "RECOVERY_STARTED") ui.status.textContent = "Providerfehler · weiter im Hörmodus";

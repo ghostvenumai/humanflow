@@ -118,6 +118,19 @@
         <p class="note">Soft Yield wird aus dem autoritativen PCM-VAD ausgelöst und wartet nicht auf STT. Browser-Quittungen sind eine reale obere Grenze bis zur angewendeten Gain-Absenkung; die tatsächlich wahrgenommene Wirkung bleibt menschlich zu validieren.</p>
       </section>
 
+      <section class="timeline" aria-label="Live Audio Continuity">
+        <h2>Audio-Kontinuität · reale Segmentmetriken</h2>
+        <div class="provider-grid live-metrics">
+          <div><span>RMS / Peak</span><strong id="metric-audio-level">—</strong></div>
+          <div><span>Inter-Segment-Gap</span><strong id="metric-audio-gap">—</strong></div>
+          <div><span>Queue-Vorlauf</span><strong id="metric-audio-queue">—</strong></div>
+          <div><span>Underruns</span><strong id="metric-audio-underruns">0</strong></div>
+          <div><span>TTS Requests / Response</span><strong id="metric-tts-requests">—</strong></div>
+          <div><span>Letztes Segment</span><strong id="metric-audio-segment">—</strong></div>
+        </div>
+        <p class="note">Die Pegel stammen aus unverändertem Provider-PCM. Es gibt keine Chunk-für-Chunk-Normalisierung; der Response-Gain bleibt stabil. Ob ein markierter Zeitpunkt hörbar war, muss ein Mensch bestätigen.</p>
+      </section>
+
       <section class="timeline">
         <div class="timeline-head">
           <h2>Telemetry Timeline</h2>

@@ -107,3 +107,29 @@ def test_streamed_pcm_semantic_is_unheard_until_its_final_boundary_finishes() ->
 
     assert ledger.delivered_text(response_id="response-1") == ""
     assert ledger.unheard_text(response_id="response-1") == "Freitag passt für mich."
+
+
+def test_queued_chunk_cancelled_before_start_stays_truthfully_unplayed() -> None:
+    ledger = PlayedAudioLedger()
+    chunk = _chunk("chunk-4", "Noch nicht hörbar")
+    ledger.register_generated(chunk, generated_ns=10)
+    ledger.mark_queued(chunk.chunk_id, queued_ns=11)
+    ledger.cancel_unplayed(response_id=chunk.response_id, cancelled_ns=12)
+
+    ledger.mark_playback_started(chunk.chunk_id, started_ns=13)
+    ledger.record_playback(
+        PlaybackReceipt(
+            chunk_id=chunk.chunk_id,
+            requested_samples=chunk.frame.samples_per_channel,
+            played_samples=0,
+            playback_started_ns=13,
+            playback_stopped_ns=13,
+            cancelled=True,
+        )
+    )
+
+    entry = ledger.entries[0]
+    assert entry.state is LedgerState.CANCELLED
+    assert entry.played_samples == 0
+    assert ledger.delivered_text(response_id=chunk.response_id) == ""
+    assert ledger.unheard_text(response_id=chunk.response_id) == "Noch nicht hörbar"

@@ -7,7 +7,7 @@ from time import monotonic_ns
 import pytest
 
 from humanflow.audio.ledger import LedgerState
-from humanflow.audio.models import AudioFrame
+from humanflow.audio.models import AudioChunk, AudioFrame, PlaybackReceipt
 from humanflow.domain.conversation import ConversationState, OperationToken
 from humanflow.runtime.providers import (
     TimedPcmOutput,
@@ -55,6 +55,41 @@ class WordReasoner:
             await asyncio.sleep(self.initial_delay_ms / 1000.0)
         for word in ("Ihr", "Termin", "ist", "Donnerstag", "um", "15", "Uhr"):
             yield word
+
+
+class LookaheadAudioOutput:
+    def __init__(self) -> None:
+        self.chunks: list[AudioChunk] = []
+        self.two_scheduled = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def play(
+        self, chunk: AudioChunk, *, cancel_event: asyncio.Event, on_started
+    ) -> PlaybackReceipt:  # type: ignore[no-untyped-def]
+        del cancel_event
+        started_ns = monotonic_ns()
+        on_started(started_ns)
+        self.chunks.append(chunk)
+        if len(self.chunks) >= 2:
+            self.two_scheduled.set()
+        await self.release.wait()
+        return PlaybackReceipt(
+            chunk_id=chunk.chunk_id,
+            requested_samples=chunk.frame.samples_per_channel,
+            played_samples=chunk.frame.samples_per_channel,
+            playback_started_ns=started_ns,
+            playback_stopped_ns=max(started_ns, monotonic_ns()),
+            cancelled=False,
+            browser_scheduled_start_ms=float(chunk.frame.sequence * 100),
+            browser_actual_playback_start_ms=float(chunk.frame.sequence * 100),
+            browser_actual_playback_end_ms=float(chunk.frame.sequence * 100 + 80),
+            previous_segment_end_ms=(
+                None if chunk.frame.sequence == 0 else float(chunk.frame.sequence * 100 - 20)
+            ),
+            inter_segment_gap_ms=None if chunk.frame.sequence == 0 else 20.0,
+            queue_depth_ms=100.0,
+            underrun_count=0,
+        )
 
 
 def _complete(text: str = "Ich brauche einen Termin") -> TranscriptUpdate:
@@ -419,6 +454,48 @@ def test_playback_owner_provider_and_chunk_lifecycle_are_unique_and_ordered() ->
             }
             for event in sink.events
         )
+        await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_response_schedules_lookahead_audio_before_prior_segment_finishes() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        output = LookaheadAudioOutput()
+        session = RealtimeVoiceSession(
+            conversation_id="response-level-lookahead",
+            sink=sink,
+            transcriber=CountingTranscriber(),
+            reasoner=WordReasoner(),
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=80),
+            audio_output=output,
+        )
+        await session.start()
+        await session.submit_transcript(_complete())
+        await asyncio.wait_for(output.two_scheduled.wait(), timeout=0.2)
+
+        assert session.response_active
+        await asyncio.sleep(0)
+        assert len(output.chunks) == 2
+        assert len({chunk.tts_session_id for chunk in output.chunks}) == 1
+        assert len({chunk.segment_id for chunk in output.chunks}) == len(output.chunks)
+        output.release.set()
+        await session.wait_for_response()
+
+        completed = next(
+            event
+            for event in sink.events
+            if event.event_type is EventType.AGENT_AUDIO_COMPLETED
+        )
+        assert completed.payload["logical_tts_sessions"] == 1
+        assert completed.payload["physical_tts_requests"] == 7
+        assert completed.payload["playback_scheduling"] == "response_level_lookahead_queue"
+        assert completed.payload["playback_lookahead_limit"] == 2
+        assert sum(
+            event.event_type is EventType.AUDIO_SEGMENT_METRICS
+            for event in sink.events
+        ) == 7
         await session.close()
 
     asyncio.run(scenario())

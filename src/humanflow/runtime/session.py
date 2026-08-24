@@ -9,6 +9,7 @@ from time import monotonic_ns
 from typing import Callable
 from uuid import uuid4
 
+from humanflow.audio.analysis import analyze_pcm16
 from humanflow.audio.ledger import PlayedAudioLedger
 from humanflow.audio.models import AudioChunk, AudioFrame, PlaybackReceipt
 from humanflow.controller.state_machine import ConversationStateMachine
@@ -132,7 +133,9 @@ class RealtimeVoiceSession:
         self._active_tts_provider: tuple[str, str, str] | None = None
         self._seen_audio_chunk_ids: set[str] = set()
         self._seen_audio_sequences: set[tuple[str, int]] = set()
+        self._audio_signal_metrics: dict[str, tuple[float | None, float | None]] = {}
         self._cancelled_response_ids: set[str] = set()
+        self._cancel_acknowledged_response_ids: set[str] = set()
         self._seen_final_transcript_ids: set[str] = set()
         self._accepted_user_turn_ids: set[str] = set()
         self._user_audio_active = False
@@ -1220,6 +1223,7 @@ class RealtimeVoiceSession:
         speech_segment_count = 0
         output_characters = 0
         previous_spoken_text = ""
+        playback_tasks: list[asyncio.Task[PlaybackReceipt]] = []
         generation_started_ns = self._clock_ns()
         reasoning_provider = provider_info(self._reasoner, role="reasoning")
         speech_provider = provider_info(self._synthesizer, role="tts")
@@ -1234,6 +1238,7 @@ class RealtimeVoiceSession:
         )
         try:
             async for text in self._reasoner.stream_response(transcript, token):
+                self._raise_completed_playback_failure(playback_tasks)
                 if self._cancel_event.is_set() or not self.state_machine.accept_result(
                     token, correlation_id=correlation_id
                 ):
@@ -1271,9 +1276,12 @@ class RealtimeVoiceSession:
                 semantic_chunk_sequence += 1
 
                 for segment in self._prosody_planner.plan(text):
+                    self._raise_completed_playback_failure(playback_tasks)
                     if self._cancel_event.is_set():
                         break
                     speech_segment_count += 1
+                    tts_session_id = f"{response_id}:tts"
+                    segment_id = f"{response_id}:segment:{speech_segment_count}"
                     request = SpeechSynthesisRequest(
                         text=segment.text,
                         response_id=response_id,
@@ -1287,6 +1295,8 @@ class RealtimeVoiceSession:
                         pause_after_ms=segment.pause_after_ms,
                         intent=segment.intent.value,
                         previous_text=previous_spoken_text,
+                        tts_session_id=tts_session_id,
+                        segment_id=segment_id,
                     )
                     tts_request_started_ns = self._clock_ns()
                     self.state_machine.record(
@@ -1295,6 +1305,9 @@ class RealtimeVoiceSession:
                         reason_code="prosody_segment_submitted",
                         payload={
                             "response_id": response_id,
+                            "tts_session_id": tts_session_id,
+                            "segment_id": segment_id,
+                            "physical_request_sequence": speech_segment_count - 1,
                             "provider": speech_provider.to_dict(),
                             "intent": segment.intent.value,
                             "characters": len(segment.text),
@@ -1313,6 +1326,7 @@ class RealtimeVoiceSession:
                     fallback_recorded = False
                     try:
                         async for chunk in stream:
+                            self._raise_completed_playback_failure(playback_tasks)
                             if self._cancel_event.is_set() or not self.state_machine.accept_result(
                                 token, correlation_id=correlation_id
                             ):
@@ -1322,6 +1336,9 @@ class RealtimeVoiceSession:
                                     correlation_id=correlation_id,
                                 )
                                 break
+                            await self._wait_for_playback_capacity(
+                                playback_tasks, maximum_pending=2
+                            )
                             if not self._accept_audio_chunk(
                                 chunk=chunk,
                                 response_id=response_id,
@@ -1404,92 +1421,19 @@ class RealtimeVoiceSession:
                                 reason_code="single_owner_playback_schedule",
                                 payload=self._audio_chunk_payload(chunk),
                             )
-                            receipt = await self._audio_output.play(
-                                chunk,
-                                cancel_event=self._cancel_event,
-                                on_started=lambda started_ns, chunk=chunk, generated_ns=generated_ns: self._playback_started(
-                                    chunk=chunk,
-                                    started_ns=started_ns,
-                                    audio_ready_ns=generated_ns,
-                                    semantic_ready_ns=semantic_ready_ns,
-                                    tts_request_started_ns=tts_request_started_ns,
-                                    response_id=response_id,
-                                    correlation_id=correlation_id,
-                                ),
-                            )
-                            self._last_playback_receipt = receipt
-                            self.ledger.record_playback(receipt)
-                            self._self_speech_guard.mark_stopped(
-                                chunk_id=chunk.chunk_id,
-                                stopped_ns=receipt.playback_stopped_ns,
-                            )
-                            self.state_machine.record(
-                                EventType.AUDIO_CHUNK_PLAYED,
-                                correlation_id=correlation_id,
-                                reason_code=(
-                                    "browser_playback_cancelled"
-                                    if receipt.cancelled
-                                    else "browser_playback_completed"
-                                ),
-                                payload={
-                                    **self._audio_chunk_payload(chunk),
-                                    "played_samples": receipt.played_samples,
-                                    "requested_samples": receipt.requested_samples,
-                                    "cancelled": receipt.cancelled,
-                                    "playback_started_ns": receipt.playback_started_ns,
-                                    "playback_stopped_ns": receipt.playback_stopped_ns,
-                                    "source_node_id": receipt.source_node_id,
-                                    "browser_scheduled_start_ms": (
-                                        receipt.browser_scheduled_start_ms
+                            playback_tasks.append(
+                                asyncio.create_task(
+                                    self._play_scheduled_chunk(
+                                        chunk=chunk,
+                                        generated_ns=generated_ns,
+                                        semantic_ready_ns=semantic_ready_ns,
+                                        tts_request_started_ns=tts_request_started_ns,
+                                        response_id=response_id,
+                                        correlation_id=correlation_id,
                                     ),
-                                    "browser_actual_playback_start_ms": (
-                                        receipt.browser_actual_playback_start_ms
-                                    ),
-                                },
+                                    name=f"humanflow-playback-{chunk.chunk_id}",
+                                )
                             )
-                            if (
-                                receipt.sink_base_latency_ms is not None
-                                or receipt.sink_output_latency_ms is not None
-                                or receipt.player_stop_callback_latency_ms is not None
-                            ):
-                                self.state_machine.record(
-                                    EventType.PLAYBACK_SINK_METRICS,
-                                    correlation_id=correlation_id,
-                                    reason_code="browser_reported_audio_context",
-                                    payload={
-                                        "response_id": response_id,
-                                        "chunk_id": chunk.chunk_id,
-                                        "sink_base_latency_ms": (
-                                            receipt.sink_base_latency_ms
-                                        ),
-                                        "sink_output_latency_ms": (
-                                            receipt.sink_output_latency_ms
-                                        ),
-                                        "player_stop_callback_latency_ms": (
-                                            receipt.player_stop_callback_latency_ms
-                                        ),
-                                        "source_node_id": receipt.source_node_id,
-                                        "browser_scheduled_start_ms": (
-                                            receipt.browser_scheduled_start_ms
-                                        ),
-                                        "browser_actual_playback_start_ms": (
-                                            receipt.browser_actual_playback_start_ms
-                                        ),
-                                    },
-                                )
-                            if receipt.cancelled:
-                                self.ledger.cancel_unplayed(
-                                    response_id=response_id,
-                                    cancelled_ns=receipt.playback_stopped_ns,
-                                )
-                                self._record_cancelled(
-                                    receipt=receipt,
-                                    response_id=response_id,
-                                    correlation_id=(
-                                        self._cancel_correlation_id or correlation_id
-                                    ),
-                                )
-                                break
                     finally:
                         close_stream = getattr(stream, "aclose", None)
                         if close_stream is not None:
@@ -1504,6 +1448,9 @@ class RealtimeVoiceSession:
 
                 if self._cancel_event.is_set():
                     break
+
+            if playback_tasks:
+                await asyncio.gather(*playback_tasks)
 
             if not self._cancel_event.is_set():
                 usage = getattr(self._reasoner, "last_usage", None)
@@ -1546,6 +1493,11 @@ class RealtimeVoiceSession:
                     reason_code="response_stream_played",
                     payload={
                         "response_id": response_id,
+                        "tts_session_id": f"{response_id}:tts",
+                        "logical_tts_sessions": 1,
+                        "physical_tts_requests": speech_segment_count,
+                        "playback_scheduling": "response_level_lookahead_queue",
+                        "playback_lookahead_limit": 2,
                         "delivered_text": self.ledger.delivered_text(response_id=response_id),
                     },
                 )
@@ -1612,6 +1564,8 @@ class RealtimeVoiceSession:
                 payload={"response_id": response_id},
             )
         finally:
+            if playback_tasks:
+                await asyncio.gather(*playback_tasks, return_exceptions=True)
             if self._cancel_event.is_set():
                 stopped_ns = self._clock_ns()
                 self.ledger.cancel_unplayed(response_id=response_id, cancelled_ns=stopped_ns)
@@ -1628,10 +1582,160 @@ class RealtimeVoiceSession:
             )
             self._audio_stopped.set()
 
+    async def _play_scheduled_chunk(
+        self,
+        *,
+        chunk: AudioChunk,
+        generated_ns: int,
+        semantic_ready_ns: int,
+        tts_request_started_ns: int,
+        response_id: str,
+        correlation_id: str,
+    ) -> PlaybackReceipt:
+        receipt = await self._audio_output.play(
+            chunk,
+            cancel_event=self._cancel_event,
+            on_started=lambda started_ns: self._playback_started(
+                chunk=chunk,
+                started_ns=started_ns,
+                audio_ready_ns=generated_ns,
+                semantic_ready_ns=semantic_ready_ns,
+                tts_request_started_ns=tts_request_started_ns,
+                response_id=response_id,
+                correlation_id=correlation_id,
+            ),
+        )
+        self._last_playback_receipt = receipt
+        self.ledger.record_playback(receipt)
+        self._self_speech_guard.mark_stopped(
+            chunk_id=chunk.chunk_id,
+            stopped_ns=receipt.playback_stopped_ns,
+        )
+        if not receipt.cancelled:
+            signal = analyze_pcm16(chunk.frame)
+            self._audio_signal_metrics[chunk.chunk_id] = (
+                signal.rms_dbfs,
+                signal.peak_dbfs,
+            )
+        playback_payload = {
+            **self._audio_chunk_payload(chunk),
+            "played_samples": receipt.played_samples,
+            "requested_samples": receipt.requested_samples,
+            "cancelled": receipt.cancelled,
+            "playback_started_ns": receipt.playback_started_ns,
+            "playback_stopped_ns": receipt.playback_stopped_ns,
+            "source_node_id": receipt.source_node_id,
+            "browser_scheduled_start_ms": receipt.browser_scheduled_start_ms,
+            "browser_actual_playback_start_ms": (
+                receipt.browser_actual_playback_start_ms
+            ),
+            "browser_actual_playback_end_ms": receipt.browser_actual_playback_end_ms,
+            "previous_segment_end_ms": receipt.previous_segment_end_ms,
+            "inter_segment_gap_ms": receipt.inter_segment_gap_ms,
+            "queue_depth_ms": receipt.queue_depth_ms,
+            "underrun_count": receipt.underrun_count,
+        }
+        self.state_machine.record(
+            EventType.AUDIO_CHUNK_PLAYED,
+            correlation_id=correlation_id,
+            reason_code=(
+                "browser_playback_cancelled"
+                if receipt.cancelled
+                else "browser_playback_completed"
+            ),
+            payload=playback_payload,
+        )
+        self.state_machine.record(
+            EventType.AUDIO_SEGMENT_METRICS,
+            correlation_id=correlation_id,
+            reason_code="raw_provider_signal_and_browser_timeline_measured",
+            payload={
+                **playback_payload,
+                "amplitude_processing": "NONE_STABLE_RESPONSE_GAIN",
+                "per_chunk_normalization": False,
+            },
+        )
+        if receipt.underrun_count > 0:
+            self.state_machine.record(
+                EventType.PLAYBACK_UNDERRUN,
+                correlation_id=correlation_id,
+                reason_code="browser_timeline_unplanned_gap_over_18ms",
+                payload=playback_payload,
+            )
+        if (
+            receipt.sink_base_latency_ms is not None
+            or receipt.sink_output_latency_ms is not None
+            or receipt.player_stop_callback_latency_ms is not None
+        ):
+            self.state_machine.record(
+                EventType.PLAYBACK_SINK_METRICS,
+                correlation_id=correlation_id,
+                reason_code="browser_reported_audio_context",
+                payload={
+                    "response_id": response_id,
+                    "chunk_id": chunk.chunk_id,
+                    "sink_base_latency_ms": receipt.sink_base_latency_ms,
+                    "sink_output_latency_ms": receipt.sink_output_latency_ms,
+                    "player_stop_callback_latency_ms": (
+                        receipt.player_stop_callback_latency_ms
+                    ),
+                    "source_node_id": receipt.source_node_id,
+                    "browser_scheduled_start_ms": receipt.browser_scheduled_start_ms,
+                    "browser_actual_playback_start_ms": (
+                        receipt.browser_actual_playback_start_ms
+                    ),
+                    "browser_actual_playback_end_ms": (
+                        receipt.browser_actual_playback_end_ms
+                    ),
+                    "previous_segment_end_ms": receipt.previous_segment_end_ms,
+                    "inter_segment_gap_ms": receipt.inter_segment_gap_ms,
+                    "queue_depth_ms": receipt.queue_depth_ms,
+                    "underrun_count": receipt.underrun_count,
+                },
+            )
+        if receipt.cancelled:
+            self.ledger.cancel_unplayed(
+                response_id=response_id,
+                cancelled_ns=receipt.playback_stopped_ns,
+            )
+            if response_id not in self._cancel_acknowledged_response_ids:
+                self._cancel_acknowledged_response_ids.add(response_id)
+                self._record_cancelled(
+                    receipt=receipt,
+                    response_id=response_id,
+                    correlation_id=self._cancel_correlation_id or correlation_id,
+                )
+        return receipt
+
     @staticmethod
-    def _audio_chunk_payload(chunk: AudioChunk) -> dict[str, object]:
+    def _raise_completed_playback_failure(
+        playback_tasks: list[asyncio.Task[PlaybackReceipt]],
+    ) -> None:
+        for task in playback_tasks:
+            if task.done() and not task.cancelled():
+                error = task.exception()
+                if error is not None:
+                    raise error
+
+    @staticmethod
+    async def _wait_for_playback_capacity(
+        playback_tasks: list[asyncio.Task[PlaybackReceipt]],
+        *,
+        maximum_pending: int,
+    ) -> None:
+        pending = [task for task in playback_tasks if not task.done()]
+        if len(pending) < maximum_pending:
+            return
+        done, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
+
+    def _audio_chunk_payload(self, chunk: AudioChunk) -> dict[str, object]:
+        signal_values = self._audio_signal_metrics.get(chunk.chunk_id, (None, None))
         return {
             "response_id": chunk.response_id,
+            "tts_session_id": chunk.tts_session_id,
+            "segment_id": chunk.segment_id,
             "stream_id": chunk.frame.stream_id,
             "chunk_id": chunk.chunk_id,
             "sequence": chunk.frame.sequence,
@@ -1639,6 +1743,8 @@ class RealtimeVoiceSession:
             "codec": "pcm_s16le",
             "sample_rate_hz": chunk.frame.sample_rate_hz,
             "decoded_duration_ms": chunk.frame.duration_ms,
+            "rms_dbfs": signal_values[0],
+            "peak_dbfs": signal_values[1],
             "provider": dict(chunk.provider),
         }
 
@@ -1768,6 +1874,7 @@ class RealtimeVoiceSession:
         )
         self._active_tts_provider = None
         self._playback_owner_response_id = None
+        self._audio_signal_metrics.clear()
 
     def _playback_started(
         self,

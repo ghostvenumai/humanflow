@@ -88,6 +88,10 @@ def test_browser_acknowledgement_defines_partial_playback_receipt() -> None:
                 "source_node_id": "pcm-response-browser-0-1",
                 "browser_scheduled_start_ms": 412.5,
                 "browser_actual_playback_start_ms": 412.6,
+                "previous_segment_end_ms": 400.0,
+                "inter_segment_gap_ms": 12.5,
+                "queue_depth_ms": 85.0,
+                "underrun_count": 0,
             }
         )
         cancel.set()
@@ -99,6 +103,7 @@ def test_browser_acknowledgement_defines_partial_playback_receipt() -> None:
                 "chunk_id": "chunk-browser",
                 "played_samples": 640,
                 "player_stop_callback_latency_ms": 2.7,
+                "browser_actual_playback_end_ms": 452.5,
             }
         )
         receipt = await task
@@ -112,7 +117,59 @@ def test_browser_acknowledgement_defines_partial_playback_receipt() -> None:
         assert receipt.source_node_id == "pcm-response-browser-0-1"
         assert receipt.browser_scheduled_start_ms == 412.5
         assert receipt.browser_actual_playback_start_ms == 412.6
+        assert receipt.browser_actual_playback_end_ms == 452.5
+        assert receipt.previous_segment_end_ms == 400.0
+        assert receipt.inter_segment_gap_ms == 12.5
+        assert receipt.queue_depth_ms == 85.0
+        assert receipt.underrun_count == 0
         assert receipt.playback_stopped_ns >= receipt.playback_started_ns
+
+    asyncio.run(scenario())
+
+
+def test_browser_output_accepts_multiple_ordered_pending_segments() -> None:
+    async def scenario() -> None:
+        outbound: asyncio.Queue[dict[str, object] | bytes] = asyncio.Queue()
+        output = BrowserAcknowledgedAudioOutput(outbound)
+        first = _chunk()
+        second = AudioChunk(
+            chunk_id="chunk-browser-2",
+            response_id=first.response_id,
+            text="Noch ein Satz",
+            frame=AudioFrame(
+                stream_id=first.frame.stream_id,
+                sequence=1,
+                pcm16=b"\x00\x00" * 1_600,
+            ),
+        )
+        cancel = asyncio.Event()
+        first_task = asyncio.create_task(
+            output.play(first, cancel_event=cancel, on_started=lambda _: None)
+        )
+        second_task = asyncio.create_task(
+            output.play(second, cancel_event=cancel, on_started=lambda _: None)
+        )
+        metadata_1 = await outbound.get()
+        pcm_1 = await outbound.get()
+        metadata_2 = await outbound.get()
+        pcm_2 = await outbound.get()
+
+        assert metadata_1["chunk_id"] == first.chunk_id
+        assert metadata_2["chunk_id"] == second.chunk_id
+        assert isinstance(pcm_1, bytes) and isinstance(pcm_2, bytes)
+        for chunk in (first, second):
+            assert output.acknowledge(
+                {"type": "playback_started", "chunk_id": chunk.chunk_id}
+            )
+            assert output.acknowledge(
+                {
+                    "type": "playback_completed",
+                    "chunk_id": chunk.chunk_id,
+                    "browser_actual_playback_end_ms": 100.0 + chunk.frame.sequence,
+                }
+            )
+        receipts = await asyncio.gather(first_task, second_task)
+        assert all(not receipt.cancelled for receipt in receipts)
 
     asyncio.run(scenario())
 

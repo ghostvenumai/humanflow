@@ -69,6 +69,8 @@ class AudioChunk:
     frame: AudioFrame
     semantic_id: str = ""
     semantic_text: str = ""
+    tts_session_id: str = ""
+    segment_id: str = ""
     playback_mode: AudioPlaybackMode = AudioPlaybackMode.PCM
     semantic_boundary: bool = True
     display_text: str = ""
@@ -89,6 +91,10 @@ class AudioChunk:
             raise ValueError("semantic_text must not be empty")
         object.__setattr__(self, "semantic_id", semantic_id)
         object.__setattr__(self, "semantic_text", semantic_text)
+        object.__setattr__(
+            self, "tts_session_id", self.tts_session_id.strip() or self.response_id
+        )
+        object.__setattr__(self, "segment_id", self.segment_id.strip() or semantic_id)
         if self.pause_after_ms < 0:
             raise ValueError("pause_after_ms must be non-negative")
         if not 0.5 <= self.speaking_rate <= 2.0:
@@ -112,6 +118,11 @@ class PlaybackReceipt:
     source_node_id: str | None = None
     browser_scheduled_start_ms: float | None = None
     browser_actual_playback_start_ms: float | None = None
+    browser_actual_playback_end_ms: float | None = None
+    previous_segment_end_ms: float | None = None
+    inter_segment_gap_ms: float | None = None
+    queue_depth_ms: float | None = None
+    underrun_count: int = 0
 
     def __post_init__(self) -> None:
         if not self.chunk_id.strip():
@@ -132,9 +143,15 @@ class PlaybackReceipt:
             "player_stop_callback_latency_ms",
             "browser_scheduled_start_ms",
             "browser_actual_playback_start_ms",
+            "browser_actual_playback_end_ms",
+            "previous_segment_end_ms",
+            "inter_segment_gap_ms",
+            "queue_depth_ms",
         ):
             value = getattr(self, name)
             if value is not None and value < 0:
                 raise ValueError(f"{name} must be non-negative")
         if self.source_node_id is not None and not self.source_node_id.strip():
             raise ValueError("source_node_id must be non-empty when present")
+        if self.underrun_count < 0:
+            raise ValueError("underrun_count must be non-negative")

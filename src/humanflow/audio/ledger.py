@@ -89,6 +89,8 @@ class PlayedAudioLedger:
     def mark_playback_started(self, chunk_id: str, *, started_ns: int) -> None:
         with self._lock:
             entry = self._require(chunk_id)
+            if entry.state is LedgerState.CANCELLED:
+                return
             if entry.state is not LedgerState.QUEUED or entry.queued_ns is None:
                 raise ValueError(f"cannot start chunk in state {entry.state}")
             if started_ns < entry.queued_ns:
@@ -100,6 +102,12 @@ class PlayedAudioLedger:
     def record_playback(self, receipt: PlaybackReceipt) -> None:
         with self._lock:
             entry = self._require(receipt.chunk_id)
+            if (
+                entry.state is LedgerState.CANCELLED
+                and receipt.cancelled
+                and receipt.played_samples == 0
+            ):
+                return
             if entry.state is not LedgerState.PLAYING:
                 raise ValueError(f"cannot record playback in state {entry.state}")
             if receipt.requested_samples != entry.total_samples:

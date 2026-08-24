@@ -158,6 +158,8 @@ class SpeechSynthesisRequest:
     pause_after_ms: int = 0
     intent: str = "information"
     previous_text: str = ""
+    tts_session_id: str = ""
+    segment_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.text.strip() or not self.response_id.strip():
@@ -172,6 +174,10 @@ class SpeechSynthesisRequest:
                 raise ValueError(f"{name} must be between zero and one")
         if self.pause_after_ms < 0:
             raise ValueError("pause_after_ms must be non-negative")
+        if self.tts_session_id and not self.tts_session_id.strip():
+            raise ValueError("tts_session_id must be non-empty when present")
+        if self.segment_id and not self.segment_id.strip():
+            raise ValueError("segment_id must be non-empty when present")
 
 
 class StreamingTTSProvider(Protocol):
@@ -329,6 +335,8 @@ class ToneSpeechSynthesizer:
             display_text=request.text,
             pause_after_ms=request.pause_after_ms,
             speaking_rate=request.speaking_rate,
+            tts_session_id=request.tts_session_id or request.response_id,
+            segment_id=request.segment_id or chunk.semantic_id,
         )
 
 
@@ -403,6 +411,8 @@ class BrowserSpeechSynthesisAdapter:
             display_text=request.text,
             pause_after_ms=request.pause_after_ms,
             speaking_rate=request.speaking_rate,
+            tts_session_id=request.tts_session_id or request.response_id,
+            segment_id=request.segment_id or chunk.semantic_id,
         )
 
 
@@ -493,6 +503,8 @@ class GaplessSegmentTTSProvider:
             text=request.text,
             semantic_id=chunks[0].semantic_id,
             semantic_text=request.text,
+            tts_session_id=request.tts_session_id or request.response_id,
+            segment_id=request.segment_id or chunks[0].semantic_id,
             frame=AudioFrame(
                 stream_id=request.response_id,
                 sequence=request.sequence_start,
