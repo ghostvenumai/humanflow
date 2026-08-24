@@ -22,6 +22,11 @@ from humanflow.runtime.providers import (
     ProviderMode,
     SpeechSynthesisRequest,
 )
+from humanflow.runtime.speech_text import (
+    GermanSpeechNormalizer,
+    split_tts_sentences,
+    take_stable_speech_boundaries,
+)
 
 
 class FakeResponse:
@@ -122,6 +127,36 @@ def test_elevenlabs_streams_pcm_and_only_final_chunk_advances_text_ledger() -> N
             "mode": "REAL",
             "runtime": "server",
         }
+
+    asyncio.run(scenario())
+
+
+def test_elevenlabs_keeps_display_text_separate_from_spoken_normalization() -> None:
+    async def scenario() -> None:
+        client = FakeClient(FakeResponse([b"\x01\x00" * 2_000]))
+        provider = ElevenLabsStreamingTTSProvider(
+            api_key="test-key-never-sent",
+            voice_id="test-voice-never-logged",
+            client=client,
+        )
+        request = SpeechSynthesisRequest(
+            text="Donnerstag, den siebenundzwanzigsten August um zwölf Uhr.",
+            display_text="Donnerstag, den 27. August um 12 Uhr.",
+            response_id="date-pronunciation",
+            sequence_start=0,
+        )
+
+        chunks = [
+            chunk
+            async for chunk in provider.stream_speech(
+                request, cancel_event=asyncio.Event()
+            )
+        ]
+
+        assert chunks[-1].text == request.display_text
+        assert chunks[-1].display_text == request.display_text
+        assert chunks[-1].semantic_text == request.text
+        assert client.calls[0]["json"]["text"] == request.text
 
     asyncio.run(scenario())
 
@@ -317,6 +352,79 @@ def test_prosody_planner_is_deterministic_and_does_not_rewrite_words() -> None:
         SpeechIntent.QUESTION,
     ]
     assert all(0.5 <= segment.speaking_rate <= 2.0 for segment in first)
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "Donnerstag, den 27. August um 12 Uhr.",
+        "Freitag, den 4. September um 14 Uhr.",
+        "Der Termin ist am 3. September um 11:30 Uhr.",
+        "Am 24. Dezember 2026 um 16:45 Uhr.",
+        "Das dauert ca. 3,5 Stunden.",
+        "Bitte zu Dr. Weber, bzw. z. B. in die Hauptpraxis.",
+    ),
+)
+def test_tts_boundaries_keep_german_dates_numbers_and_abbreviations_atomic(
+    text: str,
+) -> None:
+    planner = ProsodyPlanner()
+
+    assert split_tts_sentences(text) == (text,)
+    assert tuple(segment.text for segment in planner.plan(text)) == (text,)
+
+
+def test_streaming_boundary_waits_when_ordinal_month_may_follow() -> None:
+    ready, pending = take_stable_speech_boundaries(
+        "Perfekt, dein Terminwunsch ist notiert für Donnerstag, den 27."
+    )
+    assert ready == []
+
+    ready, pending = take_stable_speech_boundaries(f"{pending} August um 12 Uhr.")
+
+    assert ready == [
+        "Perfekt, dein Terminwunsch ist notiert für Donnerstag, den 27. August um 12 Uhr."
+    ]
+    assert pending == ""
+
+
+@pytest.mark.parametrize(
+    ("display", "spoken"),
+    (
+        (
+            "Donnerstag, den 27. August um 12 Uhr.",
+            "Donnerstag, den siebenundzwanzigsten August um zwölf Uhr.",
+        ),
+        (
+            "Freitag, den 4. September um 14 Uhr.",
+            "Freitag, den vierten September um vierzehn Uhr.",
+        ),
+        (
+            "Der Termin ist am 3. September um 11:30 Uhr.",
+            "Der Termin ist am dritten September um elf Uhr dreißig.",
+        ),
+        (
+            "Am 24. Dezember 2026 um 16:45 Uhr.",
+            "Am vierundzwanzigsten Dezember zweitausendsechsundzwanzig um "
+            "sechzehn Uhr fünfundvierzig.",
+        ),
+        ("Das dauert ca. 3,5 Stunden.", "Das dauert circa drei Komma fünf Stunden."),
+    ),
+)
+def test_spoken_text_normalization_is_separate_and_deterministic(
+    display: str, spoken: str
+) -> None:
+    assert GermanSpeechNormalizer().normalize(display) == spoken
+
+
+def test_forced_continuous_clause_split_has_no_artificial_190ms_pause() -> None:
+    planner = ProsodyPlanner(maximum_segment_characters=45)
+    segments = planner.plan(
+        "Dieser fortlaufende Satz enthält viele Wörter ohne ein Satzzeichen und bleibt verbunden"
+    )
+
+    assert len(segments) > 1
+    assert all(segment.pause_after_ms == 0 for segment in segments)
 
 
 def test_budget_stops_before_an_unbounded_provider_request() -> None:

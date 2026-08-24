@@ -6,8 +6,8 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
+from .speech_text import safe_word_split, split_tts_sentences
 
-_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 _CLAUSE_BOUNDARY = re.compile(r"(?<=[,;:])\s+")
 
 
@@ -44,7 +44,7 @@ class ProsodyPlanner:
         if not clean:
             raise ValueError("text must not be empty")
         pieces: list[str] = []
-        for sentence in _SENTENCE_BOUNDARY.split(clean):
+        for sentence in split_tts_sentences(clean):
             pieces.extend(self._split_long_segment(sentence.strip()))
         return tuple(self._segment(piece) for piece in pieces if piece)
 
@@ -71,9 +71,11 @@ class ProsodyPlanner:
         remaining = text
         pieces: list[str] = []
         while len(remaining) > self.maximum_segment_characters:
-            split_at = remaining.rfind(" ", 80, self.maximum_segment_characters + 1)
-            if split_at < 1:
-                split_at = self.maximum_segment_characters
+            split_at = safe_word_split(
+                remaining,
+                minimum=min(80, self.maximum_segment_characters // 2),
+                maximum=self.maximum_segment_characters,
+            )
             pieces.append(remaining[:split_at].strip())
             remaining = remaining[split_at:].strip()
         if remaining:
@@ -83,19 +85,25 @@ class ProsodyPlanner:
     def _segment(self, text: str) -> ProsodySegment:
         intent = _infer_intent(text)
         controls = {
-            SpeechIntent.QUESTION: (0.98, 0.43, 0.78, 0.16, 190),
-            SpeechIntent.CONFIRMATION: (1.02, 0.42, 0.78, 0.14, 230),
-            SpeechIntent.CORRECTION: (0.96, 0.47, 0.79, 0.13, 240),
-            SpeechIntent.EMPATHY: (0.94, 0.46, 0.80, 0.18, 260),
-            SpeechIntent.UNCERTAINTY: (0.96, 0.49, 0.78, 0.10, 220),
-            SpeechIntent.TOOL_WAIT: (0.98, 0.50, 0.78, 0.08, 210),
-            SpeechIntent.INFORMATION: (1.00, 0.48, 0.78, 0.08, 180),
+            SpeechIntent.QUESTION: (0.98, 0.43, 0.78, 0.16),
+            SpeechIntent.CONFIRMATION: (1.02, 0.42, 0.78, 0.14),
+            SpeechIntent.CORRECTION: (0.96, 0.47, 0.79, 0.13),
+            SpeechIntent.EMPATHY: (0.94, 0.46, 0.80, 0.18),
+            SpeechIntent.UNCERTAINTY: (0.96, 0.49, 0.78, 0.10),
+            SpeechIntent.TOOL_WAIT: (0.98, 0.50, 0.78, 0.08),
+            SpeechIntent.INFORMATION: (1.00, 0.48, 0.78, 0.08),
         }
-        rate, stability, similarity, style, pause = controls[intent]
+        rate, stability, similarity, style = controls[intent]
         if text.endswith("?"):
-            pause = max(pause, 220)
+            pause = 220
         elif text.endswith(("!", ".")):
-            pause = max(pause, 190)
+            pause = 190
+        elif text.endswith(","):
+            pause = 80
+        elif text.endswith((";", ":")):
+            pause = 110
+        else:
+            pause = 0
         return ProsodySegment(
             text=text,
             intent=intent,

@@ -85,8 +85,11 @@ def test_real_reasoner_retains_multi_turn_context_and_semantic_output() -> None:
         first = await _collect(reasoner, "Was ist ein ERP-System?", 1)
         second = await _collect(reasoner, "Was meinst du mit Datenbasis?", 2)
 
-        assert first.startswith("Ein ERP-System")
+        assert first.startswith("Ich bin HumanFlow, ein KI-Assistent.")
+        assert "Ein ERP-System" in first
         assert second.startswith("Damit meine ich")
+        assert "Ich bin HumanFlow" not in second
+        assert reasoner.ai_disclosure_count == 1
         second_request = client.messages.calls[1]["messages"]
         assert second_request == [
             {"role": "user", "content": "Was ist ein ERP-System?"},
@@ -265,10 +268,16 @@ def test_transaction_guard_repairs_unverified_external_cancellation_claim() -> N
 
         spoken = await _collect(reasoner, "Den Friseurtermin brauche ich nicht mehr.", 1)
 
-        assert spoken == "Okay, den Friseur-Terminwunsch habe ich entfernt."
+        assert spoken == (
+            "Ich bin HumanFlow, ein KI-Assistent. "
+            "Okay, den Friseur-Terminwunsch habe ich entfernt."
+        )
         assert reasoner.history[-1] == {
             "role": "assistant",
-            "content": "Okay, den Friseur-Terminwunsch habe ich entfernt.",
+            "content": (
+                "Ich bin HumanFlow, ein KI-Assistent. "
+                "Okay, den Friseur-Terminwunsch habe ich entfernt."
+            ),
         }
 
     asyncio.run(scenario())
@@ -294,9 +303,35 @@ def test_transaction_guard_repairs_date_that_contradicts_authoritative_delta() -
         spoken = await _collect(reasoner, "Lieber Donnerstag.", 1)
 
         assert spoken == (
-            "Deinen Orthopädie-Terminwunsch habe ich für Donnerstag, den 10. "
-            "September um 15 Uhr notiert."
+            "Ich bin HumanFlow, ein KI-Assistent. Deinen Orthopädie-Terminwunsch "
+            "habe ich für Donnerstag, den 10. September um 15 Uhr notiert."
         )
         assert "4. September" not in reasoner.history[-1]["content"]
+
+    asyncio.run(scenario())
+
+
+def test_ai_disclosure_is_emitted_once_even_if_model_repeats_it_later() -> None:
+    async def scenario() -> None:
+        client = FakeClient(
+            [
+                ["Hallo, wie kann ich helfen?"],
+                ["Ich bin HumanFlow, ein KI-Assistent. Der Termin bleibt bestehen."],
+            ]
+        )
+        reasoner = AnthropicReasoner(
+            api_key="test-key-never-sent",
+            model="claude-test-real-adapter",
+            max_history_turns=1,
+            client=client,
+        )
+
+        first = await _collect(reasoner, "Hallo", 1)
+        second = await _collect(reasoner, "Und der Termin?", 2)
+
+        assert first.count("Ich bin HumanFlow, ein KI-Assistent.") == 1
+        assert "Ich bin HumanFlow" not in second
+        assert second == "Der Termin bleibt bestehen."
+        assert reasoner.ai_disclosure_count == 1
 
     asyncio.run(scenario())

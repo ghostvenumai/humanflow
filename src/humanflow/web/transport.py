@@ -30,6 +30,8 @@ class _PendingPlayback:
     browser_actual_playback_end_ms: float | None = None
     previous_segment_end_ms: float | None = None
     inter_segment_gap_ms: float | None = None
+    intentional_linguistic_pause_ms: float | None = None
+    scheduler_generated_gap_ms: float | None = None
     queue_depth_ms: float | None = None
     underrun_count: int = 0
 
@@ -162,6 +164,7 @@ class BrowserAcknowledgedAudioOutput:
                 "decoded_duration_ms": chunk.frame.duration_ms,
                 "playback_mode": chunk.playback_mode.value,
                 "text_boundary": chunk.display_text,
+                "speech_text": chunk.semantic_text,
                 "ledger_boundary": chunk.text,
                 "semantic_boundary": chunk.semantic_boundary,
                 "pause_after_ms": chunk.pause_after_ms,
@@ -231,6 +234,10 @@ class BrowserAcknowledgedAudioOutput:
                 browser_actual_playback_end_ms=pending.browser_actual_playback_end_ms,
                 previous_segment_end_ms=pending.previous_segment_end_ms,
                 inter_segment_gap_ms=pending.inter_segment_gap_ms,
+                intentional_linguistic_pause_ms=(
+                    pending.intentional_linguistic_pause_ms
+                ),
+                scheduler_generated_gap_ms=pending.scheduler_generated_gap_ms,
                 queue_depth_ms=pending.queue_depth_ms,
                 underrun_count=pending.underrun_count,
             )
@@ -265,6 +272,12 @@ class BrowserAcknowledgedAudioOutput:
             )
             pending.inter_segment_gap_ms = _nonnegative_float(
                 message.get("inter_segment_gap_ms")
+            )
+            pending.intentional_linguistic_pause_ms = _nonnegative_float(
+                message.get("intentional_linguistic_pause_ms")
+            )
+            pending.scheduler_generated_gap_ms = _nonnegative_float(
+                message.get("scheduler_generated_gap_ms")
             )
             pending.queue_depth_ms = _nonnegative_float(
                 message.get("queue_depth_ms")

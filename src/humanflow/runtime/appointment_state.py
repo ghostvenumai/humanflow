@@ -5,22 +5,14 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, fields
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time
 from enum import StrEnum
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+from .temporal import DEFAULT_TIMEZONE, GermanTemporalResolver, TemporalResolution
 
-_WEEKDAYS = {
-    "montag": 0,
-    "dienstag": 1,
-    "mittwoch": 2,
-    "donnerstag": 3,
-    "freitag": 4,
-    "samstag": 5,
-    "sonntag": 6,
-}
-_WEEKDAY_PATTERN = re.compile(r"\b(" + "|".join(_WEEKDAYS) + r")\b", re.IGNORECASE)
+
 _CLOCK_PATTERN = re.compile(
     r"\b(?:(?:gegen|um|ab)\s+)?(?P<hour>[01]?\d|2[0-3])"
     r"(?:(?P<separator>[:.])(?P<minute>[0-5]\d))?\s*(?P<uhr>uhr)\b",
@@ -28,10 +20,6 @@ _CLOCK_PATTERN = re.compile(
 )
 _COLON_CLOCK_PATTERN = re.compile(
     r"\b(?P<hour>[01]?\d|2[0-3]):(?P<minute>[0-5]\d)\b"
-)
-_EXPLICIT_DATE_PATTERN = re.compile(
-    r"\b(?P<day>0?[1-9]|[12]\d|3[01])[./-](?P<month>0?[1-9]|1[0-2])"
-    r"(?:[./-](?P<year>\d{2}|\d{4}))?\b"
 )
 _APPOINTMENT_WORD = re.compile(
     r"\b(\w*termin\w*|sprechstunde|behandlung|verabredung)\b", re.IGNORECASE
@@ -70,15 +58,27 @@ class SlotValue:
     updated_at: str
     confidence: float
     raw_value: str
+    raw_expression: str | None = None
+    resolved_iso_date: str | None = None
+    timezone: str | None = None
+    resolution_rule: str | None = None
 
     def to_dict(self) -> dict[str, str | float]:
-        return {
+        payload: dict[str, str | float] = {
             "value": self.value,
             "source_turn": self.source_turn,
             "updated_at": self.updated_at,
             "confidence": self.confidence,
             "raw_value": self.raw_value,
         }
+        temporal = {
+            "raw_expression": self.raw_expression,
+            "resolved_iso_date": self.resolved_iso_date,
+            "timezone": self.timezone,
+            "resolution_rule": self.resolution_rule,
+        }
+        payload.update({name: value for name, value in temporal.items() if value is not None})
+        return payload
 
 
 @dataclass(slots=True)
@@ -187,14 +187,26 @@ class AppointmentStateTracker:
         *,
         today: Callable[[], date] | None = None,
         now: Callable[[], datetime] | None = None,
+        current_local_datetime: Callable[[], datetime] | None = None,
+        timezone: str = DEFAULT_TIMEZONE,
+        temporal_resolver: GermanTemporalResolver | None = None,
     ) -> None:
         self._appointments: dict[str, AppointmentState] = {}
         self.active_focus_appointment_id: str | None = None
         self._next_id = 1
         self._turn_index = 0
         self._last_explicit_focus_turn: int | None = None
-        self._today = today or (
-            lambda: datetime.now(ZoneInfo("Europe/Berlin")).date()
+        self._timezone = ZoneInfo(timezone)
+        if current_local_datetime is not None:
+            self._current_local_datetime = current_local_datetime
+        elif today is not None:
+            self._current_local_datetime = lambda: datetime.combine(
+                today(), time(12), tzinfo=self._timezone
+            )
+        else:
+            self._current_local_datetime = lambda: datetime.now(self._timezone)
+        self._temporal_resolver = temporal_resolver or GermanTemporalResolver(
+            timezone=timezone
         )
         self._now = now or (lambda: datetime.now(UTC))
 
@@ -227,7 +239,15 @@ class AppointmentStateTracker:
         normalized = " ".join(text.casefold().split())
         references = _extract_entity_references(text)
         explicitly_about_appointment = bool(_APPOINTMENT_WORD.search(normalized))
-        parsed_date = _extract_date(text, reference=self._today())
+        parsed_date = self._temporal_resolver.resolve(
+            text,
+            current_local_datetime=self._current_local_datetime(),
+            existing_appointment_state=(
+                self.focused_appointment.to_dict()
+                if self.focused_appointment is not None
+                else None
+            ),
+        )
         parsed_time = _extract_time(text)
         has_slot_delta = parsed_date is not None or parsed_time is not None
 
@@ -272,12 +292,21 @@ class AppointmentStateTracker:
 
         appointment = self._appointments[appointment_id]
         self.active_focus_appointment_id = appointment_id
+        parsed_date = self._temporal_resolver.resolve(
+            text,
+            current_local_datetime=self._current_local_datetime(),
+            existing_appointment_state=appointment.to_dict(),
+        )
         if references:
             self._last_explicit_focus_turn = self._turn_index
 
         candidates: dict[str, tuple[str, str, float]] = {}
         if parsed_date is not None:
-            candidates["date"] = parsed_date
+            candidates["date"] = (
+                parsed_date.resolved_iso_date,
+                parsed_date.raw_expression,
+                parsed_date.confidence,
+            )
         if parsed_time is not None:
             candidates["time"] = parsed_time
         selected_entity = resolution.create_entity or (references[-1] if references else None)
@@ -313,6 +342,7 @@ class AppointmentStateTracker:
                 confidence=confidence,
                 source_turn=source_turn,
                 timestamp=timestamp,
+                temporal_resolution=(parsed_date if slot_name == "date" else None),
             ):
                 changed.append(slot_name)
 
@@ -421,6 +451,7 @@ class AppointmentStateTracker:
             "clarification_required": delta.clarification_required,
             "clarification_options": list(delta.clarification_options),
             "external_action_performed": delta.external_action_performed,
+            "temporal_resolution": _temporal_provenance(delta.state.get("date")),
             "response_contract": {
                 "must_use_word": "Termin",
                 "must_acknowledge_updated_values": {
@@ -449,6 +480,10 @@ class AppointmentStateTracker:
                 "AUTHORITATIVE_MULTI_APPOINTMENT_DELTA_STATE; mutate only resolved "
                 "appointment_id; unchanged objects and slots remain unchanged; never "
                 "reconstruct transaction state from assistant history"
+            ),
+            "temporal_policy": (
+                "DETERMINISTIC_CONTROLLER_RESOLUTION; use only resolved ISO date and "
+                "temporal_resolution; never calculate relative dates in the LLM"
             ),
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
@@ -580,6 +615,7 @@ class AppointmentStateTracker:
         confidence: float,
         source_turn: str,
         timestamp: str,
+        temporal_resolution: TemporalResolution | None = None,
     ) -> bool:
         current = getattr(appointment, slot_name)
         if current is not None and current.value == value:
@@ -593,6 +629,26 @@ class AppointmentStateTracker:
                 updated_at=timestamp,
                 confidence=confidence,
                 raw_value=raw_value,
+                raw_expression=(
+                    temporal_resolution.raw_expression
+                    if temporal_resolution is not None
+                    else None
+                ),
+                resolved_iso_date=(
+                    temporal_resolution.resolved_iso_date
+                    if temporal_resolution is not None
+                    else None
+                ),
+                timezone=(
+                    temporal_resolution.timezone
+                    if temporal_resolution is not None
+                    else None
+                ),
+                resolution_rule=(
+                    temporal_resolution.resolution_rule
+                    if temporal_resolution is not None
+                    else None
+                ),
             ),
         )
         return True
@@ -655,60 +711,6 @@ def _extract_entity_references(text: str) -> tuple[_EntityReference, ...]:
     return tuple(sorted(references, key=lambda item: item.position))
 
 
-def _extract_date(text: str, *, reference: date) -> tuple[str, str, float] | None:
-    explicit_matches = list(_EXPLICIT_DATE_PATTERN.finditer(text))
-    if explicit_matches:
-        match = explicit_matches[-1]
-        year_text = match.group("year")
-        year = reference.year if year_text is None else int(year_text)
-        if year < 100:
-            year += 2_000
-        try:
-            resolved = date(year, int(match.group("month")), int(match.group("day")))
-        except ValueError:
-            return None
-        if year_text is None and resolved < reference:
-            resolved = resolved.replace(year=resolved.year + 1)
-        return resolved.isoformat(), match.group(0), 0.99
-
-    lowered = text.casefold()
-    relative_matches = list(re.finditer(r"\b(übermorgen|morgen)\b", lowered))
-    weekday_matches = list(_WEEKDAY_PATTERN.finditer(lowered))
-    if relative_matches and (
-        not weekday_matches or relative_matches[-1].start() > weekday_matches[-1].start()
-    ):
-        match = relative_matches[-1]
-        days = 2 if match.group(1) == "übermorgen" else 1
-        return (reference + timedelta(days=days)).isoformat(), match.group(0), 0.98
-    if not weekday_matches:
-        return None
-
-    match = weekday_matches[-1]
-    weekday = _WEEKDAYS[match.group(1)]
-    prefix = lowered[max(0, match.start() - 38) : match.start()]
-    if "übernächste woche" in prefix or "uebernaechste woche" in prefix:
-        monday = reference - timedelta(days=reference.weekday())
-        resolved = monday + timedelta(days=14 + weekday)
-        confidence = 0.99
-    elif "nächste woche" in prefix or "naechste woche" in prefix:
-        monday = reference - timedelta(days=reference.weekday())
-        resolved = monday + timedelta(days=7 + weekday)
-        confidence = 0.99
-    elif "diese woche" in prefix or "diesen" in prefix or "diese" in prefix:
-        monday = reference - timedelta(days=reference.weekday())
-        resolved = monday + timedelta(days=weekday)
-        if resolved < reference:
-            resolved += timedelta(days=7)
-        confidence = 0.95
-    else:
-        days_ahead = (weekday - reference.weekday()) % 7
-        if days_ahead == 0:
-            days_ahead = 7
-        resolved = reference + timedelta(days=days_ahead)
-        confidence = 0.94
-    return resolved.isoformat(), match.group(0), confidence
-
-
 def _extract_time(text: str) -> tuple[str, str, float] | None:
     matches = list(_CLOCK_PATTERN.finditer(text))
     if not matches:
@@ -751,3 +753,15 @@ def _extract_provider(text: str) -> tuple[str, str, float] | None:
         return None
     raw = matches[-1].group(1).strip()
     return raw, raw, 0.86
+
+
+def _temporal_provenance(raw_date: object) -> dict[str, object] | None:
+    if not isinstance(raw_date, dict):
+        return None
+    names = ("raw_expression", "resolved_iso_date", "timezone", "resolution_rule")
+    payload = {
+        name: raw_date.get(name)
+        for name in names
+        if raw_date.get(name) is not None
+    }
+    return payload or None

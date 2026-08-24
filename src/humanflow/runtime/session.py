@@ -35,6 +35,7 @@ from .acoustic_barge_in import (
 )
 from .appointment_state import AppointmentState, AppointmentStateTracker
 from .prosody import ProsodyPlanner
+from .speech_text import GermanSpeechNormalizer
 from .self_speech import SelfSpeechAssessment, SelfSpeechGuard
 from .transcript_events import (
     ConversationEventKind,
@@ -86,6 +87,7 @@ class RealtimeVoiceSession:
         audio_output: AudioOutput,
         turn_policy: HybridTurnPolicy | None = None,
         prosody_planner: ProsodyPlanner | None = None,
+        speech_normalizer: GermanSpeechNormalizer | None = None,
         self_speech_guard: SelfSpeechGuard | None = None,
         acoustic_barge_in_detector: AcousticBargeInDetector | None = None,
         appointment_state_tracker: AppointmentStateTracker | None = None,
@@ -109,6 +111,7 @@ class RealtimeVoiceSession:
         self._audio_output = audio_output
         self._turn_policy = turn_policy or HybridTurnPolicy()
         self._prosody_planner = prosody_planner or ProsodyPlanner()
+        self._speech_normalizer = speech_normalizer or GermanSpeechNormalizer()
         self._self_speech_guard = self_speech_guard or SelfSpeechGuard()
         self._acoustic_barge_in = (
             acoustic_barge_in_detector or AcousticBargeInDetector()
@@ -1282,8 +1285,10 @@ class RealtimeVoiceSession:
                     speech_segment_count += 1
                     tts_session_id = f"{response_id}:tts"
                     segment_id = f"{response_id}:segment:{speech_segment_count}"
+                    spoken_text = self._speech_normalizer.normalize(segment.text)
                     request = SpeechSynthesisRequest(
-                        text=segment.text,
+                        text=spoken_text,
+                        display_text=segment.text,
                         response_id=response_id,
                         sequence_start=audio_chunk_sequence,
                         language_code="de",
@@ -1311,6 +1316,16 @@ class RealtimeVoiceSession:
                             "provider": speech_provider.to_dict(),
                             "intent": segment.intent.value,
                             "characters": len(segment.text),
+                            "spoken_characters": len(spoken_text),
+                            "speech_normalized": spoken_text != segment.text,
+                            "display_text_boundary": segment.text,
+                            "spoken_text_boundary": spoken_text,
+                            "intentional_linguistic_pause_ms": segment.pause_after_ms,
+                            "boundary_pause_class": (
+                                "INTENTIONAL_LINGUISTIC"
+                                if segment.pause_after_ms > 0
+                                else "CONTINUOUS_GAPLESS"
+                            ),
                             "speaking_rate": segment.speaking_rate,
                             "pause_after_ms": segment.pause_after_ms,
                             "event_kind": (
@@ -1443,7 +1458,7 @@ class RealtimeVoiceSession:
                     if self._cancel_event.is_set():
                         break
                     previous_spoken_text = (
-                        f"{previous_spoken_text} {segment.text}".strip()[-1_000:]
+                        f"{previous_spoken_text} {spoken_text}".strip()[-1_000:]
                     )
 
                 if self._cancel_event.is_set():
@@ -1632,6 +1647,10 @@ class RealtimeVoiceSession:
             "browser_actual_playback_end_ms": receipt.browser_actual_playback_end_ms,
             "previous_segment_end_ms": receipt.previous_segment_end_ms,
             "inter_segment_gap_ms": receipt.inter_segment_gap_ms,
+            "intentional_linguistic_pause_ms": (
+                receipt.intentional_linguistic_pause_ms
+            ),
+            "scheduler_generated_gap_ms": receipt.scheduler_generated_gap_ms,
             "queue_depth_ms": receipt.queue_depth_ms,
             "underrun_count": receipt.underrun_count,
         }
@@ -1689,6 +1708,12 @@ class RealtimeVoiceSession:
                     ),
                     "previous_segment_end_ms": receipt.previous_segment_end_ms,
                     "inter_segment_gap_ms": receipt.inter_segment_gap_ms,
+                    "intentional_linguistic_pause_ms": (
+                        receipt.intentional_linguistic_pause_ms
+                    ),
+                    "scheduler_generated_gap_ms": (
+                        receipt.scheduler_generated_gap_ms
+                    ),
                     "queue_depth_ms": receipt.queue_depth_ms,
                     "underrun_count": receipt.underrun_count,
                 },

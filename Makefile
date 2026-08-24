@@ -1,4 +1,4 @@
-.PHONY: status test torture-test benchmark realtime-benchmark acoustic-barge-benchmark appointment-state-benchmark audio-continuity-benchmark tts-ab-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report release-readiness demo demo-benchmark demo-package dashboard-capture challenge-demo dashboard turn-tournament live-stt-smoke live-multi-appointment-smoke checkpoint
+.PHONY: status test torture-test benchmark realtime-benchmark acoustic-barge-benchmark appointment-state-benchmark audio-continuity-benchmark german-tts-boundaries tts-ab-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report release-readiness demo demo-benchmark demo-package dashboard-capture challenge-demo dashboard turn-tournament live-stt-smoke live-multi-appointment-smoke checkpoint
 
 status:
 	python3 scripts/status.py
@@ -29,6 +29,9 @@ audio-continuity-benchmark:
 	fi; \
 	set +a; \
 	PYTHONPATH=src python3 scripts/benchmark_audio_continuity.py
+
+german-tts-boundaries:
+	PYTHONPATH=src python3 scripts/diagnose_german_tts_boundaries.py
 
 tts-ab-benchmark:
 	@set -a; \

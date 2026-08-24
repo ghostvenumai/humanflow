@@ -121,6 +121,8 @@ class PlaybackReceipt:
     browser_actual_playback_end_ms: float | None = None
     previous_segment_end_ms: float | None = None
     inter_segment_gap_ms: float | None = None
+    intentional_linguistic_pause_ms: float | None = None
+    scheduler_generated_gap_ms: float | None = None
     queue_depth_ms: float | None = None
     underrun_count: int = 0
 
@@ -146,6 +148,8 @@ class PlaybackReceipt:
             "browser_actual_playback_end_ms",
             "previous_segment_end_ms",
             "inter_segment_gap_ms",
+            "intentional_linguistic_pause_ms",
+            "scheduler_generated_gap_ms",
             "queue_depth_ms",
         ):
             value = getattr(self, name)

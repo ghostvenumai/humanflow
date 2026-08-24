@@ -90,6 +90,8 @@ def test_browser_acknowledgement_defines_partial_playback_receipt() -> None:
                 "browser_actual_playback_start_ms": 412.6,
                 "previous_segment_end_ms": 400.0,
                 "inter_segment_gap_ms": 12.5,
+                "intentional_linguistic_pause_ms": 10.0,
+                "scheduler_generated_gap_ms": 2.5,
                 "queue_depth_ms": 85.0,
                 "underrun_count": 0,
             }
@@ -120,6 +122,8 @@ def test_browser_acknowledgement_defines_partial_playback_receipt() -> None:
         assert receipt.browser_actual_playback_end_ms == 452.5
         assert receipt.previous_segment_end_ms == 400.0
         assert receipt.inter_segment_gap_ms == 12.5
+        assert receipt.intentional_linguistic_pause_ms == 10.0
+        assert receipt.scheduler_generated_gap_ms == 2.5
         assert receipt.queue_depth_ms == 85.0
         assert receipt.underrun_count == 0
         assert receipt.playback_stopped_ns >= receipt.playback_started_ns

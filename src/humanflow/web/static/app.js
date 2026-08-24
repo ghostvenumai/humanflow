@@ -397,7 +397,7 @@ function playSpeech(meta) {
   if (![...activeAudio.values()].some((item) => item.mode === "speech")) {
     window.speechSynthesis.cancel();
   }
-  const utterance = new SpeechSynthesisUtterance(meta.text_boundary);
+  const utterance = new SpeechSynthesisUtterance(meta.speech_text || meta.text_boundary);
   utterance.lang = "de-DE";
   utterance.rate = meta.speaking_rate || 1.0;
   const playback = {
@@ -541,6 +541,8 @@ function playPcm(buffer, meta) {
       browser_actual_playback_start_ms: actualPlaybackStartMs,
       previous_segment_end_ms: previousSegmentEnd == null ? null : previousSegmentEnd * 1000,
       inter_segment_gap_ms: interSegmentGapMs,
+      intentional_linguistic_pause_ms: previousPauseMs,
+      scheduler_generated_gap_ms: unplannedGapMs,
       queue_depth_ms: queueDepthMs,
       underrun_count: underrunCount
     });
@@ -695,7 +697,12 @@ function addEvent(event) {
     const peak = event.payload.peak_dbfs == null ? "Stille" : `${event.payload.peak_dbfs.toFixed(1)} dBFS`;
     ui["metric-audio-level"].textContent = `${rms} / ${peak}`;
     ui["metric-audio-gap"].textContent = event.payload.inter_segment_gap_ms == null
-      ? "erstes Segment" : `${event.payload.inter_segment_gap_ms.toFixed(1)} ms`;
+      ? "erstes Segment"
+      : `${event.payload.inter_segment_gap_ms.toFixed(1)} ms gesamt · ${(
+          event.payload.intentional_linguistic_pause_ms || 0
+        ).toFixed(1)} ms sprachlich · ${(
+          event.payload.scheduler_generated_gap_ms || 0
+        ).toFixed(1)} ms Scheduler`;
     ui["metric-audio-queue"].textContent = event.payload.queue_depth_ms == null
       ? "—" : `${event.payload.queue_depth_ms.toFixed(1)} ms`;
     ui["metric-audio-underruns"].textContent = String(event.payload.underrun_count || 0);

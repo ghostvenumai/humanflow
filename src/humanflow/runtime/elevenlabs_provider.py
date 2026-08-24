@@ -215,7 +215,7 @@ class ElevenLabsStreamingTTSProvider:
                 yield AudioChunk(
                     chunk_id=str(uuid4()),
                     response_id=request.response_id,
-                    text=request.text if item.final else "",
+                    text=(request.display_text or request.text) if item.final else "",
                     semantic_id=f"{request.response_id}:{request.sequence_start}",
                     semantic_text=request.text,
                     tts_session_id=request.tts_session_id or request.response_id,
@@ -232,7 +232,7 @@ class ElevenLabsStreamingTTSProvider:
                     ),
                     playback_mode=AudioPlaybackMode.PCM,
                     semantic_boundary=item.final,
-                    display_text=request.text if first else "",
+                    display_text=(request.display_text or request.text) if first else "",
                     pause_after_ms=request.pause_after_ms if item.final else 0,
                     speaking_rate=request.speaking_rate,
                     provider=provider,

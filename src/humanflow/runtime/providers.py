@@ -148,6 +148,7 @@ class SpeechSynthesisRequest:
     text: str
     response_id: str
     sequence_start: int
+    display_text: str | None = None
     language_code: str = "de"
     voice: str | None = None
     speaking_rate: float = 1.0
@@ -164,6 +165,8 @@ class SpeechSynthesisRequest:
     def __post_init__(self) -> None:
         if not self.text.strip() or not self.response_id.strip():
             raise ValueError("text and response_id must not be empty")
+        if self.display_text is not None and not self.display_text.strip():
+            raise ValueError("display_text must be non-empty when present")
         if self.sequence_start < 0:
             raise ValueError("sequence_start must be non-negative")
         if not 0.5 <= self.speaking_rate <= 2.0:
@@ -332,7 +335,9 @@ class ToneSpeechSynthesizer:
         )
         yield replace(
             chunk,
-            display_text=request.text,
+            text=request.display_text or request.text,
+            semantic_text=request.text,
+            display_text=request.display_text or request.text,
             pause_after_ms=request.pause_after_ms,
             speaking_rate=request.speaking_rate,
             tts_session_id=request.tts_session_id or request.response_id,
@@ -408,7 +413,9 @@ class BrowserSpeechSynthesisAdapter:
         )
         yield replace(
             chunk,
-            display_text=request.text,
+            text=request.display_text or request.text,
+            semantic_text=request.text,
+            display_text=request.display_text or request.text,
             pause_after_ms=request.pause_after_ms,
             speaking_rate=request.speaking_rate,
             tts_session_id=request.tts_session_id or request.response_id,
@@ -486,7 +493,7 @@ class GaplessSegmentTTSProvider:
         }
         if len(sample_rates) != 1 or len(channels) != 1 or len(providers) != 1:
             raise RuntimeError("inconsistent_tts_stream_metadata")
-        if not chunks[-1].semantic_boundary or chunks[-1].text != request.text:
+        if not chunks[-1].semantic_boundary or chunks[-1].semantic_text != request.text:
             raise RuntimeError("tts_stream_missing_final_semantic_boundary")
         provider_metadata = dict(chunks[0].provider)
         provider_metadata.update(
@@ -500,7 +507,7 @@ class GaplessSegmentTTSProvider:
         yield AudioChunk(
             chunk_id=str(uuid4()),
             response_id=request.response_id,
-            text=request.text,
+            text=request.display_text or request.text,
             semantic_id=chunks[0].semantic_id,
             semantic_text=request.text,
             tts_session_id=request.tts_session_id or request.response_id,
@@ -515,7 +522,7 @@ class GaplessSegmentTTSProvider:
             ),
             playback_mode=AudioPlaybackMode.PCM,
             semantic_boundary=True,
-            display_text=request.text,
+            display_text=request.display_text or request.text,
             pause_after_ms=request.pause_after_ms,
             speaking_rate=request.speaking_rate,
             provider=provider_metadata,

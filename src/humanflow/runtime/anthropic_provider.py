@@ -13,6 +13,7 @@ from typing import Any
 from humanflow.domain.conversation import OperationToken
 
 from .providers import ProviderInfo, ProviderMode
+from .speech_text import safe_word_split, take_stable_speech_boundaries
 
 
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
@@ -58,10 +59,6 @@ _GERMAN_MONTHS = (
     "November",
     "Dezember",
 )
-_SEMANTIC_BOUNDARY = re.compile(
-    rf"(?<=[.!?])(?:\s+(?!(?:{'|'.join(_GERMAN_MONTHS)})\b)|$)",
-    re.IGNORECASE,
-)
 _GERMAN_WEEKDAYS = (
     "Montag",
     "Dienstag",
@@ -81,6 +78,15 @@ _SPOKEN_WEEKDAY = re.compile(
 )
 _UNVERIFIED_EXTERNAL_ACTION = re.compile(
     r"\b(?:gebucht|eingetragen|storniert|abgesagt|gelöscht)\b",
+    re.IGNORECASE,
+)
+_AI_DISCLOSURE = re.compile(
+    r"\bich\s+bin\s+human\s*flow,?\s+ein\s+ki[- ]assistent(?:in)?[.!]?\s*",
+    re.IGNORECASE,
+)
+_IDENTITY_REQUEST = re.compile(
+    r"\b(?:wer|was)\s+bist\s+du\b|\bbist\s+du\s+(?:eine?\s+)?ki\b|"
+    r"\bwer\s+ist\s+human\s*flow\b",
     re.IGNORECASE,
 )
 
@@ -130,6 +136,7 @@ class AnthropicReasoner:
         self._history: list[dict[str, str]] = []
         self._last_usage: ReasoningUsage | None = None
         self._authoritative_transaction_context: str | None = None
+        self._ai_disclosure_count = 0
 
     @property
     def provider_info(self) -> ProviderInfo:
@@ -150,6 +157,10 @@ class AnthropicReasoner:
         """A copy for diagnostics/tests; no credentials or hidden provider state."""
 
         return tuple(dict(message) for message in self._history)
+
+    @property
+    def ai_disclosure_count(self) -> int:
+        return self._ai_disclosure_count
 
     def set_authoritative_transaction_context(
         self,
@@ -181,8 +192,19 @@ class AnthropicReasoner:
         transaction_contract = _parse_transaction_contract(
             self._authoritative_transaction_context
         )
+        identity_requested = _IDENTITY_REQUEST.search(user_text) is not None
 
         system_prompt = self._system_prompt
+        if self._ai_disclosure_count == 0:
+            system_prompt += (
+                "\n\nSESSION-INVARIANTE: Dies ist die erste Assistentenantwort. "
+                "Die KI-Offenlegung muss jetzt genau einmal erfolgen."
+            )
+        elif not identity_requested:
+            system_prompt += (
+                "\n\nSESSION-INVARIANTE: Die KI-Offenlegung ist bereits erfolgt. "
+                "Wiederhole die Vorstellung in dieser Antwort nicht."
+            )
         if self._authoritative_transaction_context:
             system_prompt += (
                 "\n\nAUTORITATIVER TRANSAKTIONSSTATUS (vom Conversation Controller, "
@@ -209,6 +231,8 @@ class AnthropicReasoner:
                 "niemals wiederaufleben. Prüfe vor der Ausgabe jedes Satzes außerdem "
                 "gegen forbidden_without_tool_success und verwende für rein lokalen "
                 "Status immer das Substantiv „Terminwunsch“."
+                " Relative Datumsangaben rechnest du niemals selbst aus; verwende "
+                "ausschließlich das vom Controller gelieferte resolved_iso_date."
             )
 
         async with self._client.messages.stream(
@@ -224,18 +248,29 @@ class AnthropicReasoner:
                 ready, pending = _take_speech_boundaries(pending)
                 for fragment in ready:
                     guarded = _guard_transaction_fragment(fragment, transaction_contract)
+                    guarded = self._enforce_ai_disclosure(
+                        guarded, identity_requested=identity_requested
+                    )
+                    if not guarded:
+                        continue
                     delivered_text.append(guarded)
                     yield guarded
             final_message = await stream.get_final_message()
 
         if pending.strip():
             guarded = _guard_transaction_fragment(pending.strip(), transaction_contract)
-            delivered_text.append(guarded)
-            yield guarded
+            guarded = self._enforce_ai_disclosure(
+                guarded, identity_requested=identity_requested
+            )
+            if guarded:
+                delivered_text.append(guarded)
+                yield guarded
 
         assistant_text = " ".join(delivered_text).strip()
         if not assistant_text:
-            raise RuntimeError("reasoning_provider_returned_empty_text")
+            assistant_text = "Was möchtest du als Nächstes wissen?"
+            delivered_text.append(assistant_text)
+            yield assistant_text
         self._history.extend(
             (
                 {"role": "user", "content": user_text},
@@ -250,27 +285,47 @@ class AnthropicReasoner:
             output_tokens=int(getattr(usage, "output_tokens", 0)),
         )
 
+    def _enforce_ai_disclosure(
+        self, text: str, *, identity_requested: bool
+    ) -> str:
+        stripped = text.strip()
+        if self._ai_disclosure_count == 0:
+            remainder = _AI_DISCLOSURE.sub("", stripped).strip(" ,")
+            self._ai_disclosure_count = 1
+            return (
+                "Ich bin HumanFlow, ein KI-Assistent."
+                if not remainder
+                else f"Ich bin HumanFlow, ein KI-Assistent. {remainder}"
+            )
+        if identity_requested:
+            return stripped
+        return _AI_DISCLOSURE.sub("", stripped).strip(" ,")
+
 
 def _take_speech_boundaries(text: str) -> tuple[list[str], str]:
     """Split complete sentences; cap long clauses at a whitespace boundary."""
 
+    stable, pending = take_stable_speech_boundaries(text)
+    fragments: list[str] = []
+    for fragment in stable:
+        fragments.extend(_split_long_speech_fragment(fragment))
+    while len(pending) >= 220:
+        split_at = safe_word_split(pending, minimum=120, maximum=220)
+        fragments.append(pending[:split_at].strip())
+        pending = pending[split_at:].lstrip()
+    return fragments, pending
+
+
+def _split_long_speech_fragment(text: str) -> list[str]:
     fragments: list[str] = []
     pending = text
-    while True:
-        match = _SEMANTIC_BOUNDARY.search(pending)
-        if match is not None:
-            fragment = pending[: match.start()].strip()
-            pending = pending[match.end() :]
-            if fragment:
-                fragments.append(fragment)
-            continue
-        if len(pending) >= 220:
-            split_at = pending.rfind(" ", 120, 220)
-            if split_at > 0:
-                fragments.append(pending[:split_at].strip())
-                pending = pending[split_at + 1 :]
-                continue
-        return fragments, pending
+    while len(pending) > 220:
+        split_at = safe_word_split(pending, minimum=120, maximum=220)
+        fragments.append(pending[:split_at].strip())
+        pending = pending[split_at:].lstrip()
+    if pending:
+        fragments.append(pending)
+    return fragments
 
 
 def _parse_transaction_contract(context: str | None) -> dict[str, object] | None:
