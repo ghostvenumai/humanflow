@@ -3,9 +3,9 @@
   "iterations": 1000,
   "turns_per_iteration": 7,
   "latency_ms": {
-    "median": 0.730758,
-    "p95": 1.379157,
-    "max": 2.479961
+    "median": 0.776347,
+    "p95": 1.509859,
+    "max": 3.035495
   },
   "correct_final_state_count": 1000,
   "expected_final_state": {
