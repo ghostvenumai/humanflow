@@ -6,8 +6,8 @@
     "sha256": "98b763cb8258362c64ab4875edd7e53b1918efb2cc6f5b92adfb4a52b308318f"
   },
   "configured_tool_latency_ms": 4000.0,
-  "generated_at_utc": "2026-08-24T16:45:05.994701Z",
-  "git_commit": "a5f8b272d9f18a6170238042b9a944057944b897",
+  "generated_at_utc": "2026-08-24T18:08:42.075187Z",
+  "git_commit": "a8c6338433afc27c5d79702dace98e7990c2ddc4",
   "results": [
     {
       "evidence": {
@@ -31,7 +31,7 @@
     },
     {
       "evidence": {
-        "audible_barge_in_latency_ms": 0.524726,
+        "audible_barge_in_latency_ms": 0.898418,
         "decision": "INTERRUPTION",
         "ledger_unheard_text": "Ich"
       },
@@ -98,9 +98,9 @@
     {
       "evidence": {
         "configured_latency_ms": 4000.0,
-        "event_loop_ticks": 761,
-        "maximum_tick_gap_ms": 5.852991,
-        "measured_elapsed_ms": 4001.09775
+        "event_loop_ticks": 757,
+        "maximum_tick_gap_ms": 7.351755,
+        "measured_elapsed_ms": 4001.456669
       },
       "failure_type": null,
       "passed": true,
@@ -149,8 +149,8 @@
       "evidence": {
         "cancellations": 2,
         "latencies_ms": [
-          1.600848,
-          1.558251
+          1.008693,
+          0.639872
         ],
         "ledger_valid": true
       },
