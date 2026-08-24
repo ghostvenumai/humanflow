@@ -1,0 +1,109 @@
+{
+  "captured_utc": "2026-08-24T16:45:11.470222Z",
+  "cases": [
+    {
+      "human_pronunciation_assessment": null,
+      "ordinal_month_split": false,
+      "phrase": "Donnerstag, den 27. August um 12 Uhr.",
+      "physical_tts_requests_planned": 1,
+      "scheduler_gap_inside_date_ms": 0,
+      "semantic_boundaries": [
+        {
+          "boundary_pause_class": "INTENTIONAL_LINGUISTIC",
+          "display_text_boundary": "Donnerstag, den 27. August um 12 Uhr.",
+          "intentional_linguistic_pause_ms": 190,
+          "segment_id": "phrase-1:segment:1",
+          "spoken_text_boundary": "Donnerstag, den siebenundzwanzigsten August um zwölf Uhr."
+        }
+      ]
+    },
+    {
+      "human_pronunciation_assessment": null,
+      "ordinal_month_split": false,
+      "phrase": "Freitag, den 4. September um 14 Uhr.",
+      "physical_tts_requests_planned": 1,
+      "scheduler_gap_inside_date_ms": 0,
+      "semantic_boundaries": [
+        {
+          "boundary_pause_class": "INTENTIONAL_LINGUISTIC",
+          "display_text_boundary": "Freitag, den 4. September um 14 Uhr.",
+          "intentional_linguistic_pause_ms": 190,
+          "segment_id": "phrase-2:segment:1",
+          "spoken_text_boundary": "Freitag, den vierten September um vierzehn Uhr."
+        }
+      ]
+    },
+    {
+      "human_pronunciation_assessment": null,
+      "ordinal_month_split": false,
+      "phrase": "Der Termin ist am 3. September um 11:30 Uhr.",
+      "physical_tts_requests_planned": 1,
+      "scheduler_gap_inside_date_ms": 0,
+      "semantic_boundaries": [
+        {
+          "boundary_pause_class": "INTENTIONAL_LINGUISTIC",
+          "display_text_boundary": "Der Termin ist am 3. September um 11:30 Uhr.",
+          "intentional_linguistic_pause_ms": 190,
+          "segment_id": "phrase-3:segment:1",
+          "spoken_text_boundary": "Der Termin ist am dritten September um elf Uhr dreißig."
+        }
+      ]
+    },
+    {
+      "human_pronunciation_assessment": null,
+      "ordinal_month_split": false,
+      "phrase": "Am 24. Dezember 2026 um 16:45 Uhr.",
+      "physical_tts_requests_planned": 1,
+      "scheduler_gap_inside_date_ms": 0,
+      "semantic_boundaries": [
+        {
+          "boundary_pause_class": "INTENTIONAL_LINGUISTIC",
+          "display_text_boundary": "Am 24. Dezember 2026 um 16:45 Uhr.",
+          "intentional_linguistic_pause_ms": 190,
+          "segment_id": "phrase-4:segment:1",
+          "spoken_text_boundary": "Am vierundzwanzigsten Dezember zweitausendsechsundzwanzig um sechzehn Uhr fünfundvierzig."
+        }
+      ]
+    },
+    {
+      "human_pronunciation_assessment": null,
+      "ordinal_month_split": false,
+      "phrase": "Das dauert ca. 3,5 Stunden.",
+      "physical_tts_requests_planned": 1,
+      "scheduler_gap_inside_date_ms": 0,
+      "semantic_boundaries": [
+        {
+          "boundary_pause_class": "INTENTIONAL_LINGUISTIC",
+          "display_text_boundary": "Das dauert ca. 3,5 Stunden.",
+          "intentional_linguistic_pause_ms": 190,
+          "segment_id": "phrase-5:segment:1",
+          "spoken_text_boundary": "Das dauert circa drei Komma fünf Stunden."
+        }
+      ]
+    }
+  ],
+  "checks": {
+    "all_phrases_have_one_atomic_tts_boundary": true,
+    "display_and_spoken_text_are_separate": true,
+    "no_ordinal_month_split": true,
+    "no_scheduler_gap_inside_date_structure": true
+  },
+  "human_voice_wobble_assessment": null,
+  "manual_validation": "REQUIRED_NOT_ATTESTED",
+  "ordinal_ab_input": {
+    "a_display_numeric": "Donnerstag, den 27. August um 12 Uhr.",
+    "b_production_spoken_words": "Donnerstag, den siebenundzwanzigsten August um zwölf Uhr.",
+    "human_winner": null
+  },
+  "result": "PASS_STRUCTURAL_HUMAN_PRONUNCIATION_PENDING",
+  "reused_real_provider_audio_evidence": {
+    "duplicate_chunks": 0,
+    "provider_calls_reused": true,
+    "rms_range_across_responses_db": 0.969,
+    "source": "reports/audio-continuity-10x.json",
+    "stale_chunks": 0,
+    "total_underruns": 0
+  },
+  "schema_version": 1,
+  "scope": "exact production semantic boundary, prosody and speech-normalization path; no new paid provider request"
+}
