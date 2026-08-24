@@ -1,5 +1,5 @@
 {
-  "captured_utc": "2026-08-24T14:28:22.597831Z",
+  "captured_utc": "2026-08-24T15:55:55.604060Z",
   "checks": {
     "all_responses_nonempty": true,
     "appointment_is_semantically_relevant": true,
@@ -64,77 +64,77 @@
   "schema_version": 1,
   "scope": "real reasoning websocket path; browser microphone/STT/TTS excluded",
   "summary": {
-    "first_model_output_ms_max": 10809.478,
-    "first_model_output_ms_median": 1058.622,
-    "input_tokens": 5620,
-    "output_tokens": 318,
+    "first_model_output_ms_max": 1277.884,
+    "first_model_output_ms_median": 1053.408,
+    "input_tokens": 6095,
+    "output_tokens": 336,
     "turns": 6
   },
   "turns": {
     "appointment": {
-      "first_model_output_ms": 1000.559605,
-      "generation_ms": 9859.619248,
+      "first_model_output_ms": 1028.905239,
+      "generation_ms": 7973.769645,
       "prompt": "Ich möchte einen Termin am Freitag.",
-      "response": "Der 28. August ist ein Freitag – passt dir dieses Datum für deinen Termin? Welche Uhrzeit würde dir passen?",
+      "response": "Alles klar, Termin am Freitag – das ist der 28. August. Was ist der Grund für den Termin?",
       "speech_chunks": 3,
       "usage": {
-        "input_tokens": 1354,
-        "output_tokens": 42
+        "input_tokens": 1777,
+        "output_tokens": 37
       }
     },
     "arithmetic": {
-      "first_model_output_ms": 10809.478279,
-      "generation_ms": 12864.481768,
+      "first_model_output_ms": 778.778454,
+      "generation_ms": 2769.321392,
       "prompt": "Was ist 25 mal 17?",
       "response": "Das Ergebnis ist 425.",
       "speech_chunks": 1,
       "usage": {
-        "input_tokens": 863,
+        "input_tokens": 877,
         "output_tokens": 12
       }
     },
     "capabilities": {
-      "first_model_output_ms": 1116.684644,
-      "generation_ms": 17782.830292,
+      "first_model_output_ms": 1077.911571,
+      "generation_ms": 16292.340097,
       "prompt": "Was kannst du?",
-      "response": "Ich bin HumanFlow, ein KI-Assistent. Ich kann mit dir über verschiedenste Themen sprechen – Fragen beantworten, dir bei Planungen helfen, Informationen erklären oder einfach unterhalten. Was interessiert dich gerade?",
+      "response": "Ich bin HumanFlow, ein KI-Assistent. Ich kann dir bei alltäglichen Dingen helfen – Fragen beantworten, Informationen erklären, bei Planungen unterstützen oder einfach ein Gespräch führen. Was brauchst du gerade?",
       "speech_chunks": 3,
       "usage": {
         "input_tokens": 698,
-        "output_tokens": 71
+        "output_tokens": 76
       }
     },
     "context_followup": {
-      "first_model_output_ms": 770.901855,
-      "generation_ms": 2739.255211,
+      "first_model_output_ms": 946.313244,
+      "generation_ms": 3669.985738,
       "prompt": "Wie lautete noch einmal das Ergebnis meiner Rechenaufgabe?",
-      "response": "Das Ergebnis war 425.",
+      "response": "425 – das war 25 mal 17.",
       "speech_chunks": 1,
       "usage": {
-        "input_tokens": 1030,
-        "output_tokens": 12
+        "input_tokens": 1049,
+        "output_tokens": 16
       }
     },
     "erp": {
-      "first_model_output_ms": 1245.173234,
-      "generation_ms": 25763.282472,
+      "first_model_output_ms": 1277.88407,
+      "generation_ms": 24509.218351,
       "prompt": "Kannst du mir erklären, was ein ERP-System ist?",
-      "response": "Ein ERP-System ist eine Software, die alle wichtigen Prozesse eines Unternehmens verbindet – vom Einkauf übers Lager bis zur Buchhaltung und zum Verkauf. Alle Abteilungen arbeiten mit denselben Daten, was Fehler reduziert und alles transparenter macht. Möchtest du wissen, wie so ein System konkret funktioniert oder welche Vorteile es hat?",
-      "speech_chunks": 3,
+      "response": "Ein ERP-System ist eine Software, die alle wichtigen Geschäftsprozesse eines Unternehmens in einer Datenbank verbindet – Finanzen, Lagerbestände, Personal, Verkauf und so weiter. Das spart Zeit, weil alle Abteilungen auf die gleichen aktuellen Daten zugreifen und weniger manuell eingeben müssen. Willst du noch mehr über ein bestimmtes Aspekt wissen?",
+      "speech_chunks": 4,
       "usage": {
-        "input_tokens": 895,
-        "output_tokens": 110
+        "input_tokens": 909,
+        "output_tokens": 115
       }
     },
     "weather_limit": {
-      "first_model_output_ms": 840.812716,
-      "generation_ms": 13849.044571,
+      "first_model_output_ms": 1123.005516,
+      "generation_ms": 15526.365215,
       "prompt": "Wie ist das Wetter?",
-      "response": "Ich habe keinen Zugriff auf aktuelle Wetterdaten. Aber wenn du mir sagst, wo du bist oder wie es gerade bei dir aussieht, kann ich dir gerne helfen – zum Beispiel bei der Planung, was du anziehen solltest.",
-      "speech_chunks": 2,
+      "response": "Ich hab keinen Zugriff auf aktuelle Wetterdaten. Aber wenn du mir sagst, wo du bist und was du wissen möchtest, kann ich dir anders helfen – zum Beispiel mit Tipps, wie du das Wetter überprüfst oder wie du dich anziehen solltest.",
+      "speech_chunks": 3,
       "usage": {
-        "input_tokens": 780,
-        "output_tokens": 71
+        "input_tokens": 785,
+        "output_tokens": 80
       }
     }
   }

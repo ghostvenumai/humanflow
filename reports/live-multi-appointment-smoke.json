@@ -1,0 +1,1044 @@
+{
+  "captured_utc": "2026-08-24T16:08:57.492663Z",
+  "checks": {
+    "assistant_never_claims_booked": true,
+    "assistant_never_claims_unexecuted_external_action": true,
+    "hairdresser_isolated_and_cancelled": true,
+    "local_cancellation_uses_terminwunsch": true,
+    "no_false_booking_claim_in_state": true,
+    "orthopedist_isolated": true,
+    "seven_live_turns_completed": true,
+    "spoken_dates_match_isolated_objects": true,
+    "stable_two_appointment_ids": true
+  },
+  "final_appointments": {
+    "appointment_1": {
+      "active": true,
+      "appointment_id": "appointment_1",
+      "confidence": 0.99,
+      "date": {
+        "confidence": 0.99,
+        "raw_value": "donnerstag",
+        "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+        "updated_at": "2026-08-24T16:08:46.330062Z",
+        "value": "2026-09-03"
+      },
+      "external_action_confirmed": false,
+      "location": null,
+      "provider": null,
+      "purpose": {
+        "confidence": 0.99,
+        "raw_value": "orthopädentermin",
+        "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+        "updated_at": "2026-08-24T16:08:41.573066Z",
+        "value": "Orthopädie"
+      },
+      "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+      "specialty": {
+        "confidence": 0.99,
+        "raw_value": "orthopädentermin",
+        "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+        "updated_at": "2026-08-24T16:08:41.573066Z",
+        "value": "Orthopädie"
+      },
+      "status": {
+        "confidence": 1.0,
+        "raw_value": "controller_derived_no_external_action",
+        "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+        "updated_at": "2026-08-24T16:08:43.650844Z",
+        "value": "READY_TO_BOOK"
+      },
+      "time": {
+        "confidence": 0.99,
+        "raw_value": "16 Uhr",
+        "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+        "updated_at": "2026-08-24T16:08:46.330062Z",
+        "value": "16:00"
+      },
+      "updated_at": "2026-08-24T16:08:46.330062Z"
+    },
+    "appointment_2": {
+      "active": false,
+      "appointment_id": "appointment_2",
+      "confidence": 1.0,
+      "date": {
+        "confidence": 0.99,
+        "raw_value": "mittwoch",
+        "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+        "updated_at": "2026-08-24T16:08:48.537599Z",
+        "value": "2026-09-02"
+      },
+      "external_action_confirmed": false,
+      "location": null,
+      "provider": null,
+      "purpose": {
+        "confidence": 0.99,
+        "raw_value": "friseurtermin",
+        "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+        "updated_at": "2026-08-24T16:08:48.537599Z",
+        "value": "Friseur"
+      },
+      "source_turn": "d8d0fc9e-ecb7-4476-a064-73fe04f2aa26",
+      "specialty": null,
+      "status": {
+        "confidence": 1.0,
+        "raw_value": "local_appointment_request_cancelled",
+        "source_turn": "5b53a73f-2e48-486c-a3ae-7fe42a3b5bbc",
+        "updated_at": "2026-08-24T16:08:52.853134Z",
+        "value": "CANCELLED"
+      },
+      "time": {
+        "confidence": 0.99,
+        "raw_value": "um 14 Uhr",
+        "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+        "updated_at": "2026-08-24T16:08:48.537599Z",
+        "value": "14:00"
+      },
+      "updated_at": "2026-08-24T16:08:55.210268Z"
+    }
+  },
+  "manual_validation": "REQUIRED_NOT_ATTESTED",
+  "providers": [
+    {
+      "availability": "CONFIGURED_UNVERIFIED",
+      "mode": "REAL",
+      "model": "scribe_v2_realtime",
+      "provider": "elevenlabs-scribe-realtime",
+      "role": "stt",
+      "runtime": "server"
+    },
+    {
+      "availability": "OFF_PRODUCTION",
+      "mode": "MOCK",
+      "model": "de-DE",
+      "provider": "browser-web-speech-api",
+      "role": "stt-browser-diagnostic",
+      "runtime": "browser"
+    },
+    {
+      "availability": "CONFIGURED",
+      "mode": "REAL",
+      "model": "claude-haiku-4-5-20251001",
+      "provider": "anthropic-messages-api",
+      "role": "reasoning",
+      "runtime": "server"
+    },
+    {
+      "availability": "CONFIGURED",
+      "mode": "REAL",
+      "model": "eleven_flash_v2_5",
+      "provider": "elevenlabs-text-to-speech-stream",
+      "role": "tts",
+      "runtime": "server"
+    },
+    {
+      "availability": "CONFIGURED_UNVERIFIED",
+      "mode": "REAL",
+      "model": "eleven_v3_conversational",
+      "provider": "elevenlabs-text-to-speech-stream",
+      "role": "tts-ab-candidate",
+      "runtime": "server"
+    },
+    {
+      "availability": "BROWSER_CHECK_REQUIRED",
+      "mode": "REAL",
+      "model": "de-DE-system-voice",
+      "provider": "browser-web-speech-api",
+      "role": "tts-fallback",
+      "runtime": "browser"
+    }
+  ],
+  "schema_version": 1,
+  "scope": "real Anthropic reasoning and ElevenLabs TTS websocket path",
+  "turns": [
+    {
+      "assistant": "Ich bin HumanFlow, ein KI-Assistent. Ich notiere dir gerne deinen Terminwunsch für Orthopädie. Wann passt es dir zeitlich am besten?",
+      "state_event": {
+        "active_focus_appointment_id": "appointment_1",
+        "appointment_id": "appointment_1",
+        "appointments": {
+          "appointment_1": {
+            "active": true,
+            "appointment_id": "appointment_1",
+            "confidence": 0.99,
+            "date": null,
+            "external_action_confirmed": false,
+            "location": null,
+            "provider": null,
+            "purpose": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+            "specialty": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "status": {
+              "confidence": 1.0,
+              "raw_value": "controller_derived_no_external_action",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "COLLECTING_DETAILS"
+            },
+            "time": null,
+            "updated_at": "2026-08-24T16:08:41.573066Z"
+          }
+        },
+        "assistant_history_used_as_state_source": false,
+        "clarification_options": [],
+        "clarification_required": false,
+        "created": true,
+        "external_action_performed": false,
+        "resolution_reason": "new_explicit_appointment_entity",
+        "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+        "state": {
+          "active": true,
+          "appointment_id": "appointment_1",
+          "confidence": 0.99,
+          "date": null,
+          "external_action_confirmed": false,
+          "location": null,
+          "provider": null,
+          "purpose": {
+            "confidence": 0.99,
+            "raw_value": "orthopädentermin",
+            "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+            "updated_at": "2026-08-24T16:08:41.573066Z",
+            "value": "Orthopädie"
+          },
+          "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+          "specialty": {
+            "confidence": 0.99,
+            "raw_value": "orthopädentermin",
+            "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+            "updated_at": "2026-08-24T16:08:41.573066Z",
+            "value": "Orthopädie"
+          },
+          "status": {
+            "confidence": 1.0,
+            "raw_value": "controller_derived_no_external_action",
+            "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+            "updated_at": "2026-08-24T16:08:41.573066Z",
+            "value": "COLLECTING_DETAILS"
+          },
+          "time": null,
+          "updated_at": "2026-08-24T16:08:41.573066Z"
+        },
+        "unchanged_slots_preserved": true,
+        "updated_slots": [
+          "purpose",
+          "specialty",
+          "status"
+        ]
+      },
+      "user": "Ich brauche einen Orthopädentermin."
+    },
+    {
+      "assistant": "Perfekt, nächste Freitag um 14 Uhr für deinen Orthopädie-Termin ist notiert – das ist der 4. September. Brauchst du einen bestimmten Arzt oder eine bestimmte Praxis, oder passt dir die nächste verfügbare?",
+      "state_event": {
+        "active_focus_appointment_id": "appointment_1",
+        "appointment_id": "appointment_1",
+        "appointments": {
+          "appointment_1": {
+            "active": true,
+            "appointment_id": "appointment_1",
+            "confidence": 0.99,
+            "date": {
+              "confidence": 0.99,
+              "raw_value": "freitag",
+              "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+              "updated_at": "2026-08-24T16:08:43.650844Z",
+              "value": "2026-09-04"
+            },
+            "external_action_confirmed": false,
+            "location": null,
+            "provider": null,
+            "purpose": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+            "specialty": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "status": {
+              "confidence": 1.0,
+              "raw_value": "controller_derived_no_external_action",
+              "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+              "updated_at": "2026-08-24T16:08:43.650844Z",
+              "value": "READY_TO_BOOK"
+            },
+            "time": {
+              "confidence": 0.99,
+              "raw_value": "um 14 Uhr",
+              "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+              "updated_at": "2026-08-24T16:08:43.650844Z",
+              "value": "14:00"
+            },
+            "updated_at": "2026-08-24T16:08:43.650844Z"
+          }
+        },
+        "assistant_history_used_as_state_source": false,
+        "clarification_options": [],
+        "clarification_required": false,
+        "created": false,
+        "external_action_performed": false,
+        "resolution_reason": "active_focus_delta",
+        "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+        "state": {
+          "active": true,
+          "appointment_id": "appointment_1",
+          "confidence": 0.99,
+          "date": {
+            "confidence": 0.99,
+            "raw_value": "freitag",
+            "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+            "updated_at": "2026-08-24T16:08:43.650844Z",
+            "value": "2026-09-04"
+          },
+          "external_action_confirmed": false,
+          "location": null,
+          "provider": null,
+          "purpose": {
+            "confidence": 0.99,
+            "raw_value": "orthopädentermin",
+            "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+            "updated_at": "2026-08-24T16:08:41.573066Z",
+            "value": "Orthopädie"
+          },
+          "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+          "specialty": {
+            "confidence": 0.99,
+            "raw_value": "orthopädentermin",
+            "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+            "updated_at": "2026-08-24T16:08:41.573066Z",
+            "value": "Orthopädie"
+          },
+          "status": {
+            "confidence": 1.0,
+            "raw_value": "controller_derived_no_external_action",
+            "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+            "updated_at": "2026-08-24T16:08:43.650844Z",
+            "value": "READY_TO_BOOK"
+          },
+          "time": {
+            "confidence": 0.99,
+            "raw_value": "um 14 Uhr",
+            "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+            "updated_at": "2026-08-24T16:08:43.650844Z",
+            "value": "14:00"
+          },
+          "updated_at": "2026-08-24T16:08:43.650844Z"
+        },
+        "unchanged_slots_preserved": true,
+        "updated_slots": [
+          "date",
+          "time",
+          "status"
+        ]
+      },
+      "user": "Am besten nächste Woche Freitag um 14 Uhr."
+    },
+    {
+      "assistant": "Alles klar, ich passe deinen Terminwunsch an: Donnerstag, 3. September um 16 Uhr für Orthopädie. Passt das so?",
+      "state_event": {
+        "active_focus_appointment_id": "appointment_1",
+        "appointment_id": "appointment_1",
+        "appointments": {
+          "appointment_1": {
+            "active": true,
+            "appointment_id": "appointment_1",
+            "confidence": 0.99,
+            "date": {
+              "confidence": 0.99,
+              "raw_value": "donnerstag",
+              "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+              "updated_at": "2026-08-24T16:08:46.330062Z",
+              "value": "2026-09-03"
+            },
+            "external_action_confirmed": false,
+            "location": null,
+            "provider": null,
+            "purpose": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+            "specialty": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "status": {
+              "confidence": 1.0,
+              "raw_value": "controller_derived_no_external_action",
+              "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+              "updated_at": "2026-08-24T16:08:43.650844Z",
+              "value": "READY_TO_BOOK"
+            },
+            "time": {
+              "confidence": 0.99,
+              "raw_value": "16 Uhr",
+              "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+              "updated_at": "2026-08-24T16:08:46.330062Z",
+              "value": "16:00"
+            },
+            "updated_at": "2026-08-24T16:08:46.330062Z"
+          }
+        },
+        "assistant_history_used_as_state_source": false,
+        "clarification_options": [],
+        "clarification_required": false,
+        "created": false,
+        "external_action_performed": false,
+        "resolution_reason": "active_focus_delta",
+        "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+        "state": {
+          "active": true,
+          "appointment_id": "appointment_1",
+          "confidence": 0.99,
+          "date": {
+            "confidence": 0.99,
+            "raw_value": "donnerstag",
+            "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+            "updated_at": "2026-08-24T16:08:46.330062Z",
+            "value": "2026-09-03"
+          },
+          "external_action_confirmed": false,
+          "location": null,
+          "provider": null,
+          "purpose": {
+            "confidence": 0.99,
+            "raw_value": "orthopädentermin",
+            "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+            "updated_at": "2026-08-24T16:08:41.573066Z",
+            "value": "Orthopädie"
+          },
+          "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+          "specialty": {
+            "confidence": 0.99,
+            "raw_value": "orthopädentermin",
+            "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+            "updated_at": "2026-08-24T16:08:41.573066Z",
+            "value": "Orthopädie"
+          },
+          "status": {
+            "confidence": 1.0,
+            "raw_value": "controller_derived_no_external_action",
+            "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+            "updated_at": "2026-08-24T16:08:43.650844Z",
+            "value": "READY_TO_BOOK"
+          },
+          "time": {
+            "confidence": 0.99,
+            "raw_value": "16 Uhr",
+            "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+            "updated_at": "2026-08-24T16:08:46.330062Z",
+            "value": "16:00"
+          },
+          "updated_at": "2026-08-24T16:08:46.330062Z"
+        },
+        "unchanged_slots_preserved": true,
+        "updated_slots": [
+          "date",
+          "time"
+        ]
+      },
+      "user": "Mmm, warte mal, dann machen wir vielleicht 16 Uhr nächste Woche Donnerstag."
+    },
+    {
+      "assistant": "Notiert – Mittwoch, 2. September um 14 Uhr für den Friseur. Kennst du schon einen Friseur, oder soll ich dir einen vorschlagen?",
+      "state_event": {
+        "active_focus_appointment_id": "appointment_2",
+        "appointment_id": "appointment_2",
+        "appointments": {
+          "appointment_1": {
+            "active": true,
+            "appointment_id": "appointment_1",
+            "confidence": 0.99,
+            "date": {
+              "confidence": 0.99,
+              "raw_value": "donnerstag",
+              "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+              "updated_at": "2026-08-24T16:08:46.330062Z",
+              "value": "2026-09-03"
+            },
+            "external_action_confirmed": false,
+            "location": null,
+            "provider": null,
+            "purpose": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+            "specialty": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "status": {
+              "confidence": 1.0,
+              "raw_value": "controller_derived_no_external_action",
+              "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+              "updated_at": "2026-08-24T16:08:43.650844Z",
+              "value": "READY_TO_BOOK"
+            },
+            "time": {
+              "confidence": 0.99,
+              "raw_value": "16 Uhr",
+              "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+              "updated_at": "2026-08-24T16:08:46.330062Z",
+              "value": "16:00"
+            },
+            "updated_at": "2026-08-24T16:08:46.330062Z"
+          },
+          "appointment_2": {
+            "active": true,
+            "appointment_id": "appointment_2",
+            "confidence": 0.99,
+            "date": {
+              "confidence": 0.99,
+              "raw_value": "mittwoch",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "2026-09-02"
+            },
+            "external_action_confirmed": false,
+            "location": null,
+            "provider": null,
+            "purpose": {
+              "confidence": 0.99,
+              "raw_value": "friseurtermin",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "Friseur"
+            },
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "specialty": null,
+            "status": {
+              "confidence": 1.0,
+              "raw_value": "controller_derived_no_external_action",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "READY_TO_BOOK"
+            },
+            "time": {
+              "confidence": 0.99,
+              "raw_value": "um 14 Uhr",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "14:00"
+            },
+            "updated_at": "2026-08-24T16:08:48.537599Z"
+          }
+        },
+        "assistant_history_used_as_state_source": false,
+        "clarification_options": [],
+        "clarification_required": false,
+        "created": true,
+        "external_action_performed": false,
+        "resolution_reason": "new_explicit_appointment_entity",
+        "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+        "state": {
+          "active": true,
+          "appointment_id": "appointment_2",
+          "confidence": 0.99,
+          "date": {
+            "confidence": 0.99,
+            "raw_value": "mittwoch",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "2026-09-02"
+          },
+          "external_action_confirmed": false,
+          "location": null,
+          "provider": null,
+          "purpose": {
+            "confidence": 0.99,
+            "raw_value": "friseurtermin",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "Friseur"
+          },
+          "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+          "specialty": null,
+          "status": {
+            "confidence": 1.0,
+            "raw_value": "controller_derived_no_external_action",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "READY_TO_BOOK"
+          },
+          "time": {
+            "confidence": 0.99,
+            "raw_value": "um 14 Uhr",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "14:00"
+          },
+          "updated_at": "2026-08-24T16:08:48.537599Z"
+        },
+        "unchanged_slots_preserved": true,
+        "updated_slots": [
+          "date",
+          "time",
+          "purpose",
+          "status"
+        ]
+      },
+      "user": "Ich brauch noch 'n Friseurtermin, nächste Woche Mittwoch um 14 Uhr."
+    },
+    {
+      "assistant": "Der Friseur-Termin ist für Mittwoch, 2. September um 14 Uhr notiert. Brauchst du noch was dazu ändern?",
+      "state_event": {
+        "active_focus_appointment_id": "appointment_2",
+        "appointment_id": "appointment_2",
+        "appointments": {
+          "appointment_1": {
+            "active": true,
+            "appointment_id": "appointment_1",
+            "confidence": 0.99,
+            "date": {
+              "confidence": 0.99,
+              "raw_value": "donnerstag",
+              "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+              "updated_at": "2026-08-24T16:08:46.330062Z",
+              "value": "2026-09-03"
+            },
+            "external_action_confirmed": false,
+            "location": null,
+            "provider": null,
+            "purpose": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+            "specialty": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "status": {
+              "confidence": 1.0,
+              "raw_value": "controller_derived_no_external_action",
+              "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+              "updated_at": "2026-08-24T16:08:43.650844Z",
+              "value": "READY_TO_BOOK"
+            },
+            "time": {
+              "confidence": 0.99,
+              "raw_value": "16 Uhr",
+              "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+              "updated_at": "2026-08-24T16:08:46.330062Z",
+              "value": "16:00"
+            },
+            "updated_at": "2026-08-24T16:08:46.330062Z"
+          },
+          "appointment_2": {
+            "active": true,
+            "appointment_id": "appointment_2",
+            "confidence": 0.99,
+            "date": {
+              "confidence": 0.99,
+              "raw_value": "mittwoch",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "2026-09-02"
+            },
+            "external_action_confirmed": false,
+            "location": null,
+            "provider": null,
+            "purpose": {
+              "confidence": 0.99,
+              "raw_value": "friseurtermin",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "Friseur"
+            },
+            "source_turn": "4e7c5b46-d27d-4bcc-9c64-e7f24e0b1546",
+            "specialty": null,
+            "status": {
+              "confidence": 1.0,
+              "raw_value": "controller_derived_no_external_action",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "READY_TO_BOOK"
+            },
+            "time": {
+              "confidence": 0.99,
+              "raw_value": "um 14 Uhr",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "14:00"
+            },
+            "updated_at": "2026-08-24T16:08:50.618313Z"
+          }
+        },
+        "assistant_history_used_as_state_source": false,
+        "clarification_options": [],
+        "clarification_required": false,
+        "created": false,
+        "external_action_performed": false,
+        "resolution_reason": "explicit_entity_reference",
+        "source_turn": "4e7c5b46-d27d-4bcc-9c64-e7f24e0b1546",
+        "state": {
+          "active": true,
+          "appointment_id": "appointment_2",
+          "confidence": 0.99,
+          "date": {
+            "confidence": 0.99,
+            "raw_value": "mittwoch",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "2026-09-02"
+          },
+          "external_action_confirmed": false,
+          "location": null,
+          "provider": null,
+          "purpose": {
+            "confidence": 0.99,
+            "raw_value": "friseurtermin",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "Friseur"
+          },
+          "source_turn": "4e7c5b46-d27d-4bcc-9c64-e7f24e0b1546",
+          "specialty": null,
+          "status": {
+            "confidence": 1.0,
+            "raw_value": "controller_derived_no_external_action",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "READY_TO_BOOK"
+          },
+          "time": {
+            "confidence": 0.99,
+            "raw_value": "um 14 Uhr",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "14:00"
+          },
+          "updated_at": "2026-08-24T16:08:50.618313Z"
+        },
+        "unchanged_slots_preserved": true,
+        "updated_slots": []
+      },
+      "user": "Der Friseurtermin, was mit dem?"
+    },
+    {
+      "assistant": "Okay, ich entferne deinen Friseur-Terminwunsch vom 2. September um 14 Uhr. Bleibt dann dein Orthopädie-Termin am Donnerstag, 3. September um 16 Uhr?",
+      "state_event": {
+        "active_focus_appointment_id": "appointment_2",
+        "appointment_id": "appointment_2",
+        "appointments": {
+          "appointment_1": {
+            "active": true,
+            "appointment_id": "appointment_1",
+            "confidence": 0.99,
+            "date": {
+              "confidence": 0.99,
+              "raw_value": "donnerstag",
+              "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+              "updated_at": "2026-08-24T16:08:46.330062Z",
+              "value": "2026-09-03"
+            },
+            "external_action_confirmed": false,
+            "location": null,
+            "provider": null,
+            "purpose": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+            "specialty": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "status": {
+              "confidence": 1.0,
+              "raw_value": "controller_derived_no_external_action",
+              "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+              "updated_at": "2026-08-24T16:08:43.650844Z",
+              "value": "READY_TO_BOOK"
+            },
+            "time": {
+              "confidence": 0.99,
+              "raw_value": "16 Uhr",
+              "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+              "updated_at": "2026-08-24T16:08:46.330062Z",
+              "value": "16:00"
+            },
+            "updated_at": "2026-08-24T16:08:46.330062Z"
+          },
+          "appointment_2": {
+            "active": false,
+            "appointment_id": "appointment_2",
+            "confidence": 1.0,
+            "date": {
+              "confidence": 0.99,
+              "raw_value": "mittwoch",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "2026-09-02"
+            },
+            "external_action_confirmed": false,
+            "location": null,
+            "provider": null,
+            "purpose": {
+              "confidence": 0.99,
+              "raw_value": "friseurtermin",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "Friseur"
+            },
+            "source_turn": "5b53a73f-2e48-486c-a3ae-7fe42a3b5bbc",
+            "specialty": null,
+            "status": {
+              "confidence": 1.0,
+              "raw_value": "local_appointment_request_cancelled",
+              "source_turn": "5b53a73f-2e48-486c-a3ae-7fe42a3b5bbc",
+              "updated_at": "2026-08-24T16:08:52.853134Z",
+              "value": "CANCELLED"
+            },
+            "time": {
+              "confidence": 0.99,
+              "raw_value": "um 14 Uhr",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "14:00"
+            },
+            "updated_at": "2026-08-24T16:08:52.853134Z"
+          }
+        },
+        "assistant_history_used_as_state_source": false,
+        "clarification_options": [],
+        "clarification_required": false,
+        "created": false,
+        "external_action_performed": false,
+        "resolution_reason": "pronoun_resolved_from_immediately_prior_explicit_focus",
+        "source_turn": "5b53a73f-2e48-486c-a3ae-7fe42a3b5bbc",
+        "state": {
+          "active": false,
+          "appointment_id": "appointment_2",
+          "confidence": 1.0,
+          "date": {
+            "confidence": 0.99,
+            "raw_value": "mittwoch",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "2026-09-02"
+          },
+          "external_action_confirmed": false,
+          "location": null,
+          "provider": null,
+          "purpose": {
+            "confidence": 0.99,
+            "raw_value": "friseurtermin",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "Friseur"
+          },
+          "source_turn": "5b53a73f-2e48-486c-a3ae-7fe42a3b5bbc",
+          "specialty": null,
+          "status": {
+            "confidence": 1.0,
+            "raw_value": "local_appointment_request_cancelled",
+            "source_turn": "5b53a73f-2e48-486c-a3ae-7fe42a3b5bbc",
+            "updated_at": "2026-08-24T16:08:52.853134Z",
+            "value": "CANCELLED"
+          },
+          "time": {
+            "confidence": 0.99,
+            "raw_value": "um 14 Uhr",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "14:00"
+          },
+          "updated_at": "2026-08-24T16:08:52.853134Z"
+        },
+        "unchanged_slots_preserved": true,
+        "updated_slots": [
+          "status"
+        ]
+      },
+      "user": "Nee, ich will ihn absagen."
+    },
+    {
+      "assistant": "Verstanden, dein Orthopädie-Termin am Donnerstag, 3. September um 16 Uhr bleibt bestehen. Okay, den Friseur-Terminwunsch habe ich entfernt.",
+      "state_event": {
+        "active_focus_appointment_id": "appointment_2",
+        "appointment_id": "appointment_2",
+        "appointments": {
+          "appointment_1": {
+            "active": true,
+            "appointment_id": "appointment_1",
+            "confidence": 0.99,
+            "date": {
+              "confidence": 0.99,
+              "raw_value": "donnerstag",
+              "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+              "updated_at": "2026-08-24T16:08:46.330062Z",
+              "value": "2026-09-03"
+            },
+            "external_action_confirmed": false,
+            "location": null,
+            "provider": null,
+            "purpose": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+            "specialty": {
+              "confidence": 0.99,
+              "raw_value": "orthopädentermin",
+              "source_turn": "c437f133-b160-4877-8164-f182dea75791",
+              "updated_at": "2026-08-24T16:08:41.573066Z",
+              "value": "Orthopädie"
+            },
+            "status": {
+              "confidence": 1.0,
+              "raw_value": "controller_derived_no_external_action",
+              "source_turn": "8ae5aece-5538-4dd2-b29c-6fa1623004cd",
+              "updated_at": "2026-08-24T16:08:43.650844Z",
+              "value": "READY_TO_BOOK"
+            },
+            "time": {
+              "confidence": 0.99,
+              "raw_value": "16 Uhr",
+              "source_turn": "1da3f504-9ddf-451b-885a-50d83eeac18b",
+              "updated_at": "2026-08-24T16:08:46.330062Z",
+              "value": "16:00"
+            },
+            "updated_at": "2026-08-24T16:08:46.330062Z"
+          },
+          "appointment_2": {
+            "active": false,
+            "appointment_id": "appointment_2",
+            "confidence": 1.0,
+            "date": {
+              "confidence": 0.99,
+              "raw_value": "mittwoch",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "2026-09-02"
+            },
+            "external_action_confirmed": false,
+            "location": null,
+            "provider": null,
+            "purpose": {
+              "confidence": 0.99,
+              "raw_value": "friseurtermin",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "Friseur"
+            },
+            "source_turn": "d8d0fc9e-ecb7-4476-a064-73fe04f2aa26",
+            "specialty": null,
+            "status": {
+              "confidence": 1.0,
+              "raw_value": "local_appointment_request_cancelled",
+              "source_turn": "5b53a73f-2e48-486c-a3ae-7fe42a3b5bbc",
+              "updated_at": "2026-08-24T16:08:52.853134Z",
+              "value": "CANCELLED"
+            },
+            "time": {
+              "confidence": 0.99,
+              "raw_value": "um 14 Uhr",
+              "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+              "updated_at": "2026-08-24T16:08:48.537599Z",
+              "value": "14:00"
+            },
+            "updated_at": "2026-08-24T16:08:55.210268Z"
+          }
+        },
+        "assistant_history_used_as_state_source": false,
+        "clarification_options": [],
+        "clarification_required": false,
+        "created": false,
+        "external_action_performed": false,
+        "resolution_reason": "explicit_entity_reference",
+        "source_turn": "d8d0fc9e-ecb7-4476-a064-73fe04f2aa26",
+        "state": {
+          "active": false,
+          "appointment_id": "appointment_2",
+          "confidence": 1.0,
+          "date": {
+            "confidence": 0.99,
+            "raw_value": "mittwoch",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "2026-09-02"
+          },
+          "external_action_confirmed": false,
+          "location": null,
+          "provider": null,
+          "purpose": {
+            "confidence": 0.99,
+            "raw_value": "friseurtermin",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "Friseur"
+          },
+          "source_turn": "d8d0fc9e-ecb7-4476-a064-73fe04f2aa26",
+          "specialty": null,
+          "status": {
+            "confidence": 1.0,
+            "raw_value": "local_appointment_request_cancelled",
+            "source_turn": "5b53a73f-2e48-486c-a3ae-7fe42a3b5bbc",
+            "updated_at": "2026-08-24T16:08:52.853134Z",
+            "value": "CANCELLED"
+          },
+          "time": {
+            "confidence": 0.99,
+            "raw_value": "um 14 Uhr",
+            "source_turn": "d9f9231c-04d3-4e0c-b540-c8a58cff0f93",
+            "updated_at": "2026-08-24T16:08:48.537599Z",
+            "value": "14:00"
+          },
+          "updated_at": "2026-08-24T16:08:55.210268Z"
+        },
+        "unchanged_slots_preserved": true,
+        "updated_slots": []
+      },
+      "user": "Nicht Orthopäde. Der soll bleiben. Den Friseurtermin brauche ich nicht mehr."
+    }
+  ]
+}

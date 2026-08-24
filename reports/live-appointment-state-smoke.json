@@ -1,39 +1,47 @@
 {
-  "captured_utc": "2026-08-24T14:30:29.501951Z",
+  "captured_utc": "2026-08-24T16:08:38.201670Z",
   "checks": {
+    "assistant_never_claims_external_action": true,
     "date_provenance_is_second_turn": true,
     "final_date_is_thursday": true,
     "final_time_is_15": true,
     "four_turns_completed": true,
     "old_friday_not_resurrected_in_later_assistant_text": true,
+    "spoken_date_matches_authoritative_state": true,
     "time_only_deltas_preserve_date": true
   },
   "final_state": {
+    "active": true,
+    "appointment_id": "appointment_1",
+    "confidence": 0.99,
     "date": {
       "confidence": 0.99,
       "raw_value": "donnerstag",
-      "source_turn": "cf414a6d-b6dd-479b-8339-dce36276f7fd",
-      "updated_at": "2026-08-24T14:30:22.089537Z",
+      "source_turn": "a7b0652c-308d-4999-a525-5fc2cab8f239",
+      "updated_at": "2026-08-24T16:08:33.112167Z",
       "value": "2026-09-10"
     },
+    "external_action_confirmed": false,
     "location": null,
     "provider": null,
     "purpose": null,
+    "source_turn": "939c1dab-94bf-4dbb-91f0-ad7e75b16a6f",
     "specialty": null,
     "status": {
-      "confidence": 0.96,
-      "raw_value": "collecting",
-      "source_turn": "a1e30ddc-6ff5-4d20-a33c-d7ed9d841a40",
-      "updated_at": "2026-08-24T14:30:19.037547Z",
-      "value": "collecting"
+      "confidence": 1.0,
+      "raw_value": "controller_derived_no_external_action",
+      "source_turn": "0765a23a-5b4c-4d87-8d6d-5aeabd19932a",
+      "updated_at": "2026-08-24T16:08:35.143070Z",
+      "value": "READY_TO_BOOK"
     },
     "time": {
       "confidence": 0.99,
       "raw_value": "15 Uhr",
-      "source_turn": "94783263-db1c-419b-8fdd-63ab39cf70c8",
-      "updated_at": "2026-08-24T14:30:26.782769Z",
+      "source_turn": "939c1dab-94bf-4dbb-91f0-ad7e75b16a6f",
+      "updated_at": "2026-08-24T16:08:36.767567Z",
       "value": "15:00"
-    }
+    },
+    "updated_at": "2026-08-24T16:08:36.767567Z"
   },
   "manual_validation": "REQUIRED_NOT_ATTESTED",
   "schema_version": 1,
@@ -41,27 +49,33 @@
   "tts_ab_selection": "baseline",
   "turns": [
     {
-      "assistant": "Ich bin HumanFlow, ein KI-Assistent. Der Termin für nächsten Freitag, den 29. August, ist notiert. Um welche Uhrzeit soll es sein?",
+      "assistant": "Ich bin HumanFlow, ein KI-Assistent. Deinen Terminwunsch habe ich für Freitag, den 28. August notiert. Wofür ist der Termin?",
       "state": {
+        "active": true,
+        "appointment_id": "appointment_1",
+        "confidence": 0.94,
         "date": {
           "confidence": 0.94,
           "raw_value": "freitag",
-          "source_turn": "a1e30ddc-6ff5-4d20-a33c-d7ed9d841a40",
-          "updated_at": "2026-08-24T14:30:19.037547Z",
+          "source_turn": "6647dfc7-05f0-45e0-8186-f4baf41965d2",
+          "updated_at": "2026-08-24T16:08:30.363914Z",
           "value": "2026-08-28"
         },
+        "external_action_confirmed": false,
         "location": null,
         "provider": null,
         "purpose": null,
+        "source_turn": "6647dfc7-05f0-45e0-8186-f4baf41965d2",
         "specialty": null,
         "status": {
-          "confidence": 0.96,
-          "raw_value": "collecting",
-          "source_turn": "a1e30ddc-6ff5-4d20-a33c-d7ed9d841a40",
-          "updated_at": "2026-08-24T14:30:19.037547Z",
-          "value": "collecting"
+          "confidence": 1.0,
+          "raw_value": "controller_derived_no_external_action",
+          "source_turn": "6647dfc7-05f0-45e0-8186-f4baf41965d2",
+          "updated_at": "2026-08-24T16:08:30.363914Z",
+          "value": "COLLECTING_DETAILS"
         },
-        "time": null
+        "time": null,
+        "updated_at": "2026-08-24T16:08:30.363914Z"
       },
       "updated_slots": [
         "date",
@@ -70,27 +84,33 @@
       "user": "Ich möchte den Termin nächsten Freitag."
     },
     {
-      "assistant": "Okay, Termin auf Donnerstag, den 4. September verschoben. Welche Uhrzeit passt dir?",
+      "assistant": "Perfekt, dann der Terminwunsch für Donnerstag, den 10. September. Wofür brauchst du den Termin?",
       "state": {
+        "active": true,
+        "appointment_id": "appointment_1",
+        "confidence": 0.99,
         "date": {
           "confidence": 0.99,
           "raw_value": "donnerstag",
-          "source_turn": "cf414a6d-b6dd-479b-8339-dce36276f7fd",
-          "updated_at": "2026-08-24T14:30:22.089537Z",
+          "source_turn": "a7b0652c-308d-4999-a525-5fc2cab8f239",
+          "updated_at": "2026-08-24T16:08:33.112167Z",
           "value": "2026-09-10"
         },
+        "external_action_confirmed": false,
         "location": null,
         "provider": null,
         "purpose": null,
+        "source_turn": "a7b0652c-308d-4999-a525-5fc2cab8f239",
         "specialty": null,
         "status": {
-          "confidence": 0.96,
-          "raw_value": "collecting",
-          "source_turn": "a1e30ddc-6ff5-4d20-a33c-d7ed9d841a40",
-          "updated_at": "2026-08-24T14:30:19.037547Z",
-          "value": "collecting"
+          "confidence": 1.0,
+          "raw_value": "controller_derived_no_external_action",
+          "source_turn": "6647dfc7-05f0-45e0-8186-f4baf41965d2",
+          "updated_at": "2026-08-24T16:08:30.363914Z",
+          "value": "COLLECTING_DETAILS"
         },
-        "time": null
+        "time": null,
+        "updated_at": "2026-08-24T16:08:33.112167Z"
       },
       "updated_slots": [
         "date"
@@ -98,67 +118,80 @@
       "user": "Äh, machen wir übernächste Woche Donnerstag, das wäre besser."
     },
     {
-      "assistant": "Perfekt, dein Termin ist auf Donnerstag, den 4. September um 14 Uhr festgehalten. Braucht es noch etwas?",
+      "assistant": "Alles klar, 14 Uhr passt. Wofür ist der Termin?",
       "state": {
+        "active": true,
+        "appointment_id": "appointment_1",
+        "confidence": 0.99,
         "date": {
           "confidence": 0.99,
           "raw_value": "donnerstag",
-          "source_turn": "cf414a6d-b6dd-479b-8339-dce36276f7fd",
-          "updated_at": "2026-08-24T14:30:22.089537Z",
+          "source_turn": "a7b0652c-308d-4999-a525-5fc2cab8f239",
+          "updated_at": "2026-08-24T16:08:33.112167Z",
           "value": "2026-09-10"
         },
+        "external_action_confirmed": false,
         "location": null,
         "provider": null,
         "purpose": null,
+        "source_turn": "0765a23a-5b4c-4d87-8d6d-5aeabd19932a",
         "specialty": null,
         "status": {
-          "confidence": 0.96,
-          "raw_value": "collecting",
-          "source_turn": "a1e30ddc-6ff5-4d20-a33c-d7ed9d841a40",
-          "updated_at": "2026-08-24T14:30:19.037547Z",
-          "value": "collecting"
+          "confidence": 1.0,
+          "raw_value": "controller_derived_no_external_action",
+          "source_turn": "0765a23a-5b4c-4d87-8d6d-5aeabd19932a",
+          "updated_at": "2026-08-24T16:08:35.143070Z",
+          "value": "READY_TO_BOOK"
         },
         "time": {
           "confidence": 0.99,
           "raw_value": "gegen 14 Uhr",
-          "source_turn": "e29f4d01-bf97-4f0c-bc50-ec632368fcf9",
-          "updated_at": "2026-08-24T14:30:24.439519Z",
+          "source_turn": "0765a23a-5b4c-4d87-8d6d-5aeabd19932a",
+          "updated_at": "2026-08-24T16:08:35.143070Z",
           "value": "14:00"
-        }
+        },
+        "updated_at": "2026-08-24T16:08:35.143070Z"
       },
       "updated_slots": [
-        "time"
+        "time",
+        "status"
       ],
       "user": "Am besten gegen 14 Uhr."
     },
     {
-      "assistant": "Okay, Termin auf 15 Uhr geändert. Donnerstag, den 4. September um 15 Uhr ist notiert.",
+      "assistant": "Notiert, 15 Uhr für deinen Termin. Wofür brauchst du den?",
       "state": {
+        "active": true,
+        "appointment_id": "appointment_1",
+        "confidence": 0.99,
         "date": {
           "confidence": 0.99,
           "raw_value": "donnerstag",
-          "source_turn": "cf414a6d-b6dd-479b-8339-dce36276f7fd",
-          "updated_at": "2026-08-24T14:30:22.089537Z",
+          "source_turn": "a7b0652c-308d-4999-a525-5fc2cab8f239",
+          "updated_at": "2026-08-24T16:08:33.112167Z",
           "value": "2026-09-10"
         },
+        "external_action_confirmed": false,
         "location": null,
         "provider": null,
         "purpose": null,
+        "source_turn": "939c1dab-94bf-4dbb-91f0-ad7e75b16a6f",
         "specialty": null,
         "status": {
-          "confidence": 0.96,
-          "raw_value": "collecting",
-          "source_turn": "a1e30ddc-6ff5-4d20-a33c-d7ed9d841a40",
-          "updated_at": "2026-08-24T14:30:19.037547Z",
-          "value": "collecting"
+          "confidence": 1.0,
+          "raw_value": "controller_derived_no_external_action",
+          "source_turn": "0765a23a-5b4c-4d87-8d6d-5aeabd19932a",
+          "updated_at": "2026-08-24T16:08:35.143070Z",
+          "value": "READY_TO_BOOK"
         },
         "time": {
           "confidence": 0.99,
           "raw_value": "15 Uhr",
-          "source_turn": "94783263-db1c-419b-8fdd-63ab39cf70c8",
-          "updated_at": "2026-08-24T14:30:26.782769Z",
+          "source_turn": "939c1dab-94bf-4dbb-91f0-ad7e75b16a6f",
+          "updated_at": "2026-08-24T16:08:36.767567Z",
           "value": "15:00"
-        }
+        },
+        "updated_at": "2026-08-24T16:08:36.767567Z"
       },
       "updated_slots": [
         "time"
