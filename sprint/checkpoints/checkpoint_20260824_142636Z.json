@@ -1,0 +1,39 @@
+{
+  "benchmark": {
+    "dataset": {
+      "cases": 50,
+      "path": "tests/golden/turn_cases.jsonl",
+      "sha256": "89e2e2c0ae56e2a88c2a7a2cf7a956365b3ed3004b5f7cfffb6fbaf1d6f48e99"
+    },
+    "evaluations": [
+      {
+        "accuracy": 0.2,
+        "correct": 10,
+        "policy_name": "FixedSilencePolicy",
+        "total": 50
+      },
+      {
+        "accuracy": 1.0,
+        "correct": 50,
+        "policy_name": "HybridTurnPolicy",
+        "total": 50
+      }
+    ],
+    "path": "reports/turn-benchmark.json",
+    "sha256": "3fad332fba07a4c6485d424c635e4f866288fbea922828a5d7148c02db9537af",
+    "winner": "HybridTurnPolicy"
+  },
+  "event": "CHECKPOINT_CREATED",
+  "lint": {
+    "command": "ruff check .",
+    "output": "All checks passed!",
+    "status": "PASS"
+  },
+  "schema_version": 1,
+  "source_commit": "7d759a5d816da549dbc6a4f0bde76f7435e560fc",
+  "tests": {
+    "command": "python3 -m pytest -q",
+    "passed": 118
+  },
+  "timestamp_utc": "2026-08-24T14:26:36.032899Z"
+}
