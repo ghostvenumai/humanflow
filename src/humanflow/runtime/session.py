@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from time import monotonic_ns
 from typing import Callable
 from uuid import uuid4
@@ -27,6 +27,11 @@ from .providers import (
     TranscriptUpdate,
     provider_info,
 )
+from .acoustic_barge_in import (
+    AcousticBargeInDetector,
+    AcousticBargeInEvent,
+    AcousticEventType,
+)
 from .prosody import ProsodyPlanner
 from .self_speech import SelfSpeechAssessment, SelfSpeechGuard
 from .transcript_events import (
@@ -41,6 +46,24 @@ _BARGE_IN_PREFIX = re.compile(
     r"warte(?:\s+mal)?|halt)\b[\s,.:;!?\-]*(?P<followup>.*)$",
     re.IGNORECASE,
 )
+
+
+@dataclass(slots=True)
+class _SoftYieldEpisode:
+    response_id: str
+    correlation_id: str
+    speech_onset_ns: int
+    possible_interruption_ns: int
+    speech_ended_ns: int | None = None
+    duck_ack_ns: int | None = None
+    resume_requested_ns: int | None = None
+    resume_ack_ns: int | None = None
+    hard_confirmed_ns: int | None = None
+    cancel_signal_ns: int | None = None
+    first_partial_ns: int | None = None
+    final_transcript_ns: int | None = None
+    classification: str = "PENDING"
+    backchannel_recovery_recorded: bool = False
 
 
 class RealtimeVoiceSession:
@@ -58,11 +81,15 @@ class RealtimeVoiceSession:
         turn_policy: HybridTurnPolicy | None = None,
         prosody_planner: ProsodyPlanner | None = None,
         self_speech_guard: SelfSpeechGuard | None = None,
+        acoustic_barge_in_detector: AcousticBargeInDetector | None = None,
+        soft_yield_recovery_delay_ms: float = 420.0,
         input_queue_size: int = 256,
         clock_ns: Callable[[], int] = monotonic_ns,
     ) -> None:
         if input_queue_size < 1:
             raise ValueError("input_queue_size must be positive")
+        if soft_yield_recovery_delay_ms < 0:
+            raise ValueError("soft yield recovery delay must be non-negative")
         self.state_machine = ConversationStateMachine(
             conversation_id=conversation_id,
             sink=sink,
@@ -76,6 +103,10 @@ class RealtimeVoiceSession:
         self._turn_policy = turn_policy or HybridTurnPolicy()
         self._prosody_planner = prosody_planner or ProsodyPlanner()
         self._self_speech_guard = self_speech_guard or SelfSpeechGuard()
+        self._acoustic_barge_in = (
+            acoustic_barge_in_detector or AcousticBargeInDetector()
+        )
+        self._soft_yield_recovery_delay_ms = soft_yield_recovery_delay_ms
         self._input_queue: asyncio.Queue[AudioFrame | None] = asyncio.Queue(input_queue_size)
         self._clock_ns = clock_ns
         self._input_task: asyncio.Task[None] | None = None
@@ -96,6 +127,9 @@ class RealtimeVoiceSession:
         self._seen_final_transcript_ids: set[str] = set()
         self._accepted_user_turn_ids: set[str] = set()
         self._user_audio_active = False
+        self._soft_yield: _SoftYieldEpisode | None = None
+        self._acoustic_interrupt_task: asyncio.Task[float | None] | None = None
+        self._soft_resume_task: asyncio.Task[None] | None = None
         self._stt_failure_type: str | None = None
         self._closed = False
 
@@ -152,6 +186,20 @@ class RealtimeVoiceSession:
             raise RuntimeError("session is not running")
         if self._stt_failure_type is not None or self._input_task.done():
             raise RuntimeError("streaming STT input pipeline is unavailable")
+        assistant_playback_active = (
+            self.response_active
+            and self._response_id is not None
+            and self.state
+            in {
+                ConversationState.SPEAKING,
+                ConversationState.POSSIBLE_INTERRUPTION,
+                ConversationState.OVERLAP,
+            }
+        )
+        for event in self._acoustic_barge_in.observe(
+            frame, assistant_playback_active=assistant_playback_active
+        ):
+            self._handle_acoustic_barge_in(event)
         try:
             self._input_queue.put_nowait(frame)
         except asyncio.QueueFull as error:
@@ -345,14 +393,183 @@ class RealtimeVoiceSession:
             )
         return decision
 
-    async def interrupt(self, *, correlation_id: str | None = None) -> float | None:
+    def _handle_acoustic_barge_in(self, event: AcousticBargeInEvent) -> None:
+        """React to PCM VAD before STT produces language."""
+
+        response_id = self._response_id
+        if response_id is None or not self.response_active:
+            return
+        observed_ns = event.observed_ns or self._clock_ns()
+        speech_onset_ns = event.speech_onset_ns or observed_ns
+        payload = {
+            "response_id": response_id,
+            "speech_onset_ns": speech_onset_ns,
+            "observed_ns": observed_ns,
+            "rms": event.rms,
+            "peak": event.peak,
+            "threshold": event.threshold,
+            "speech_duration_ms": event.speech_duration_ms,
+            "acoustic_speech_onset_latency_ms": event.detection_latency_ms,
+            "source": "AUTHORITATIVE_GETUSERMEDIA_PCM16",
+            "stt_dependency": "NONE",
+        }
+        if event.event_type is AcousticEventType.SPEECH_ONSET:
+            if (
+                self._soft_yield is not None
+                and self._soft_yield.response_id == response_id
+                and self._soft_yield.speech_ended_ns is None
+            ):
+                return
+            correlation_id = str(uuid4())
+            self._soft_yield = _SoftYieldEpisode(
+                response_id=response_id,
+                correlation_id=correlation_id,
+                speech_onset_ns=speech_onset_ns,
+                possible_interruption_ns=observed_ns,
+            )
+            self._user_audio_active = True
+            self.state_machine.record(
+                EventType.USER_AUDIO_STARTED,
+                correlation_id=correlation_id,
+                reason_code="authoritative_pcm_vad_speech_onset",
+                payload=payload,
+            )
+            self.state_machine.record(
+                EventType.POSSIBLE_INTERRUPTION,
+                correlation_id=correlation_id,
+                reason_code="stable_pcm_speech_during_assistant_playback",
+                payload=payload,
+            )
+            duck_requested_ns = self._clock_ns()
+            self.state_machine.record(
+                EventType.PLAYBACK_DUCK_REQUESTED,
+                correlation_id=correlation_id,
+                reason_code="soft_yield_before_semantic_classification",
+                payload={
+                    **payload,
+                    "duck_requested_ns": duck_requested_ns,
+                    "speech_onset_to_duck_request_ms": max(
+                        0.0,
+                        (duck_requested_ns - speech_onset_ns) / 1_000_000.0,
+                    ),
+                },
+            )
+            duck = getattr(self._audio_output, "soft_duck", None)
+            if callable(duck):
+                duck(response_id=response_id, speech_onset_ns=speech_onset_ns)
+            return
+
+        episode = self._soft_yield
+        if episode is None or episode.response_id != response_id:
+            return
+        if event.event_type is AcousticEventType.SUSTAINED_TAKEOVER:
+            if episode.hard_confirmed_ns is not None or self._cancel_event.is_set():
+                return
+            episode.classification = "SUSTAINED_TAKEOVER"
+            if self._soft_resume_task is not None:
+                self._soft_resume_task.cancel()
+            self._acoustic_interrupt_task = asyncio.create_task(
+                self.interrupt(
+                    correlation_id=episode.correlation_id,
+                    speech_onset_ns=episode.speech_onset_ns,
+                    reason_code="acoustic_sustained_takeover",
+                ),
+                name=f"humanflow-acoustic-interrupt-{response_id}",
+            )
+            return
+
+        if event.event_type is AcousticEventType.SPEECH_ENDED:
+            episode.speech_ended_ns = observed_ns
+            self._user_audio_active = False
+            self.state_machine.record(
+                EventType.USER_AUDIO_STOPPED,
+                correlation_id=episode.correlation_id,
+                reason_code="authoritative_pcm_vad_speech_ended",
+                payload=payload,
+            )
+            if episode.hard_confirmed_ns is not None or self._cancel_event.is_set():
+                return
+            episode.classification = "AWAITING_STT_OR_TRANSIENT_RECOVERY"
+            if self._soft_resume_task is not None:
+                self._soft_resume_task.cancel()
+            self._soft_resume_task = asyncio.create_task(
+                self._resume_soft_yield_after_classification_window(episode),
+                name=f"humanflow-soft-resume-{response_id}",
+            )
+
+    async def _resume_soft_yield_after_classification_window(
+        self, episode: _SoftYieldEpisode
+    ) -> None:
+        try:
+            await asyncio.sleep(self._soft_yield_recovery_delay_ms / 1_000.0)
+        except asyncio.CancelledError:
+            return
+        if (
+            self._soft_yield is not episode
+            or episode.hard_confirmed_ns is not None
+            or self._cancel_event.is_set()
+        ):
+            return
+        self._request_playback_resume(
+            episode, reason_code="uncertain_transient_classification_window_elapsed"
+        )
+
+    def _request_playback_resume(
+        self, episode: _SoftYieldEpisode, *, reason_code: str
+    ) -> None:
+        if episode.resume_requested_ns is not None:
+            return
+        episode.resume_requested_ns = self._clock_ns()
+        self.state_machine.record(
+            EventType.PLAYBACK_RESUME_REQUESTED,
+            correlation_id=episode.correlation_id,
+            reason_code=reason_code,
+            payload={
+                "response_id": episode.response_id,
+                "speech_onset_ns": episode.speech_onset_ns,
+                "speech_ended_ns": episode.speech_ended_ns,
+                "resume_requested_ns": episode.resume_requested_ns,
+                "classification_hold_ms": self._soft_yield_recovery_delay_ms,
+            },
+        )
+        resume = getattr(self._audio_output, "resume_playback", None)
+        if callable(resume):
+            resume(
+                response_id=episode.response_id,
+                speech_onset_ns=episode.speech_onset_ns,
+            )
+
+    async def interrupt(
+        self,
+        *,
+        correlation_id: str | None = None,
+        speech_onset_ns: int | None = None,
+        reason_code: str = "intentional_interruption",
+    ) -> float | None:
         """Stop audible output and return request-to-actual-stop latency in milliseconds."""
         if not self.response_active:
             return None
         correlation_id = correlation_id or str(uuid4())
         request_ns = self._clock_ns()
+        if self._cancel_event.is_set():
+            await self._audio_stopped.wait()
+            receipt = self._last_playback_receipt
+            if receipt is None or not receipt.cancelled:
+                return None
+            return max(
+                0.0,
+                (receipt.playback_stopped_ns - request_ns) / 1_000_000.0,
+            )
         self._cancel_requested_ns = request_ns
         self._cancel_correlation_id = correlation_id
+        episode = self._soft_yield
+        if episode is not None and episode.response_id == self._response_id:
+            speech_onset_ns = episode.speech_onset_ns
+            episode.hard_confirmed_ns = request_ns
+            episode.classification = "INTENTIONAL_INTERRUPTION"
+            if self._soft_resume_task is not None:
+                self._soft_resume_task.cancel()
+        speech_onset_ns = speech_onset_ns or request_ns
         state = self.state
         if state is ConversationState.SPEAKING:
             self.state_machine.transition(
@@ -371,6 +588,15 @@ class RealtimeVoiceSession:
                 reason_code="intentional_interruption_confirmed",
                 correlation_id=correlation_id,
             )
+        elif state in {
+            ConversationState.POSSIBLE_INTERRUPTION,
+            ConversationState.OVERLAP,
+        }:
+            self.state_machine.transition(
+                ConversationState.INTERRUPTED,
+                reason_code="intentional_interruption_confirmed",
+                correlation_id=correlation_id,
+            )
         elif state is ConversationState.THINKING:
             self.state_machine.transition(
                 ConversationState.INTERRUPTED,
@@ -384,17 +610,123 @@ class RealtimeVoiceSession:
         self.state_machine.record(
             EventType.INTERRUPTION_CONFIRMED,
             correlation_id=correlation_id,
-            reason_code="intentional_interruption",
-            payload={"detected_ns": request_ns},
+            reason_code=reason_code,
+            payload={
+                "speech_onset_ns": speech_onset_ns,
+                "confirmed_ns": request_ns,
+                "speech_onset_to_hard_cancel_ms": max(
+                    0.0, (request_ns - speech_onset_ns) / 1_000_000.0
+                ),
+            },
         )
-        self._cancel_event.set()
         if self._response_id is not None:
             self._cancelled_response_ids.add(self._response_id)
+            invalidate = getattr(self._audio_output, "invalidate_response", None)
+            if callable(invalidate):
+                invalidate(
+                    response_id=self._response_id,
+                    speech_onset_ns=speech_onset_ns,
+                )
+        cancel_signal_ns = self._clock_ns()
+        if episode is not None and episode.response_id == self._response_id:
+            episode.cancel_signal_ns = cancel_signal_ns
+        self.state_machine.record(
+            EventType.AUDIO_CANCEL_SIGNAL,
+            correlation_id=correlation_id,
+            reason_code="active_response_epoch_invalidated",
+            payload={
+                "response_id": self._response_id,
+                "speech_onset_ns": speech_onset_ns,
+                "cancel_signal_ns": cancel_signal_ns,
+                "speech_onset_to_cancel_signal_ms": max(
+                    0.0, (cancel_signal_ns - speech_onset_ns) / 1_000_000.0
+                ),
+            },
+        )
+        self._cancel_event.set()
         await self._audio_stopped.wait()
         receipt = self._last_playback_receipt
         if receipt is None or not receipt.cancelled:
             return None
         return max(0.0, (receipt.playback_stopped_ns - request_ns) / 1_000_000.0)
+
+    def acknowledge_playback_control(self, message: dict[str, object]) -> bool:
+        """Record browser-applied duck/resume receipts on the server clock."""
+
+        message_type = message.get("type")
+        response_id = message.get("response_id")
+        episode = self._soft_yield
+        if (
+            episode is None
+            or not isinstance(response_id, str)
+            or response_id != episode.response_id
+        ):
+            return False
+        acknowledged_ns = self._clock_ns()
+        if message_type == "playback_ducked" and episode.duck_ack_ns is None:
+            episode.duck_ack_ns = acknowledged_ns
+            self.state_machine.record(
+                EventType.PLAYBACK_DUCK_STARTED,
+                correlation_id=episode.correlation_id,
+                reason_code="browser_gain_duck_acknowledged",
+                payload={
+                    "response_id": response_id,
+                    "speech_onset_ns": episode.speech_onset_ns,
+                    "duck_ack_ns": acknowledged_ns,
+                    "speech_onset_to_soft_duck_ms": max(
+                        0.0,
+                        (acknowledged_ns - episode.speech_onset_ns) / 1_000_000.0,
+                    ),
+                    "target_gain": message.get("target_gain"),
+                    "measurement_scope": "server_pcm_onset_to_browser_ack_upper_bound",
+                },
+            )
+            return True
+        if message_type == "playback_resumed" and episode.resume_ack_ns is None:
+            episode.resume_ack_ns = acknowledged_ns
+            self.state_machine.record(
+                EventType.PLAYBACK_RESUMED,
+                correlation_id=episode.correlation_id,
+                reason_code="browser_gain_resume_acknowledged",
+                payload={
+                    "response_id": response_id,
+                    "speech_onset_ns": episode.speech_onset_ns,
+                    "resume_ack_ns": acknowledged_ns,
+                    "speech_onset_to_playback_resume_ms": max(
+                        0.0,
+                        (acknowledged_ns - episode.speech_onset_ns) / 1_000_000.0,
+                    ),
+                    "measurement_scope": "server_pcm_onset_to_browser_ack_upper_bound",
+                },
+            )
+            if episode.classification == "BACKCHANNEL":
+                self._record_backchannel_recovery(episode, text=None)
+            return True
+        return False
+
+    def _record_backchannel_recovery(
+        self, episode: _SoftYieldEpisode, *, text: str | None
+    ) -> None:
+        if (
+            episode.backchannel_recovery_recorded
+            or episode.resume_ack_ns is None
+        ):
+            return
+        episode.backchannel_recovery_recorded = True
+        self.state_machine.record(
+            EventType.BACKCHANNEL_RECOVERY,
+            correlation_id=episode.correlation_id,
+            reason_code="backchannel_classified_and_playback_resumed",
+            payload={
+                "response_id": episode.response_id,
+                "text": text,
+                "backchannel_recovery_latency_ms": max(
+                    0.0,
+                    (episode.resume_ack_ns - episode.speech_onset_ns)
+                    / 1_000_000.0,
+                ),
+            },
+        )
 
     async def wait_for_response(self) -> None:
         task = self._response_task
@@ -413,6 +745,13 @@ class RealtimeVoiceSession:
         if self.response_active:
             await self.interrupt(correlation_id=str(uuid4()))
             await self.wait_for_response()
+        if self._acoustic_interrupt_task is not None:
+            await asyncio.gather(
+                self._acoustic_interrupt_task, return_exceptions=True
+            )
+        if self._soft_resume_task is not None:
+            self._soft_resume_task.cancel()
+            await asyncio.gather(self._soft_resume_task, return_exceptions=True)
         self._closed = True
         if self._input_task is not None:
             if self._input_task.done():
@@ -490,8 +829,26 @@ class RealtimeVoiceSession:
         transcript_provider = update.provider or provider_info(
             self._transcriber, role="stt"
         )
+        transcript_ns = update.provenance.timestamp_ns or self._clock_ns()
+        episode = self._soft_yield
+        stt_timing: dict[str, float] = {}
+        if episode is not None and transcript_ns >= episode.speech_onset_ns:
+            latency_ms = max(
+                0.0, (transcript_ns - episode.speech_onset_ns) / 1_000_000.0
+            )
+            if update.is_final:
+                episode.final_transcript_ns = transcript_ns
+                stt_timing["final_stt_ms"] = latency_ms
+            elif episode.first_partial_ns is None:
+                episode.first_partial_ns = transcript_ns
+                stt_timing["first_stt_partial_ms"] = latency_ms
         speech_active = update.signals.speech_active
-        if speech_active and not self._user_audio_active:
+        acoustic_episode_active = (
+            episode is not None
+            and transcript_ns >= episode.speech_onset_ns
+            and transcript_ns - episode.speech_onset_ns <= 5_000_000_000
+        )
+        if speech_active and not self._user_audio_active and not acoustic_episode_active:
             self._user_audio_active = True
             self.state_machine.record(
                 EventType.USER_AUDIO_STARTED,
@@ -519,6 +876,7 @@ class RealtimeVoiceSession:
                 "partial_transcript_to_user_history": (
                     "FORBIDDEN" if not update.is_final else None
                 ),
+                **stt_timing,
                 "signals": {
                     "speech_active": update.signals.speech_active,
                     "silence_duration_ms": update.signals.silence_duration_ms,
@@ -535,7 +893,7 @@ class RealtimeVoiceSession:
             ConversationState.SPEAKING,
             ConversationState.POSSIBLE_INTERRUPTION,
             ConversationState.OVERLAP,
-        }
+        } or acoustic_episode_active
         signals = replace(
             update.signals,
             partial_transcript="" if update.is_final else update.text,
@@ -543,6 +901,19 @@ class RealtimeVoiceSession:
             agent_speaking=agent_speaking,
         )
         decision = self._turn_policy.decide(signals)
+        semantic_acoustic_takeover = (
+            update.is_final
+            and acoustic_episode_active
+            and decision.decision is not TurnDecisionType.BACKCHANNEL
+            and not update.signals.filler_ending
+        )
+        if semantic_acoustic_takeover and decision.decision is not TurnDecisionType.INTERRUPTION:
+            decision = TurnDecision(
+                TurnDecisionType.INTERRUPTION,
+                0.92,
+                ("acoustic_overlap_with_semantic_takeover",),
+                ("authoritative_pcm_vad", "final_transcript", "agent_playback_overlap"),
+            )
         self.state_machine.record(
             EventType.TURN_CANDIDATE,
             correlation_id=correlation_id,
@@ -556,6 +927,29 @@ class RealtimeVoiceSession:
         )
 
         if decision.decision is TurnDecisionType.BACKCHANNEL:
+            if episode is not None and acoustic_episode_active:
+                episode.classification = "BACKCHANNEL"
+                if episode.hard_confirmed_ns is not None:
+                    self.state_machine.record(
+                        EventType.FALSE_INTERRUPTION_DETECTED,
+                        correlation_id=episode.correlation_id,
+                        reason_code="backchannel_was_hard_cancelled",
+                        payload={
+                            "response_id": episode.response_id,
+                            "text": update.text,
+                            "false_interruption_count_increment": 1,
+                        },
+                    )
+                if episode.resume_ack_ns is not None:
+                    self._record_backchannel_recovery(
+                        episode, text=update.text
+                    )
+                elif self.response_active:
+                    if self._soft_resume_task is not None:
+                        self._soft_resume_task.cancel()
+                    self._request_playback_resume(
+                        episode, reason_code="semantic_backchannel_classified"
+                    )
             self.state_machine.record(
                 EventType.BACKCHANNEL_DETECTED,
                 correlation_id=correlation_id,
@@ -581,8 +975,28 @@ class RealtimeVoiceSession:
                 correlation_id=correlation_id,
             )
         elif decision.decision is TurnDecisionType.INTERRUPTION:
-            await self.interrupt(correlation_id=correlation_id)
-            followup = _barge_in_followup(update.text) if update.is_final else ""
+            await self.interrupt(
+                correlation_id=(
+                    episode.correlation_id
+                    if episode is not None and acoustic_episode_active
+                    else correlation_id
+                ),
+                speech_onset_ns=(
+                    episode.speech_onset_ns
+                    if episode is not None and acoustic_episode_active
+                    else None
+                ),
+                reason_code=(
+                    "semantic_takeover_after_soft_yield"
+                    if semantic_acoustic_takeover
+                    else "intentional_interruption"
+                ),
+            )
+            followup = ""
+            if update.is_final:
+                followup = _barge_in_followup(update.text)
+                if semantic_acoustic_takeover and not followup:
+                    followup = update.text.strip()
             if followup:
                 await self.wait_for_response()
                 self.state_machine.record(
@@ -640,6 +1054,9 @@ class RealtimeVoiceSession:
         self._cancel_requested_ns = None
         self._cancel_correlation_id = None
         self._last_playback_receipt = None
+        if self._soft_resume_task is not None:
+            self._soft_resume_task.cancel()
+        self._soft_yield = None
         self._response_id = str(uuid4())
         self._response_token = self.state_machine.issue_operation(kind="reasoning_and_speech")
         history_user_count_before = (
@@ -1341,6 +1758,20 @@ class RealtimeVoiceSession:
             if requested_ns is None
             else max(0.0, (receipt.playback_stopped_ns - requested_ns) / 1_000_000.0)
         )
+        episode = self._soft_yield
+        speech_onset_ns = (
+            episode.speech_onset_ns
+            if episode is not None and episode.response_id == response_id
+            else requested_ns
+        )
+        speech_onset_to_audible_stop_ms = (
+            None
+            if speech_onset_ns is None
+            else max(
+                0.0,
+                (receipt.playback_stopped_ns - speech_onset_ns) / 1_000_000.0,
+            )
+        )
         self.state_machine.record(
             EventType.AGENT_AUDIO_CANCELLED,
             correlation_id=correlation_id,
@@ -1353,12 +1784,44 @@ class RealtimeVoiceSession:
                 "playback_stopped_ns": receipt.playback_stopped_ns,
                 "cancel_requested_ns": requested_ns,
                 "audible_barge_in_latency_ms": latency_ms,
+                "speech_onset_ns": speech_onset_ns,
+                "speech_onset_to_hard_cancel_ms": (
+                    None
+                    if episode is None or episode.hard_confirmed_ns is None
+                    else max(
+                        0.0,
+                        (
+                            episode.hard_confirmed_ns
+                            - episode.speech_onset_ns
+                        )
+                        / 1_000_000.0,
+                    )
+                ),
+                "speech_onset_to_audible_stop_ms": (
+                    speech_onset_to_audible_stop_ms
+                ),
                 "player_stop_callback_latency_ms": (
                     receipt.player_stop_callback_latency_ms
                 ),
                 "sink_output_latency_ms": receipt.sink_output_latency_ms,
                 "delivered_text": self.ledger.delivered_text(response_id=response_id),
                 "unheard_text": self.ledger.unheard_text(response_id=response_id),
+            },
+        )
+        self.state_machine.record(
+            EventType.AUDIBLE_STOP_ACK,
+            correlation_id=correlation_id,
+            reason_code="browser_confirmed_zero_future_old_response_audio",
+            payload={
+                "response_id": response_id,
+                "chunk_id": receipt.chunk_id,
+                "speech_onset_ns": speech_onset_ns,
+                "playback_stopped_ns": receipt.playback_stopped_ns,
+                "speech_onset_to_audible_stop_ms": (
+                    speech_onset_to_audible_stop_ms
+                ),
+                "future_audible_audio_from_old_response": 0,
+                "cancelled_epoch_future_playback": "FORBIDDEN",
             },
         )
 

@@ -54,7 +54,7 @@ from humanflow.runtime.transcript_events import (
     TranscriptRejected,
     normalize_transcript,
 )
-from humanflow.telemetry.events import EventType
+from humanflow.telemetry.events import EventType, TelemetryEvent
 from humanflow.turns.models import TurnSignals
 
 from .transport import (
@@ -159,6 +159,93 @@ class PcmAudioRouteState:
         if current != (None, None) and current != binding:
             raise RuntimeError("pcm_audio_source_binding_is_immutable")
         self.audio_capture_id, self.microphone_stream_id = binding
+
+
+@dataclass(slots=True)
+class LiveBargeInMetrics:
+    """Latest real browser-session values; never substitutes human judgement."""
+
+    values: dict[str, float] = dataclass_field(default_factory=dict)
+    sample_counts: dict[str, int] = dataclass_field(default_factory=dict)
+    false_interruption_count: int = 0
+    conversation_id: str | None = None
+
+    _EVENT_FIELDS = {
+        EventType.USER_AUDIO_STARTED: (
+            "acoustic_speech_onset_latency_ms",
+            "acoustic_speech_onset_latency_ms",
+        ),
+        EventType.PLAYBACK_DUCK_STARTED: (
+            "speech_onset_to_soft_duck_ms",
+            "speech_onset_to_soft_duck_ms",
+        ),
+        EventType.INTERRUPTION_CONFIRMED: (
+            "speech_onset_to_hard_cancel_ms",
+            "speech_onset_to_hard_cancel_ms",
+        ),
+        EventType.AUDIBLE_STOP_ACK: (
+            "speech_onset_to_audible_stop_ms",
+            "speech_onset_to_audible_stop_ms",
+        ),
+        EventType.BACKCHANNEL_RECOVERY: (
+            "backchannel_recovery_latency_ms",
+            "backchannel_recovery_latency_ms",
+        ),
+        EventType.PARTIAL_TRANSCRIPT: (
+            "first_stt_partial_ms",
+            "first_stt_partial_ms",
+        ),
+        EventType.FINAL_TRANSCRIPT: ("final_stt_ms", "final_stt_ms"),
+    }
+
+    def reset(self, conversation_id: str) -> None:
+        self.values.clear()
+        self.sample_counts.clear()
+        self.false_interruption_count = 0
+        self.conversation_id = conversation_id
+
+    def observe(self, event: TelemetryEvent) -> None:
+        if self.conversation_id != event.conversation_id:
+            self.reset(event.conversation_id)
+        if event.event_type is EventType.FALSE_INTERRUPTION_DETECTED:
+            self.false_interruption_count += 1
+        mapping = self._EVENT_FIELDS.get(event.event_type)
+        if mapping is None:
+            return
+        payload_name, metric_name = mapping
+        value = event.payload.get(payload_name)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return
+        self.values[metric_name] = round(float(value), 3)
+        self.sample_counts[metric_name] = self.sample_counts.get(metric_name, 0) + 1
+
+    def to_dict(self) -> dict[str, Any]:
+        names = (
+            "acoustic_speech_onset_latency_ms",
+            "speech_onset_to_soft_duck_ms",
+            "speech_onset_to_hard_cancel_ms",
+            "speech_onset_to_audible_stop_ms",
+            "backchannel_recovery_latency_ms",
+            "first_stt_partial_ms",
+            "final_stt_ms",
+        )
+        return {
+            "status": "LIVE_SESSION_EVIDENCE" if self.conversation_id else "NO_LIVE_SAMPLE",
+            "conversation_id": self.conversation_id,
+            "metrics": {
+                name: {
+                    "last": self.values.get(name),
+                    "sample_count": self.sample_counts.get(name, 0),
+                }
+                for name in names
+            },
+            "false_interruption_count": self.false_interruption_count,
+            "manual_validation": "REQUIRED_NOT_ATTESTED",
+            "measurement_scope": (
+                "authoritative server PCM onset; browser duck/stop acknowledgements "
+                "are upper bounds, not self-attested perception"
+            ),
+        }
 
 
 def load_demo_runtime_config(
@@ -356,6 +443,7 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
     runtime = runtime_config or load_demo_runtime_config()
     assessment_lock = asyncio.Lock()
     browser_session_lease = BrowserSessionLease()
+    live_barge_in_metrics = LiveBargeInMetrics()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -415,6 +503,10 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
     async def voice_quality() -> dict[str, Any]:
         return build_voice_quality_summary(VOICE_ASSESSMENTS_PATH)
 
+    @application.get("/api/live-barge-in")
+    async def live_barge_in() -> dict[str, Any]:
+        return live_barge_in_metrics.to_dict()
+
     @application.post("/api/voice-quality")
     async def record_voice_quality(payload: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -455,7 +547,9 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
         audio_output = BrowserAcknowledgedAudioOutput(
             outbound, acknowledgement_timeout_s=15.0
         )
-        sink = BrowserTelemetrySink(outbound)
+        sink = BrowserTelemetrySink(
+            outbound, observer=live_barge_in_metrics.observe
+        )
         transcriber = runtime.transcriber_factory()
         session = RealtimeVoiceSession(
             conversation_id=conversation_id,
@@ -552,6 +646,10 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                     if stt_input_failed:
                         continue
                     try:
+                        received_ns = monotonic_ns()
+                        frame_duration_ns = round(
+                            (len(binary) // 2) / 16_000 * 1_000_000_000
+                        )
                         session.receive_audio(
                             AudioFrame(
                                 stream_id=str(
@@ -560,7 +658,7 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                                 sequence=sequence,
                                 pcm16=binary,
                                 sample_rate_hz=16_000,
-                                captured_ns=monotonic_ns(),
+                                captured_ns=max(0, received_ns - frame_duration_ns),
                             )
                         )
                     except RuntimeError:
@@ -586,7 +684,9 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                     outbound=outbound,
                 ):
                     continue
-                if not _acknowledge_transport_message(payload, audio_output, outbound):
+                if not _acknowledge_transport_message(
+                    payload, audio_output, outbound, session=session
+                ):
                     controls.put_nowait(payload)
         except WebSocketDisconnect:
             pass
@@ -712,6 +812,8 @@ def _acknowledge_transport_message(
     payload: str,
     audio_output: BrowserAcknowledgedAudioOutput,
     outbound: asyncio.Queue[OutboundItem | None],
+    *,
+    session: RealtimeVoiceSession | None = None,
 ) -> bool:
     """Handle playback receipts outside the ordered control worker.
 
@@ -725,12 +827,21 @@ def _acknowledge_transport_message(
         return False
     if not isinstance(message, dict):
         return False
-    if message.get("type") not in {
+    message_type = message.get("type")
+    if message_type not in {
         "playback_started",
         "playback_completed",
         "playback_stopped",
+        "playback_ducked",
+        "playback_resumed",
     }:
         return False
+    if message_type in {"playback_ducked", "playback_resumed"}:
+        if session is None or not session.acknowledge_playback_control(message):
+            outbound.put_nowait(
+                {"type": "error", "code": "stale_playback_control_ack"}
+            )
+        return True
     if not audio_output.acknowledge(message):
         outbound.put_nowait({"type": "error", "code": "stale_playback_ack"})
     return True

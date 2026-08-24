@@ -6,11 +6,15 @@ const ui = Object.fromEntries([
   "save-voice-rating", "voice-rating-status", "debug-stt-raw",
   "debug-user-accepted", "debug-suppressed", "debug-assistant",
   "debug-history-roles", "debug-stt-partial", "debug-stt-final",
-  "mic-source", "pcm-source", "browser-stt-status"
+  "mic-source", "pcm-source", "browser-stt-status", "metric-acoustic-onset",
+  "metric-soft-yield", "metric-confirmed-interruption", "metric-audible-stop",
+  "metric-backchannel-recovery", "metric-false-interruptions",
+  "metric-first-partial", "metric-final-stt"
 ].map((id) => [id, document.getElementById(id)]));
 
 let socket;
 let audioContext;
+let playbackGain;
 let microphone;
 let processor;
 let recognition;
@@ -30,12 +34,15 @@ const receivedChunkIds = new Set();
 const scheduledChunkSequences = new Set();
 const responsePlaybackProviders = new Map();
 const cancelledResponseIds = new Set();
+const cancelledChunkIds = new Set();
+const responsePlaybackEpochs = new Map();
 const sentFinalRecognitionIds = new Set();
 const browserSessionId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 const inputOnlyMode = new URLSearchParams(location.search).get("mode") === "input-only";
 const browserSttDiagnosticMode = new URLSearchParams(location.search).get("browser-stt-diagnostic") === "1";
 let activePlaybackProvider = null;
 let activePlaybackOwner = null;
+let softYieldResponseId = null;
 let sourceNodeSequence = 0;
 let activeTtsCandidate = "noch nicht gehört";
 let declaredProviders = [];
@@ -196,6 +203,7 @@ function pcm16(floatSamples) {
 
 async function startMicrophone() {
   audioContext ||= new AudioContext();
+  if (audioContext.state === "suspended") await audioContext.resume();
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
   });
@@ -203,7 +211,7 @@ async function startMicrophone() {
   audioCaptureId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   microphoneStreamId = track?.id || `get-user-media-${audioCaptureId}`;
   microphone = audioContext.createMediaStreamSource(stream);
-  processor = audioContext.createScriptProcessor(4096, 1, 1);
+  processor = audioContext.createScriptProcessor(1024, 1, 1);
   processor.onaudioprocess = (event) => {
     if (socket?.readyState !== WebSocket.OPEN) return;
     const downsampled = downsample(event.inputBuffer.getChannelData(0), audioContext.sampleRate);
@@ -325,8 +333,14 @@ function acceptAudioMeta(meta) {
   const sequenceKey = `${meta.stream_id}:${meta.sequence}`;
   const providerKey = playbackProviderKey(meta);
   const pinnedProvider = responsePlaybackProviders.get(meta.response_id);
+  const incomingEpoch = Number.isInteger(meta.playback_epoch) ? meta.playback_epoch : 0;
+  const currentEpoch = responsePlaybackEpochs.get(meta.response_id) ?? incomingEpoch;
   if (cancelledResponseIds.has(meta.response_id)) {
     rejectPlayback(meta, "stale_cancelled_response");
+    return false;
+  }
+  if (incomingEpoch < currentEpoch) {
+    rejectPlayback(meta, "stale_playback_epoch");
     return false;
   }
   if (receivedChunkIds.has(meta.chunk_id) || scheduledChunkSequences.has(sequenceKey)) {
@@ -342,6 +356,7 @@ function acceptAudioMeta(meta) {
     return false;
   }
   receivedChunkIds.add(meta.chunk_id);
+  responsePlaybackEpochs.set(meta.response_id, incomingEpoch);
   responsePlaybackProviders.set(meta.response_id, providerKey);
   return true;
 }
@@ -398,6 +413,23 @@ function playSpeech(meta) {
   window.speechSynthesis.speak(utterance);
 }
 
+function ensurePlaybackGain() {
+  audioContext ||= new AudioContext({ latencyHint: "interactive" });
+  if (!playbackGain) {
+    playbackGain = audioContext.createGain();
+    playbackGain.gain.value = 1;
+    playbackGain.connect(audioContext.destination);
+  }
+  return playbackGain;
+}
+
+function setPlaybackGain(value, timeConstant = 0.012) {
+  const gain = ensurePlaybackGain().gain;
+  const now = audioContext.currentTime;
+  gain.cancelScheduledValues(now);
+  gain.setTargetAtTime(value, now, timeConstant);
+}
+
 function finishPlayback(chunkId, cancelled, playedSamples, stopCallbackLatencyMs = null) {
   const playback = activeAudio.get(chunkId);
   if (!playback || playback.finished) return;
@@ -433,7 +465,8 @@ function playPcm(buffer, meta) {
   }
   const source = audioContext.createBufferSource();
   source.buffer = decoded;
-  source.connect(audioContext.destination);
+  source.connect(ensurePlaybackGain());
+  if (softYieldResponseId !== meta.response_id) setPlaybackGain(1, 0.006);
   const sourceNodeId = `pcm-${meta.response_id}-${meta.sequence}-${++sourceNodeSequence}`;
   const scheduledStartMs = audioContext.currentTime * 1000;
   const playback = {
@@ -488,6 +521,8 @@ function playOutput(buffer, meta) {
 }
 
 function cancelAudio(chunkId) {
+  if (cancelledChunkIds.has(chunkId)) return;
+  cancelledChunkIds.add(chunkId);
   const playback = activeAudio.get(chunkId);
   if (!playback) {
     send({ type: "playback_stopped", chunk_id: chunkId, played_samples: 0 });
@@ -518,6 +553,52 @@ function cancelAudio(chunkId) {
   window.setTimeout(() => finishPlayback(chunkId, true, playedSamples), 0);
 }
 
+function duckPlayback(message) {
+  const responseId = message.response_id;
+  if (!responseId || (activePlaybackOwner !== responseId && nextAudioMeta?.response_id !== responseId)) return;
+  const epoch = responsePlaybackEpochs.get(responseId) ?? message.playback_epoch ?? 0;
+  if ((message.playback_epoch ?? epoch) < epoch || cancelledResponseIds.has(responseId)) return;
+  softYieldResponseId = responseId;
+  const targetGain = Number.isFinite(message.target_gain) ? message.target_gain : 0.08;
+  const modes = [...activeAudio.values()].filter((item) => item.responseId === responseId).map((item) => item.mode);
+  if (modes.includes("speech")) window.speechSynthesis.pause();
+  setPlaybackGain(targetGain, 0.010);
+  send({
+    type: "playback_ducked", response_id: responseId,
+    playback_epoch: epoch, target_gain: targetGain,
+    browser_applied_ms: performance.now()
+  });
+}
+
+function resumePlayback(message) {
+  const responseId = message.response_id;
+  if (!responseId || cancelledResponseIds.has(responseId) || softYieldResponseId !== responseId) return;
+  const epoch = responsePlaybackEpochs.get(responseId) ?? message.playback_epoch ?? 0;
+  if ((message.playback_epoch ?? epoch) < epoch) return;
+  setPlaybackGain(1, 0.025);
+  window.speechSynthesis.resume?.();
+  softYieldResponseId = null;
+  send({
+    type: "playback_resumed", response_id: responseId,
+    playback_epoch: epoch, browser_applied_ms: performance.now()
+  });
+}
+
+function invalidatePlayback(message) {
+  const responseId = message.response_id;
+  if (!responseId) return;
+  const epoch = Number.isInteger(message.playback_epoch) ? message.playback_epoch : 0;
+  responsePlaybackEpochs.set(responseId, Math.max(epoch, responsePlaybackEpochs.get(responseId) ?? 0));
+  cancelledResponseIds.add(responseId);
+  softYieldResponseId = null;
+  setPlaybackGain(0, 0.004);
+  if (nextAudioMeta?.response_id === responseId) nextAudioMeta = null;
+  for (const [chunkId, playback] of [...activeAudio.entries()]) {
+    if (playback.responseId === responseId) cancelAudio(chunkId);
+  }
+  window.speechSynthesis.cancel();
+}
+
 function addEvent(event) {
   const item = document.createElement("li");
   item.textContent = `${event.sequence.toString().padStart(3, "0")} ${event.event_type} · ${event.reason_code}`;
@@ -529,6 +610,32 @@ function addEvent(event) {
     ui.latency.textContent = value == null ? "—" : `${value.toFixed(2)} ms`;
     ui.delivered.textContent = event.payload.delivered_text || "—";
     ui.unheard.textContent = event.payload.unheard_text || "—";
+  }
+  if (event.event_type === "USER_AUDIO_STARTED" && event.payload.acoustic_speech_onset_latency_ms != null) {
+    ui["metric-acoustic-onset"].textContent = `${event.payload.acoustic_speech_onset_latency_ms.toFixed(1)} ms`;
+  }
+  if (event.event_type === "PLAYBACK_DUCK_STARTED") {
+    ui["metric-soft-yield"].textContent = `${event.payload.speech_onset_to_soft_duck_ms.toFixed(1)} ms`;
+  }
+  if (event.event_type === "INTERRUPTION_CONFIRMED") {
+    ui["metric-confirmed-interruption"].textContent = `${event.payload.speech_onset_to_hard_cancel_ms.toFixed(1)} ms`;
+  }
+  if (event.event_type === "AUDIBLE_STOP_ACK" && event.payload.speech_onset_to_audible_stop_ms != null) {
+    ui["metric-audible-stop"].textContent = `${event.payload.speech_onset_to_audible_stop_ms.toFixed(1)} ms`;
+  }
+  if (event.event_type === "BACKCHANNEL_RECOVERY") {
+    ui["metric-backchannel-recovery"].textContent = `${event.payload.backchannel_recovery_latency_ms.toFixed(1)} ms`;
+  }
+  if (event.event_type === "FALSE_INTERRUPTION_DETECTED") {
+    const count = Number(ui["metric-false-interruptions"].dataset.count || 0) + 1;
+    ui["metric-false-interruptions"].dataset.count = String(count);
+    ui["metric-false-interruptions"].textContent = String(count);
+  }
+  if (event.event_type === "PARTIAL_TRANSCRIPT" && event.payload.first_stt_partial_ms != null) {
+    ui["metric-first-partial"].textContent = `${event.payload.first_stt_partial_ms.toFixed(1)} ms`;
+  }
+  if (event.event_type === "FINAL_TRANSCRIPT" && event.payload.final_stt_ms != null) {
+    ui["metric-final-stt"].textContent = `${event.payload.final_stt_ms.toFixed(1)} ms`;
   }
   if (event.event_type === "AGENT_AUDIO_COMPLETED") ui.delivered.textContent = event.payload.delivered_text || "—";
   if (event.event_type === "RECOVERY_STARTED") ui.status.textContent = "Providerfehler · weiter im Hörmodus";
@@ -643,6 +750,9 @@ ui.connect.addEventListener("click", async () => {
         }
       }
       else if (payload.type === "cancel_audio") cancelAudio(payload.chunk_id);
+      else if (payload.type === "playback_duck") duckPlayback(payload);
+      else if (payload.type === "playback_resume") resumePlayback(payload);
+      else if (payload.type === "invalidate_playback") invalidatePlayback(payload);
       else if (payload.type === "transcript_result") {
         const final = payload.provenance?.event_kind === "USER_TRANSCRIPT_FINAL";
         if (payload.accepted && final) {

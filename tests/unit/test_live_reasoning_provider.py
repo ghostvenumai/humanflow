@@ -202,3 +202,6 @@ def test_live_prompt_requires_ai_disclosure_and_rejects_canned_acknowledgement()
     assert "niemals behaupten, ein Mensch zu sein" in DEFAULT_SYSTEM_PROMPT
     assert "Beginne nicht mit einer generischen Empfangsbestätigung" in DEFAULT_SYSTEM_PROMPT
     assert "Ich habe Sie verstanden" in DEFAULT_SYSTEM_PROMPT
+    assert "ein bis zwei kurzen Sätzen" in DEFAULT_SYSTEM_PROMPT
+    assert "stellst genau eine relevante nächste" in DEFAULT_SYSTEM_PROMPT
+    assert "ungefragten Erklärungen oder langen Disclaimer" in DEFAULT_SYSTEM_PROMPT

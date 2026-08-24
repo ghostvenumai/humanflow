@@ -170,6 +170,7 @@ def main() -> None:
             "/api/evidence",
             "/api/timeline",
             "/api/voice-quality",
+            "/api/live-barge-in",
         ):
             latency_ms, status, body = _request(base_url + path)
             if status != 200 or not isinstance(json.loads(body), dict):

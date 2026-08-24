@@ -1,4 +1,4 @@
-.PHONY: status test torture-test benchmark realtime-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report release-readiness demo demo-benchmark demo-package dashboard-capture challenge-demo dashboard turn-tournament live-stt-smoke checkpoint
+.PHONY: status test torture-test benchmark realtime-benchmark acoustic-barge-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report release-readiness demo demo-benchmark demo-package dashboard-capture challenge-demo dashboard turn-tournament live-stt-smoke checkpoint
 
 status:
 	python3 scripts/status.py
@@ -15,6 +15,9 @@ benchmark:
 
 realtime-benchmark:
 	PYTHONPATH=src python3 scripts/benchmark_realtime_core.py
+
+acoustic-barge-benchmark:
+	PYTHONPATH=src python3 scripts/benchmark_acoustic_barge_in.py
 
 recovery-benchmark:
 	PYTHONPATH=src python3 scripts/benchmark_recovery.py

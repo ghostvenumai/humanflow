@@ -70,6 +70,44 @@ document.getElementById("load-timeline").addEventListener("click", async () => {
     list.append(item);
   });
 });
+
+const liveLabels = {
+  acoustic_speech_onset_latency_ms: "Akustische Onset-Erkennung",
+  speech_onset_to_soft_duck_ms: "Soft Yield",
+  speech_onset_to_hard_cancel_ms: "Bestätigte Unterbrechung",
+  speech_onset_to_audible_stop_ms: "Audible Stop ACK",
+  backchannel_recovery_latency_ms: "Backchannel Recovery",
+  first_stt_partial_ms: "Erstes STT-Partial",
+  final_stt_ms: "Finales STT"
+};
+
+async function refreshLiveBargeIn() {
+  const live = await fetch("/api/live-barge-in").then((response) => response.json());
+  const panel = document.getElementById("live-barge-in");
+  panel.replaceChildren();
+  Object.entries(live.metrics).forEach(([name, metric]) => {
+    const card = document.createElement("article");
+    card.className = "gate";
+    const title = document.createElement("h3");
+    title.textContent = liveLabels[name] || name;
+    const value = document.createElement("div");
+    value.className = "metric";
+    value.textContent = metric.last == null ? "—" : `${format(metric.last)} ms`;
+    const scope = document.createElement("p");
+    scope.className = "scope";
+    scope.textContent = `n=${metric.sample_count}`;
+    card.append(title, value, scope);
+    panel.append(card);
+  });
+  const falseCard = document.createElement("article");
+  falseCard.className = `gate ${live.false_interruption_count ? "fail" : "pass"}`;
+  falseCard.innerHTML = `<h3>Falsche Hard-Cancels</h3><div class="metric">${live.false_interruption_count}</div><p class="scope">laufende Session</p>`;
+  panel.append(falseCard);
+  document.getElementById("live-barge-in-scope").textContent = `${live.status} · ${live.measurement_scope}`;
+}
+
+await refreshLiveBargeIn();
+window.setInterval(() => refreshLiveBargeIn().catch(() => {}), 1000);
 }
 
 main().catch((error) => {

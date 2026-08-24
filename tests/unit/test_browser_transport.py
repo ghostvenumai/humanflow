@@ -135,6 +135,50 @@ def test_browser_completed_ack_is_full_delivery() -> None:
     asyncio.run(scenario())
 
 
+def test_soft_yield_and_epoch_invalidation_are_ordered_and_fail_closed() -> None:
+    async def scenario() -> None:
+        outbound: asyncio.Queue[dict[str, object] | bytes] = asyncio.Queue()
+        output = BrowserAcknowledgedAudioOutput(outbound)
+
+        assert output.soft_duck(
+            response_id="response-browser", speech_onset_ns=100
+        )
+        duck = await outbound.get()
+        assert duck == {
+            "type": "playback_duck",
+            "response_id": "response-browser",
+            "speech_onset_ns": 100,
+            "playback_epoch": 0,
+            "target_gain": 0.08,
+        }
+        assert output.resume_playback(
+            response_id="response-browser", speech_onset_ns=100
+        )
+        resume = await outbound.get()
+        assert resume["type"] == "playback_resume"  # type: ignore[index]
+
+        assert output.invalidate_response(
+            response_id="response-browser", speech_onset_ns=100
+        ) == 1
+        invalidation = await outbound.get()
+        assert invalidation["type"] == "invalidate_playback"  # type: ignore[index]
+        assert invalidation["playback_epoch"] == 1  # type: ignore[index]
+        assert not output.resume_playback(
+            response_id="response-browser", speech_onset_ns=100
+        )
+
+        starts: list[int] = []
+        receipt = await output.play(
+            _chunk(), cancel_event=asyncio.Event(), on_started=starts.append
+        )
+        assert receipt.cancelled
+        assert receipt.played_samples == 0
+        assert len(starts) == 1
+        assert outbound.empty()
+
+    asyncio.run(scenario())
+
+
 def test_transport_ack_handler_releases_playback_outside_control_worker() -> None:
     async def scenario() -> None:
         outbound: asyncio.Queue[dict[str, object] | bytes | None] = asyncio.Queue()
@@ -161,6 +205,34 @@ def test_transport_ack_handler_releases_playback_outside_control_worker() -> Non
     asyncio.run(scenario())
 
 
+def test_soft_yield_receipt_is_processed_outside_serial_control_worker() -> None:
+    class SessionProbe:
+        def __init__(self) -> None:
+            self.messages: list[dict[str, object]] = []
+
+        def acknowledge_playback_control(self, message: dict[str, object]) -> bool:
+            self.messages.append(message)
+            return True
+
+    outbound: asyncio.Queue[dict[str, object] | bytes | None] = asyncio.Queue()
+    probe = SessionProbe()
+
+    assert _acknowledge_transport_message(
+        '{"type":"playback_ducked","response_id":"response-browser","target_gain":0.08}',
+        BrowserAcknowledgedAudioOutput(outbound),
+        outbound,
+        session=probe,  # type: ignore[arg-type]
+    )
+    assert probe.messages == [
+        {
+            "type": "playback_ducked",
+            "response_id": "response-browser",
+            "target_gain": 0.08,
+        }
+    ]
+    assert outbound.empty()
+
+
 def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
     application = create_app()
     paths = {route.path for route in application.routes}
@@ -172,6 +244,7 @@ def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
         "/api/evidence",
         "/api/timeline",
         "/api/voice-quality",
+        "/api/live-barge-in",
         "/ws",
         "/static",
     }.issubset(paths)
@@ -192,6 +265,10 @@ def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
     assert 'window.speechSynthesis.cancel();' in source
     assert 'active_tts_playback_providers_exceeded' in source
     assert 'event.event_type === "TTS_PROVIDER_DEACTIVATED"' in source
+    assert 'payload.type === "playback_duck"' in source
+    assert 'payload.type === "invalidate_playback"' in source
+    assert "createScriptProcessor(1024" in source
+    assert "metric-soft-yield" in markup
     assert "function activateTtsProvider(provider)" in source
     recognition_handler = source.split("recognition.onresult =", 1)[1].split(
         "recognition.onerror =", 1

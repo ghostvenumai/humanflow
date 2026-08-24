@@ -96,6 +96,21 @@
         </article>
       </section>
 
+      <section class="timeline" aria-label="Live Barge-in Dashboard">
+        <h2>Human-facing Barge-in · Live-Messwerte</h2>
+        <div class="provider-grid live-metrics">
+          <div><span>Akustische Onset-Erkennung</span><strong id="metric-acoustic-onset">—</strong></div>
+          <div><span>Soft Yield</span><strong id="metric-soft-yield">—</strong></div>
+          <div><span>Bestätigte Unterbrechung</span><strong id="metric-confirmed-interruption">—</strong></div>
+          <div><span>Audible Stop ACK</span><strong id="metric-audible-stop">—</strong></div>
+          <div><span>Backchannel Recovery</span><strong id="metric-backchannel-recovery">—</strong></div>
+          <div><span>Falsche Hard-Cancels</span><strong id="metric-false-interruptions" data-count="0">0</strong></div>
+          <div><span>Erstes STT-Partial</span><strong id="metric-first-partial">—</strong></div>
+          <div><span>Finales STT</span><strong id="metric-final-stt">—</strong></div>
+        </div>
+        <p class="note">Soft Yield wird aus dem autoritativen PCM-VAD ausgelöst und wartet nicht auf STT. Browser-Quittungen sind eine reale obere Grenze bis zur angewendeten Gain-Absenkung; die tatsächlich wahrgenommene Wirkung bleibt menschlich zu validieren.</p>
+      </section>
+
       <section class="timeline">
         <div class="timeline-head">
           <h2>Telemetry Timeline</h2>

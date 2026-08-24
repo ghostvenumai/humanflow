@@ -32,12 +32,20 @@ class _PendingPlayback:
 class BrowserTelemetrySink(InMemoryTelemetrySink):
     """Retain evidence in memory and mirror ordered events to the browser queue."""
 
-    def __init__(self, outbound: asyncio.Queue[OutboundItem]) -> None:
+    def __init__(
+        self,
+        outbound: asyncio.Queue[OutboundItem],
+        *,
+        observer: Callable[[TelemetryEvent], None] | None = None,
+    ) -> None:
         super().__init__()
         self._outbound = outbound
+        self._observer = observer
 
     def emit(self, event: TelemetryEvent) -> None:
         super().emit(event)
+        if self._observer is not None:
+            self._observer(event)
         self._outbound.put_nowait({"type": "telemetry", "event": event.to_dict()})
 
 
@@ -57,6 +65,55 @@ class BrowserAcknowledgedAudioOutput:
         self._timeout = acknowledgement_timeout_s
         self._clock_ns = clock_ns
         self._pending: _PendingPlayback | None = None
+        self._playback_epoch = 0
+        self._invalidated_response_ids: set[str] = set()
+
+    @property
+    def playback_epoch(self) -> int:
+        return self._playback_epoch
+
+    def soft_duck(self, *, response_id: str, speech_onset_ns: int) -> bool:
+        if response_id in self._invalidated_response_ids:
+            return False
+        self._outbound.put_nowait(
+            {
+                "type": "playback_duck",
+                "response_id": response_id,
+                "speech_onset_ns": speech_onset_ns,
+                "playback_epoch": self._playback_epoch,
+                "target_gain": 0.08,
+            }
+        )
+        return True
+
+    def resume_playback(self, *, response_id: str, speech_onset_ns: int) -> bool:
+        if response_id in self._invalidated_response_ids:
+            return False
+        self._outbound.put_nowait(
+            {
+                "type": "playback_resume",
+                "response_id": response_id,
+                "speech_onset_ns": speech_onset_ns,
+                "playback_epoch": self._playback_epoch,
+            }
+        )
+        return True
+
+    def invalidate_response(self, *, response_id: str, speech_onset_ns: int) -> int:
+        if response_id in self._invalidated_response_ids:
+            return self._playback_epoch
+        self._invalidated_response_ids.add(response_id)
+        self._playback_epoch += 1
+        self._outbound.put_nowait(
+            {
+                "type": "invalidate_playback",
+                "response_id": response_id,
+                "speech_onset_ns": speech_onset_ns,
+                "playback_epoch": self._playback_epoch,
+                "future_audio_from_invalidated_epoch": "FORBIDDEN",
+            }
+        )
+        return self._playback_epoch
 
     async def play(
         self,
@@ -65,6 +122,17 @@ class BrowserAcknowledgedAudioOutput:
         cancel_event: asyncio.Event,
         on_started: PlaybackStarted,
     ) -> PlaybackReceipt:
+        if chunk.response_id in self._invalidated_response_ids:
+            stopped_ns = self._clock_ns()
+            on_started(stopped_ns)
+            return PlaybackReceipt(
+                chunk_id=chunk.chunk_id,
+                requested_samples=chunk.frame.samples_per_channel,
+                played_samples=0,
+                playback_started_ns=stopped_ns,
+                playback_stopped_ns=stopped_ns,
+                cancelled=True,
+            )
         if self._pending is not None:
             raise RuntimeError("browser output accepts one ordered chunk at a time")
         loop = asyncio.get_running_loop()
@@ -94,6 +162,7 @@ class BrowserAcknowledgedAudioOutput:
                 "pause_after_ms": chunk.pause_after_ms,
                 "speaking_rate": chunk.speaking_rate,
                 "tts_provider": dict(chunk.provider),
+                "playback_epoch": self._playback_epoch,
             }
         )
         self._outbound.put_nowait(chunk.frame.pcm16)
