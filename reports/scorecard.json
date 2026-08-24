@@ -4,13 +4,13 @@
       "sha256": "a7f894864ad2616426b4ac78384b416470c24af61668fa5b6386496f3aa50bb1"
     },
     "reports/realtime-core-benchmark.json": {
-      "sha256": "8e3bb54386edc3a819ac008e7b66be2fc79a4653b0296447819be9fbaf81378a"
+      "sha256": "05b60e65923eec37a956684046edc87617adec7efa96cd972d93a121396766bc"
     },
     "reports/recovery-benchmark.json": {
-      "sha256": "3bfc6e30dcb79aed6c2206c75ff3988f164cdac129778d8cd40c7740fab67e4d"
+      "sha256": "58dcf532ea701c2d53ae654c445047be2c48112879204fa8210ceb1c99edc190"
     },
     "reports/torture-run.json": {
-      "sha256": "4567114e20c63feaf07485595c1e55dabd1e94802011a3fc4bb71a8d1b5f18c3"
+      "sha256": "3d1bb0ef7883e78dd63751eb7682f1f5f38e45f792072d6872484c4c1c46b51d"
     },
     "tests/golden/turn_cases.jsonl": {
       "sha256": "89e2e2c0ae56e2a88c2a7a2cf7a956365b3ed3004b5f7cfffb6fbaf1d6f48e99"
@@ -18,7 +18,7 @@
   },
   "gates": {
     "audible_barge_in_latency_ms": {
-      "observed": 3.184,
+      "observed": 2.843,
       "operator": "lt",
       "passed": true,
       "sample_count": 40,
@@ -66,7 +66,7 @@
       "target": 0.95
     },
     "ttfa_ms": {
-      "observed": 11.733,
+      "observed": 11.839,
       "operator": "lt",
       "passed": true,
       "sample_count": 40,
@@ -82,7 +82,7 @@
       "target": 0
     }
   },
-  "generated_at_utc": "2026-08-24T11:30:54.646541Z",
+  "generated_at_utc": "2026-08-24T11:39:28.088318Z",
   "metrics": {
     "audible_barge_in_latency_ms": {
       "baseline_value": null,
@@ -90,7 +90,7 @@
       "scope": "local_timed_pcm_sink",
       "source": "reports/realtime-core-benchmark.json",
       "statistic": "p50",
-      "value": 3.184
+      "value": 2.843
     },
     "call_completion_rate": {
       "baseline_value": null,
@@ -143,7 +143,7 @@
       "scope": "local_event_loop_transport",
       "source": "reports/realtime-core-benchmark.json",
       "statistic": "p50",
-      "value": 11.733
+      "value": 11.839
     },
     "unexpected_hangups": {
       "baseline_value": null,
