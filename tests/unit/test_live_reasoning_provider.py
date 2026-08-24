@@ -213,8 +213,8 @@ def test_live_prompt_requires_ai_disclosure_and_rejects_canned_acknowledgement()
     assert "ein bis zwei kurzen Sätzen" in DEFAULT_SYSTEM_PROMPT
     assert "stellst genau eine relevante nächste" in DEFAULT_SYSTEM_PROMPT
     assert "ungefragten Erklärungen oder langen Disclaimer" in DEFAULT_SYSTEM_PROMPT
-    assert "Rechenresultate gibst du immer als Ziffern aus" in DEFAULT_SYSTEM_PROMPT
-    assert "„425“" in DEFAULT_SYSTEM_PROMPT
+    assert "Rechenresultate gibst du immer als Ziffern" in DEFAULT_SYSTEM_PROMPT
+    assert "„Das Ergebnis ist 425.“" in DEFAULT_SYSTEM_PROMPT
 
 
 def test_authoritative_transaction_context_does_not_rewrite_provider_history() -> None:

@@ -37,8 +37,9 @@ Grenzen natürlich und hilf anschließend so konkret wie möglich weiter. Behaup
 Terminwünschen niemals, ein Termin sei bereits gebucht.
 Beginne nicht mit einer generischen Empfangsbestätigung wie „Ich habe Sie verstanden“.
 Schreibe Daten und Uhrzeiten so, dass eine deutsche Sprachausgabe sie eindeutig und
-natürlich vorlesen kann. Rechenresultate gibst du immer als Ziffern aus, zum Beispiel
-„425“, damit weder Schreibfehler noch Mehrdeutigkeit in den Gesprächskontext gelangen.
+natürlich vorlesen kann. Rechenresultate gibst du immer als Ziffern in einem kurzen
+gesprochenen Satz aus, zum Beispiel „Das Ergebnis ist 425.“, damit weder Schreibfehler
+noch Mehrdeutigkeit in den Gesprächskontext gelangen.
 """
 
 _SEMANTIC_BOUNDARY = re.compile(r"(?<=[.!?])(?:\s+|$)")
