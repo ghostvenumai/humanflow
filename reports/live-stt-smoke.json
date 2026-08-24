@@ -1,0 +1,17 @@
+{
+  "browser_speech_recognition_production_status": "OFF",
+  "failure": {
+    "exception_type": "ElevenLabsRealtimeSTTError",
+    "provider_error_code": "auth_error"
+  },
+  "manual_microphone_quality_attested": false,
+  "observed_utc": "2026-08-24T11:25:32.539642Z",
+  "provider": {
+    "mode": "REAL",
+    "model": "scribe_v2_realtime",
+    "provider": "elevenlabs-scribe-realtime",
+    "role": "stt",
+    "runtime": "server"
+  },
+  "status": "FAIL"
+}

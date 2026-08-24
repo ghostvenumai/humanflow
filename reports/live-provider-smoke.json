@@ -1,5 +1,5 @@
 {
-  "captured_utc": "2026-08-24T10:16:28.692789Z",
+  "captured_utc": "2026-08-24T11:33:07.261950Z",
   "checks": {
     "all_responses_nonempty": true,
     "appointment_is_semantically_relevant": true,
@@ -13,11 +13,19 @@
   "manual_validation": "REQUIRED_NOT_ATTESTED",
   "providers": [
     {
-      "availability": "BROWSER_CHECK_REQUIRED",
+      "availability": "CONFIGURED_UNVERIFIED",
       "mode": "REAL",
+      "model": "scribe_v2_realtime",
+      "provider": "elevenlabs-scribe-realtime",
+      "role": "stt",
+      "runtime": "server"
+    },
+    {
+      "availability": "OFF_PRODUCTION",
+      "mode": "MOCK",
       "model": "de-DE",
       "provider": "browser-web-speech-api",
-      "role": "stt",
+      "role": "stt-browser-diagnostic",
       "runtime": "browser"
     },
     {
@@ -48,77 +56,77 @@
   "schema_version": 1,
   "scope": "real reasoning websocket path; browser microphone/STT/TTS excluded",
   "summary": {
-    "first_model_output_ms_max": 1444.646,
-    "first_model_output_ms_median": 983.153,
-    "input_tokens": 4588,
-    "output_tokens": 476,
+    "first_model_output_ms_max": 1310.75,
+    "first_model_output_ms_median": 945.853,
+    "input_tokens": 4550,
+    "output_tokens": 435,
     "turns": 6
   },
   "turns": {
     "appointment": {
-      "first_model_output_ms": 1008.530181,
-      "generation_ms": 16479.035023,
+      "first_model_output_ms": 987.628103,
+      "generation_ms": 12035.410463,
       "prompt": "Ich möchte einen Termin am Freitag.",
-      "response": "Gerne, das kann ich dir helfen zu klären. Aber ich habe keinen echten Kalender und kann Termine nicht selbst buchen. Welcher Freitag ist dir recht und wofür brauchst du den Termin? Dann können wir gemeinsam überlegen, wie das am besten passt.",
-      "speech_chunks": 4,
+      "response": "Gerne, das klingt gut. Welcher Freitag ist dir recht und um welche Uhrzeit passt es dir? Und wofür brauchst du den Termin – also mit wem oder für was?",
+      "speech_chunks": 3,
       "usage": {
-        "input_tokens": 999,
-        "output_tokens": 83
+        "input_tokens": 982,
+        "output_tokens": 59
       }
     },
     "arithmetic": {
-      "first_model_output_ms": 957.776614,
-      "generation_ms": 3807.694257,
+      "first_model_output_ms": 780.822352,
+      "generation_ms": 3522.039654,
       "prompt": "Was ist 25 mal 17?",
       "response": "Das ergibt vierhundertfünfundzwanzig.",
       "speech_chunks": 1,
       "usage": {
-        "input_tokens": 730,
+        "input_tokens": 721,
         "output_tokens": 20
       }
     },
     "capabilities": {
-      "first_model_output_ms": 952.743873,
-      "generation_ms": 23012.067628,
+      "first_model_output_ms": 891.322628,
+      "generation_ms": 23961.221708,
       "prompt": "Was kannst du?",
-      "response": "Ich bin HumanFlow, ein KI-Assistent. Ich kann dir bei vielen Dingen helfen: Fragen beantworten, Informationen erklären, mit dir diskutieren, Texte verfassen oder überarbeiten. Ich kann dir auch bei Planungen helfen, Ideen sammeln oder Probleme durchdenken. Was interessiert dich gerade?",
+      "response": "Ich bin HumanFlow, ein KI-Assistent. Ich kann mit dir über verschiedenste Themen sprechen – von praktischen Fragen über Allgemeinwissen bis hin zu kreativen Ideen. Ich helfe dir bei Recherchen, erkläre Zusammenhänge, brainstorme mit dir oder beantworte spontane Fragen. Was liegt dir gerade auf dem Herzen?",
       "speech_chunks": 4,
       "usage": {
         "input_tokens": 520,
-        "output_tokens": 96
+        "output_tokens": 104
       }
     },
     "context_followup": {
-      "first_model_output_ms": 919.458102,
-      "generation_ms": 6659.446081,
+      "first_model_output_ms": 960.664116,
+      "generation_ms": 5705.724765,
       "prompt": "Wie lautete noch einmal das Ergebnis meiner Rechenaufgabe?",
-      "response": "Vierhundertfünfundzwanzig – das war das Ergebnis von fünfundzwanzig mal siebzehn.",
+      "response": "Vierhundertfünfundzwanzig – das war fünfundzwanzig mal siebzehn.",
       "speech_chunks": 1,
       "usage": {
-        "input_tokens": 942,
-        "output_tokens": 39
+        "input_tokens": 931,
+        "output_tokens": 33
       }
     },
     "erp": {
-      "first_model_output_ms": 1444.646324,
-      "generation_ms": 34616.486338,
+      "first_model_output_ms": 1310.750189,
+      "generation_ms": 34176.574784,
       "prompt": "Kannst du mir erklären, was ein ERP-System ist?",
-      "response": "Ein ERP-System ist eine Unternehmenssoftware, die alle wichtigen Prozesse eines Unternehmens zusammenbringt – also Finanzen, Lagerverwaltung, Personal, Vertrieb und Produktion. Statt dass jede Abteilung ihre eigenen Programme nutzt, arbeitet alles über eine zentrale Datenbank zusammen. Das macht Abläufe effizienter und gibt einen besseren Überblick. Die großen Anbieter sind SAP oder Oracle, aber es gibt auch kleinere Systeme für mittlere Unternehmen.",
-      "speech_chunks": 5,
+      "response": "Ein ERP-System ist eine Software, die alle wichtigen Geschäftsprozesse eines Unternehmens verbindet – also Finanzen, Lagerbestand, Personal, Produktion, Vertrieb. Statt dass jede Abteilung ihre eigenen Daten in separaten Systemen verwaltet, läuft alles über eine zentrale Plattform. Das macht Abläufe effizienter und gibt dir einen besseren Überblick übers ganze Unternehmen. Brauchst du noch mehr Details zu einem bestimmten Aspekt?",
+      "speech_chunks": 4,
       "usage": {
-        "input_tokens": 770,
-        "output_tokens": 147
+        "input_tokens": 761,
+        "output_tokens": 145
       }
     },
     "weather_limit": {
-      "first_model_output_ms": 1282.202057,
-      "generation_ms": 17617.661303,
+      "first_model_output_ms": 931.042557,
+      "generation_ms": 16003.544949,
       "prompt": "Wie ist das Wetter?",
-      "response": "Ich habe keinen Zugriff auf aktuelle Wetterdaten, deswegen kann ich dir das nicht live sagen. Aber wenn du mir sagst, wo du bist und was du gerade siehst oder weißt, kann ich dir vielleicht trotzdem helfen – zum Beispiel beim Packen oder bei der Planung des Tages.",
+      "response": "Ich hab leider keinen Zugriff auf aktuelle Wetterdaten. Aber wenn du mir sagst, wo du bist und was du gerade siehst oder weißt, kann ich dir helfen – zum Beispiel einordnen, was das bedeutet oder was dich erwartet.",
       "speech_chunks": 2,
       "usage": {
-        "input_tokens": 627,
-        "output_tokens": 91
+        "input_tokens": 635,
+        "output_tokens": 74
       }
     }
   }

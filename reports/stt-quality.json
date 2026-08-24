@@ -1,13 +1,19 @@
 {
   "agent_attestation": false,
   "human_reference_sample_count": 0,
-  "manual_validation": "FAILED_SELF_TRANSCRIPTION_PRESENT_BEFORE_FIX",
+  "automated_live_provider_smoke": {
+    "provider_error_code": "auth_error",
+    "report": "reports/live-stt-smoke.json",
+    "status": "FAIL"
+  },
+  "browser_speech_recognition_production_status": "OFF",
+  "manual_validation": "FAILED_SELF_TRANSCRIPTION_PRESENT_BEFORE_ARCHITECTURE_FIX",
   "provider": {
     "mode": "REAL",
-    "model": "de-DE",
-    "provider": "browser-web-speech-api",
-    "recognition_input_binding": "UNVERIFIED_INDEPENDENT_BROWSER_CAPTURE",
-    "runtime": "browser"
+    "model": "scribe_v2_realtime",
+    "provider": "elevenlabs-scribe-realtime",
+    "recognition_input_binding": "EXACT_GETUSERMEDIA_PCM16",
+    "runtime": "server"
   },
   "scripted_human_understanding_cases": [
     {
@@ -41,7 +47,7 @@
       "spoken_input": "Wie lautete noch einmal das Ergebnis meiner Rechenaufgabe?"
     }
   ],
-  "status": "AWAITING_POST_FIX_HUMAN_STT_SAMPLES",
+  "status": "BLOCKED_PROVIDER_AUTH_BEFORE_POST_FIX_HUMAN_STT_SAMPLES",
   "stt_dimensions": {
     "corrections": "PENDING_HUMAN_SAMPLE",
     "dates": "PENDING_HUMAN_SAMPLE",
@@ -51,12 +57,12 @@
     "numbers": "PENDING_HUMAN_SAMPLE",
     "semantic_preservation": "PENDING_HUMAN_SAMPLE",
     "short_utterances": "PENDING_HUMAN_SAMPLE",
-    "speech_while_agent_playing": "FAILED_PRE_FIX_SELF_TRANSCRIPTION",
+    "speech_while_agent_playing": "PENDING_AUTH_AND_HUMAN_SAMPLE",
     "times": "PENDING_HUMAN_SAMPLE",
     "word_error_examples": []
   },
   "upgrade_recommendation": {
-    "reason": "Browser SpeechRecognition cannot be bound to the exact getUserMedia PCM stream and has produced assistant self-transcription during real headphone validation.",
-    "status": "STT_PROVIDER_UPGRADE_RECOMMENDED"
+    "reason": "Source-bound Scribe integration is implemented, but the configured runtime key returned auth_error during the real websocket handshake.",
+    "status": "STT_PROVIDER_UPGRADE_IMPLEMENTED_LIVE_AUTH_BLOCKED"
   }
 }

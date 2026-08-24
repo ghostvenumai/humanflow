@@ -34,6 +34,13 @@
     "D_conversation_history_contamination": true,
     "E_multiple_causes": true
   },
+  "current_architecture": {
+    "authoritative_chain": "getUserMedia PCM -> websocket -> Scribe realtime -> committed transcript -> accept_user_transcript",
+    "browser_speech_recognition_production_status": "OFF",
+    "live_provider_handshake": "BLOCKED_AUTH_ERROR",
+    "partial_to_user_history": "FORBIDDEN",
+    "self_speech_guard_role": "SECONDARY_DEFENSE"
+  },
   "human_evidence": {
     "assistant_sentence_visible_as_user_transcript": true,
     "headphones_changed_failure": false,
@@ -47,5 +54,5 @@
     "The session forwarded completed text to the reasoner without self-speech classification.",
     "AnthropicReasoner appended every forwarded transcript with role=user."
   ],
-  "status": "ROOT_CAUSE_CONFIRMED_AND_GUARD_IMPLEMENTED"
+  "status": "ROOT_CAUSE_CONFIRMED_ARCHITECTURE_CORRECTED_LIVE_AUTH_BLOCKED"
 }

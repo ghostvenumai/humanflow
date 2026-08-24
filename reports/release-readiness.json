@@ -1,20 +1,20 @@
 {
   "automated": {
-    "demo_manifest_status": "READY_FOR_MANUAL_VALIDATION_NOT_FROZEN",
+    "demo_manifest_status": "NOT_READY",
     "local_gates_failed": 0,
-    "passed": true,
+    "passed": false,
     "production_release_claim": "NOT_ESTABLISHED_NO_REAL_CALL_DATA"
   },
   "freeze": {
     "complete": false,
     "path": "sprint/freeze.json"
   },
-  "generated_at_utc": "2026-08-24T10:20:46.319399Z",
+  "generated_at_utc": "2026-08-24T11:31:08.856791Z",
   "manual_browser_audio_validation": {
     "exists": false,
     "passed": false,
     "path": "sprint/manual-validation.json"
   },
   "schema_version": 1,
-  "status": "BLOCKED_MANUAL_BROWSER_AUDIO_VALIDATION"
+  "status": "BLOCKED_AUTOMATED_FAILURE"
 }
