@@ -141,10 +141,27 @@ def main() -> None:
             and final_state["date"]["source_turn"]
             == results[1]["state"]["date"]["source_turn"]
         ),
-        "time_only_deltas_preserve_date": results[2]["updated_slots"] == ["time"]
+        "time_only_deltas_preserve_date": results[2]["updated_slots"]
+        == ["time", "status"]
         and results[3]["updated_slots"] == ["time"],
         "old_friday_not_resurrected_in_later_assistant_text": (
             "freitag" not in assistant_after_thursday
+        ),
+        "spoken_date_matches_authoritative_state": (
+            "10. september" in results[1]["assistant"].casefold()
+        ),
+        "assistant_never_claims_external_action": all(
+            not any(
+                marker in result["assistant"].casefold()
+                for marker in (
+                    "gebucht",
+                    "eingetragen",
+                    "storniert",
+                    "abgesagt",
+                    "gelöscht",
+                )
+            )
+            for result in results
         ),
     }
     report = {

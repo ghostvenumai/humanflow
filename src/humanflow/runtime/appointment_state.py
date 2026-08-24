@@ -431,6 +431,14 @@ class AppointmentStateTracker:
                 "known_slots_never_ask_again": list(known_slots),
                 "ask_at_most_one_of_missing_slots": list(missing_slots),
                 "clarify_instead_of_guessing": delta.clarification_required,
+                "forbidden_without_tool_success": [
+                    "Termin gebucht",
+                    "Termin eingetragen",
+                    "Termin storniert",
+                    "Termin abgesagt",
+                    "Termin gelöscht",
+                ],
+                "required_local_action_noun": "Terminwunsch",
             },
             "action_truthfulness": (
                 "BOOKED requires successful real tool result. Without tool success say "

@@ -65,6 +65,8 @@ def test_appointment_updates_are_delta_based_and_old_friday_never_resurfaces() -
     assert '"must_use_word": "Termin"' in context
     assert '"known_slots_never_ask_again": ["date", "time"]' in context
     assert '"must_acknowledge_updated_values": {"time": "15:00"}' in context
+    assert '"required_local_action_noun": "Terminwunsch"' in context
+    assert '"Termin storniert"' in context
 
 
 def test_correction_changes_only_explicit_slot_and_hesitation_is_not_a_value() -> None:

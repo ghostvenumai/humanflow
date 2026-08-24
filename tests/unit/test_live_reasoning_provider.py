@@ -245,3 +245,58 @@ def test_authoritative_transaction_context_does_not_rewrite_provider_history() -
         assert reasoner.history[0]["content"] == "Vielleicht 15 Uhr."
 
     asyncio.run(scenario())
+
+
+def test_transaction_guard_repairs_unverified_external_cancellation_claim() -> None:
+    async def scenario() -> None:
+        client = FakeClient([["Okay, dein Friseur-Termin ist storniert."]])
+        reasoner = AnthropicReasoner(
+            api_key="test-key-never-sent",
+            model="claude-test-real-adapter",
+            client=client,
+        )
+        reasoner.set_authoritative_transaction_context(
+            '{"appointments":{"appointment_2":{"purpose":"Friseur",'
+            '"date":"2026-09-02","time":"14:00","status":"CANCELLED"}},'
+            '"resolved_appointment_id_this_turn":"appointment_2",'
+            '"external_action_performed":false,"clarification_required":false,'
+            '"response_contract":{"must_acknowledge_updated_values":{}}}'
+        )
+
+        spoken = await _collect(reasoner, "Den Friseurtermin brauche ich nicht mehr.", 1)
+
+        assert spoken == "Okay, den Friseur-Terminwunsch habe ich entfernt."
+        assert reasoner.history[-1] == {
+            "role": "assistant",
+            "content": "Okay, den Friseur-Terminwunsch habe ich entfernt.",
+        }
+
+    asyncio.run(scenario())
+
+
+def test_transaction_guard_repairs_date_that_contradicts_authoritative_delta() -> None:
+    async def scenario() -> None:
+        client = FakeClient([["Alles klar, Freitag, der 4. September passt."]])
+        reasoner = AnthropicReasoner(
+            api_key="test-key-never-sent",
+            model="claude-test-real-adapter",
+            client=client,
+        )
+        reasoner.set_authoritative_transaction_context(
+            '{"appointments":{"appointment_1":{"purpose":"Orthopädie",'
+            '"date":"2026-09-10","time":"15:00","status":"READY_TO_BOOK"}},'
+            '"resolved_appointment_id_this_turn":"appointment_1",'
+            '"external_action_performed":false,"clarification_required":false,'
+            '"response_contract":{"must_acknowledge_updated_values":'
+            '{"date":"2026-09-10"}}}'
+        )
+
+        spoken = await _collect(reasoner, "Lieber Donnerstag.", 1)
+
+        assert spoken == (
+            "Deinen Orthopädie-Terminwunsch habe ich für Donnerstag, den 10. "
+            "September um 15 Uhr notiert."
+        )
+        assert "4. September" not in reasoner.history[-1]["content"]
+
+    asyncio.run(scenario())

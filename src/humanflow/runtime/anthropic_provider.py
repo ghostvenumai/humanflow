@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from humanflow.domain.conversation import OperationToken
@@ -42,7 +44,45 @@ gesprochenen Satz aus, zum Beispiel „Das Ergebnis ist 425.“, damit weder Sch
 noch Mehrdeutigkeit in den Gesprächskontext gelangen.
 """
 
-_SEMANTIC_BOUNDARY = re.compile(r"(?<=[.!?])(?:\s+|$)")
+_GERMAN_MONTHS = (
+    "Januar",
+    "Februar",
+    "März",
+    "April",
+    "Mai",
+    "Juni",
+    "Juli",
+    "August",
+    "September",
+    "Oktober",
+    "November",
+    "Dezember",
+)
+_SEMANTIC_BOUNDARY = re.compile(
+    rf"(?<=[.!?])(?:\s+(?!(?:{'|'.join(_GERMAN_MONTHS)})\b)|$)",
+    re.IGNORECASE,
+)
+_GERMAN_WEEKDAYS = (
+    "Montag",
+    "Dienstag",
+    "Mittwoch",
+    "Donnerstag",
+    "Freitag",
+    "Samstag",
+    "Sonntag",
+)
+_SPOKEN_DATE = re.compile(
+    rf"\b(\d{{1,2}})\.?(?:\s+|\s*,\s*)({'|'.join(_GERMAN_MONTHS)})\b",
+    re.IGNORECASE,
+)
+_SPOKEN_WEEKDAY = re.compile(
+    rf"\b({'|'.join(_GERMAN_WEEKDAYS)})\b",
+    re.IGNORECASE,
+)
+_UNVERIFIED_EXTERNAL_ACTION = re.compile(
+    r"\b(?:gebucht|eingetragen|storniert|abgesagt|gelöscht)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,9 +175,12 @@ class AnthropicReasoner:
             *self._history,
             {"role": "user", "content": user_text},
         ]
-        complete_text = ""
         pending = ""
+        delivered_text: list[str] = []
         final_message: Any | None = None
+        transaction_contract = _parse_transaction_contract(
+            self._authoritative_transaction_context
+        )
 
         system_prompt = self._system_prompt
         if self._authoritative_transaction_context:
@@ -163,7 +206,9 @@ class AnthropicReasoner:
                 "Terminwunsch notiert beziehungsweise entfernt wurde. Nur ein echter "
                 "erfolgreicher Tool-Aufruf erlaubt BOOKED oder die Bestätigung einer "
                 "externen Absage. Ältere widersprüchliche Werte im Chatverlauf dürfen "
-                "niemals wiederaufleben."
+                "niemals wiederaufleben. Prüfe vor der Ausgabe jedes Satzes außerdem "
+                "gegen forbidden_without_tool_success und verwende für rein lokalen "
+                "Status immer das Substantiv „Terminwunsch“."
             )
 
         async with self._client.messages.stream(
@@ -175,17 +220,20 @@ class AnthropicReasoner:
             async for delta in stream.text_stream:
                 if not isinstance(delta, str) or not delta:
                     continue
-                complete_text += delta
                 pending += delta
                 ready, pending = _take_speech_boundaries(pending)
                 for fragment in ready:
-                    yield fragment
+                    guarded = _guard_transaction_fragment(fragment, transaction_contract)
+                    delivered_text.append(guarded)
+                    yield guarded
             final_message = await stream.get_final_message()
 
         if pending.strip():
-            yield pending.strip()
+            guarded = _guard_transaction_fragment(pending.strip(), transaction_contract)
+            delivered_text.append(guarded)
+            yield guarded
 
-        assistant_text = complete_text.strip()
+        assistant_text = " ".join(delivered_text).strip()
         if not assistant_text:
             raise RuntimeError("reasoning_provider_returned_empty_text")
         self._history.extend(
@@ -223,6 +271,122 @@ def _take_speech_boundaries(text: str) -> tuple[list[str], str]:
                 pending = pending[split_at + 1 :]
                 continue
         return fragments, pending
+
+
+def _parse_transaction_contract(context: str | None) -> dict[str, object] | None:
+    if context is None:
+        return None
+    try:
+        payload = json.loads(context)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _guard_transaction_fragment(
+    fragment: str, context: Mapping[str, object] | None
+) -> str:
+    """Repair only objectively false transaction claims before they reach TTS.
+
+    The reasoner still owns wording in the normal case. The controller intervenes only
+    when a sentence contradicts an authoritative slot or claims an unexecuted action.
+    """
+
+    text = fragment.strip()
+    if not text or context is None:
+        return text
+    if bool(context.get("clarification_required")):
+        if _UNVERIFIED_EXTERNAL_ACTION.search(text):
+            return "Welchen Termin meinst du genau?"
+        return text
+
+    appointment = _resolved_appointment(context)
+    if appointment is None:
+        return text
+    external_action_performed = bool(context.get("external_action_performed"))
+    if not external_action_performed and _UNVERIFIED_EXTERNAL_ACTION.search(text):
+        return _safe_appointment_acknowledgement(appointment)
+    if _contradicts_authoritative_date(text, context, appointment):
+        return _safe_appointment_acknowledgement(appointment)
+    return text
+
+
+def _resolved_appointment(
+    context: Mapping[str, object],
+) -> Mapping[str, object] | None:
+    resolved_id = context.get("resolved_appointment_id_this_turn")
+    appointments = context.get("appointments")
+    if not isinstance(resolved_id, str) or not isinstance(appointments, Mapping):
+        return None
+    appointment = appointments.get(resolved_id)
+    return appointment if isinstance(appointment, Mapping) else None
+
+
+def _contradicts_authoritative_date(
+    text: str,
+    context: Mapping[str, object],
+    appointment: Mapping[str, object],
+) -> bool:
+    response_contract = context.get("response_contract")
+    if not isinstance(response_contract, Mapping):
+        return False
+    required = response_contract.get("must_acknowledge_updated_values")
+    if not isinstance(required, Mapping) or "date" not in required:
+        return False
+    raw_date = appointment.get("date")
+    if not isinstance(raw_date, str):
+        return False
+    try:
+        expected = date.fromisoformat(raw_date)
+    except ValueError:
+        return False
+    spoken_dates = tuple(_SPOKEN_DATE.finditer(text))
+    if spoken_dates:
+        for match in spoken_dates:
+            month = next(
+                (
+                    index
+                    for index, name in enumerate(_GERMAN_MONTHS, start=1)
+                    if name.casefold() == match.group(2).casefold()
+                ),
+                None,
+            )
+            if int(match.group(1)) != expected.day or month != expected.month:
+                return True
+    spoken_weekdays = tuple(_SPOKEN_WEEKDAY.finditer(text))
+    return any(
+        match.group(1).casefold()
+        != _GERMAN_WEEKDAYS[expected.weekday()].casefold()
+        for match in spoken_weekdays
+    )
+
+
+def _safe_appointment_acknowledgement(appointment: Mapping[str, object]) -> str:
+    purpose = appointment.get("purpose")
+    subject = f"{purpose}-Terminwunsch" if isinstance(purpose, str) else "Terminwunsch"
+    if appointment.get("status") == "CANCELLED":
+        return f"Okay, den {subject} habe ich entfernt."
+
+    details: list[str] = []
+    raw_date = appointment.get("date")
+    if isinstance(raw_date, str):
+        try:
+            parsed = date.fromisoformat(raw_date)
+        except ValueError:
+            pass
+        else:
+            details.append(
+                f"{_GERMAN_WEEKDAYS[parsed.weekday()]}, den {parsed.day}. "
+                f"{_GERMAN_MONTHS[parsed.month - 1]}"
+            )
+    raw_time = appointment.get("time")
+    if isinstance(raw_time, str) and re.fullmatch(r"\d{2}:\d{2}", raw_time):
+        hour, minute = raw_time.split(":", 1)
+        details.append(
+            f"{int(hour)} Uhr" if minute == "00" else f"{int(hour)}:{minute} Uhr"
+        )
+    suffix = f" für {' um '.join(details)}" if details else ""
+    return f"Deinen {subject} habe ich{suffix} notiert."
 
 
 def _assert_history_roles(history: list[dict[str, str]]) -> None:

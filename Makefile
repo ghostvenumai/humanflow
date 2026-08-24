@@ -1,4 +1,4 @@
-.PHONY: status test torture-test benchmark realtime-benchmark acoustic-barge-benchmark appointment-state-benchmark audio-continuity-benchmark tts-ab-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report release-readiness demo demo-benchmark demo-package dashboard-capture challenge-demo dashboard turn-tournament live-stt-smoke checkpoint
+.PHONY: status test torture-test benchmark realtime-benchmark acoustic-barge-benchmark appointment-state-benchmark audio-continuity-benchmark tts-ab-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report release-readiness demo demo-benchmark demo-package dashboard-capture challenge-demo dashboard turn-tournament live-stt-smoke live-multi-appointment-smoke checkpoint
 
 status:
 	python3 scripts/status.py
@@ -94,6 +94,9 @@ live-stt-smoke:
 	fi; \
 	set +a; \
 	PYTHONPATH=src python3 scripts/smoke_live_stt.py
+
+live-multi-appointment-smoke:
+	PYTHONPATH=src python3 scripts/smoke_live_multi_appointment.py
 
 checkpoint:
 	python3 scripts/checkpoint.py
