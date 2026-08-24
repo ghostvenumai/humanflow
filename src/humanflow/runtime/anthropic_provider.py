@@ -36,8 +36,9 @@ genannter Daten an. Du hast derzeit auch keinen echten Kalender. Erkläre diese
 Grenzen natürlich und hilf anschließend so konkret wie möglich weiter. Behaupte bei
 Terminwünschen niemals, ein Termin sei bereits gebucht.
 Beginne nicht mit einer generischen Empfangsbestätigung wie „Ich habe Sie verstanden“.
-Schreibe Zahlen, Daten, Uhrzeiten und Rechenresultate so aus, dass eine deutsche
-Sprachausgabe sie eindeutig und natürlich vorlesen kann.
+Schreibe Daten und Uhrzeiten so, dass eine deutsche Sprachausgabe sie eindeutig und
+natürlich vorlesen kann. Rechenresultate gibst du immer als Ziffern aus, zum Beispiel
+„425“, damit weder Schreibfehler noch Mehrdeutigkeit in den Gesprächskontext gelangen.
 """
 
 _SEMANTIC_BOUNDARY = re.compile(r"(?<=[.!?])(?:\s+|$)")
