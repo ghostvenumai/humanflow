@@ -1,0 +1,103 @@
+{
+  "benchmark": "controlled_elevenlabs_tts_ab",
+  "same_german_phrases": [
+    "Ja, klar. Donnerstag passt. Welche Uhrzeit wäre dir am liebsten?",
+    "Ein ERP-System verbindet zentrale Geschäftsprozesse und hält die gemeinsamen Daten an einem Ort.",
+    "Das klingt gerade wirklich anstrengend. Wir gehen am besten einen Schritt nach dem anderen.",
+    "Der Termin ist am Donnerstag, dem zehnten September, um fünfzehn Uhr."
+  ],
+  "same_voice": true,
+  "same_prosody_settings": true,
+  "same_gapless_browser_playback_pipeline": true,
+  "baseline": {
+    "model": "eleven_flash_v2_5",
+    "voice": "same_configured_german_professional_voice",
+    "requests": 4,
+    "successful_requests": 4,
+    "integration_reliability": 1.0,
+    "first_playable_audio_latency_ms": {
+      "median": 386.613,
+      "p95": 629.917,
+      "samples": 4
+    },
+    "request_wall_ms": {
+      "median": 386.613,
+      "p95": 629.917
+    },
+    "generated_audio_seconds": 20.666,
+    "gapless_playback_units": 4,
+    "provider_source_chunks": [
+      12,
+      20,
+      16,
+      13
+    ],
+    "sequence_and_playback_stability": "PASS",
+    "cancellation": {
+      "request_after_ms": 250.0,
+      "completion_ms": 3.694,
+      "playback_units_emitted_after_cancel": 0,
+      "result": "PASS",
+      "failure": null
+    },
+    "cost_evidence": {
+      "submitted_characters": 470,
+      "provider_reported_billable_character_credits": 88,
+      "usd_cost": null,
+      "usd_cost_reason": "not_fabricated_provider_did_not_return_dollar_charge"
+    },
+    "failures": []
+  },
+  "candidate": {
+    "model": "eleven_v3_conversational",
+    "voice": "same_configured_german_professional_voice",
+    "requests": 4,
+    "successful_requests": 4,
+    "integration_reliability": 1.0,
+    "first_playable_audio_latency_ms": {
+      "median": 939.246,
+      "p95": 1035.546,
+      "samples": 4
+    },
+    "request_wall_ms": {
+      "median": 939.246,
+      "p95": 1035.546
+    },
+    "generated_audio_seconds": 22.655,
+    "gapless_playback_units": 4,
+    "provider_source_chunks": [
+      14,
+      21,
+      19,
+      14
+    ],
+    "sequence_and_playback_stability": "PASS",
+    "cancellation": {
+      "request_after_ms": 250.0,
+      "completion_ms": 1.998,
+      "playback_units_emitted_after_cancel": 0,
+      "result": "PASS",
+      "failure": null
+    },
+    "cost_evidence": {
+      "submitted_characters": 470,
+      "provider_reported_billable_character_credits": 88,
+      "usd_cost": null,
+      "usd_cost_reason": "not_fabricated_provider_did_not_return_dollar_charge"
+    },
+    "failures": []
+  },
+  "objective_gate": "PASS",
+  "subjective_human_ratings": {
+    "sample_count": 0,
+    "naturalness": null,
+    "prosody": null,
+    "pacing": null,
+    "warmth": null,
+    "mechanical_impression": null,
+    "overall_realism": null
+  },
+  "keep_or_revert": "PENDING_HUMAN_AB",
+  "manual_validation": "REQUIRED_NOT_ATTESTED",
+  "measurement_scope": "real ElevenLabs provider to the same gapless semantic playback unit; browser/device perception is excluded and must be rated by a human"
+}

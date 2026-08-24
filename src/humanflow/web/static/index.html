@@ -31,6 +31,11 @@
       </section>
 
       <section class="controls" aria-label="Demo-Steuerung">
+        <label for="tts-ab-selection">TTS A/B</label>
+        <select id="tts-ab-selection">
+          <option value="baseline">A · Rebecca / Flash v2.5 (aktuell)</option>
+          <option value="candidate">B · Rebecca / v3 Conversational (eleven_v3_conversational)</option>
+        </select>
         <button id="connect">Verbinden & Mikrofon starten</button>
         <button id="interrupt" disabled>Agent stoppen</button>
         <span id="status" class="pill offline">offline</span>
@@ -69,6 +74,7 @@
 
       <section class="manual" aria-label="Menschliche Voice-Qualitätsbewertung">
         <h2>Menschliche Voice-Qualität · getrennt von Korrektheit</h2>
+        <p class="note">Für einen kontrollierten Vergleich zuerst Kandidat A testen, Sitzung trennen/neuladen, dann dieselben Sätze mit Kandidat B testen. Stimme und Playback-Pipeline bleiben identisch; nur das ElevenLabs-Modell wechselt.</p>
         <p class="note">Bitte erst nach echtem Hören bewerten. Die Skala reicht von eins (schwach) bis fünf (sehr gut). HumanFlow erzeugt oder bestätigt diese Werte nicht selbst.</p>
         <p><strong>Aktiver Kandidat:</strong> <span id="voice-candidate">noch nicht gehört</span> · <strong>gespeicherte menschliche Stichproben:</strong> <span id="voice-sample-count">0</span></p>
         <div id="voice-ratings" class="provider-grid"></div>

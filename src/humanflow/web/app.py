@@ -97,6 +97,7 @@ class DemoRuntimeConfig:
     synthesizer_factory: Callable[[], StreamingTTSProvider] | None
     providers: tuple[ProviderStatus, ...]
     blocker: str | None = None
+    tts_candidate_factory: Callable[[], StreamingTTSProvider] | None = None
 
     @property
     def ready(self) -> bool:
@@ -283,6 +284,9 @@ def load_demo_runtime_config(
         "OFF_PRODUCTION",
     )
     tts_model = values.get("HUMANFLOW_TTS_MODEL", DEFAULT_ELEVENLABS_MODEL).strip()
+    tts_candidate_model = values.get(
+        "HUMANFLOW_TTS_AB_MODEL", "eleven_v3_conversational"
+    ).strip()
     tts_info = ProviderInfo(
         role="tts",
         provider="elevenlabs-text-to-speech-stream",
@@ -312,6 +316,16 @@ def load_demo_runtime_config(
         tts_info,
         "CONFIGURED" if not tts_missing else "MISSING_CONFIGURATION",
     )
+    tts_candidate_status = ProviderStatus(
+        ProviderInfo(
+            role="tts-ab-candidate",
+            provider="elevenlabs-text-to-speech-stream",
+            model=tts_candidate_model or "eleven_v3_conversational",
+            mode=ProviderMode.REAL,
+            runtime="server",
+        ),
+        "CONFIGURED_UNVERIFIED" if not tts_missing else "MISSING_CONFIGURATION",
+    )
     if selected != "anthropic":
         reasoning = ProviderStatus(
             ProviderInfo(
@@ -332,6 +346,7 @@ def load_demo_runtime_config(
                 browser_stt_diagnostic,
                 reasoning,
                 tts_status,
+                tts_candidate_status,
                 tts_fallback,
             ),
             blocker=f"unsupported reasoning provider: {selected or 'empty'}",
@@ -357,6 +372,7 @@ def load_demo_runtime_config(
                     "CONFIGURED" if api_key.strip() else "MISSING_API_KEY",
                 ),
                 tts_status,
+                tts_candidate_status,
                 tts_fallback,
             ),
             blocker=(
@@ -374,6 +390,7 @@ def load_demo_runtime_config(
                 browser_stt_diagnostic,
                 ProviderStatus(reasoning_info, "MISSING_API_KEY"),
                 tts_status,
+                tts_candidate_status,
                 tts_fallback,
             ),
             blocker=(
@@ -393,6 +410,7 @@ def load_demo_runtime_config(
                 browser_stt_diagnostic,
                 ProviderStatus(reasoning_info, "CONFIGURED"),
                 tts_status,
+                tts_candidate_status,
                 tts_fallback,
             ),
             blocker=f"missing TTS configuration: {', '.join(tts_missing)}",
@@ -425,6 +443,18 @@ def load_demo_runtime_config(
             fallback=BrowserSpeechSynthesisAdapter(),
         )
 
+    def create_candidate_synthesizer() -> StreamingTTSProvider:
+        candidate = ElevenLabsStreamingTTSProvider(
+            api_key=tts_api_key,
+            voice_id=tts_voice_id,
+            model=tts_candidate_model or "eleven_v3_conversational",
+            budget=tts_budget,
+        )
+        return FallbackStreamingTTSProvider(
+            primary=GaplessSegmentTTSProvider(candidate),
+            fallback=BrowserSpeechSynthesisAdapter(),
+        )
+
     return DemoRuntimeConfig(
         transcriber_factory=create_transcriber,
         reasoner_factory=create_reasoner,
@@ -434,8 +464,10 @@ def load_demo_runtime_config(
             browser_stt_diagnostic,
             ProviderStatus(reasoning_info, "CONFIGURED"),
             tts_status,
+            tts_candidate_status,
             tts_fallback,
         ),
+        tts_candidate_factory=create_candidate_synthesizer,
     )
 
 
@@ -534,6 +566,22 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             return
         conversation_id = str(uuid4())
         input_only = websocket.query_params.get("mode") == "input-only"
+        requested_tts = websocket.query_params.get("tts", "baseline")
+        if requested_tts not in {"baseline", "candidate"}:
+            await websocket.send_json(
+                {"type": "error", "code": "unknown_tts_ab_candidate"}
+            )
+            await websocket.close(code=1008)
+            return
+        selected_synthesizer_factory = runtime.synthesizer_factory
+        if requested_tts == "candidate":
+            selected_synthesizer_factory = runtime.tts_candidate_factory
+        if selected_synthesizer_factory is None:
+            await websocket.send_json(
+                {"type": "error", "code": "tts_ab_candidate_unavailable"}
+            )
+            await websocket.close(code=1011)
+            return
         if not await browser_session_lease.acquire(conversation_id):
             await websocket.send_json(
                 {
@@ -556,7 +604,7 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             sink=sink,
             transcriber=transcriber,
             reasoner=runtime.reasoner_factory(),
-            synthesizer=runtime.synthesizer_factory(),
+            synthesizer=selected_synthesizer_factory(),
             audio_output=audio_output,
         )
         sequence = 0
@@ -610,6 +658,7 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                 ),
                 "providers": runtime.provider_payload(),
                 "manual_validation": "REQUIRED_NOT_ATTESTED",
+                "tts_ab_selection": requested_tts,
                 "conversation_history": {
                     "status": "CLEAN_NEW_SESSION",
                     "roles": [],

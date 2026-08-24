@@ -136,12 +136,20 @@ def test_demo_factory_can_only_build_declared_real_reasoner() -> None:
     assert transcriber.provider_info.provider == "elevenlabs-scribe-realtime"
     assert transcriber.provider_info.mode is ProviderMode.REAL
     assert isinstance(synthesizer, FallbackStreamingTTSProvider)
+    assert runtime.tts_candidate_factory is not None
+    candidate = runtime.tts_candidate_factory()
+    assert candidate.provider_info.model == "eleven_v3_conversational"
     assert reasoner.provider_info.mode is ProviderMode.REAL
     browser_diagnostic = next(
         status for status in runtime.providers if status.info.role == "stt-browser-diagnostic"
     )
     assert browser_diagnostic.info.mode is ProviderMode.MOCK
     assert browser_diagnostic.availability == "OFF_PRODUCTION"
+    tts_candidate = next(
+        status for status in runtime.providers if status.info.role == "tts-ab-candidate"
+    )
+    assert tts_candidate.info.model == "eleven_v3_conversational"
+    assert tts_candidate.availability == "CONFIGURED_UNVERIFIED"
 
 
 def test_demo_accepts_dedicated_scribe_key_without_exposing_it() -> None:

@@ -1,4 +1,4 @@
-.PHONY: status test torture-test benchmark realtime-benchmark acoustic-barge-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report release-readiness demo demo-benchmark demo-package dashboard-capture challenge-demo dashboard turn-tournament live-stt-smoke checkpoint
+.PHONY: status test torture-test benchmark realtime-benchmark acoustic-barge-benchmark appointment-state-benchmark tts-ab-benchmark recovery-benchmark replay scorecard runtime-quality router-report tournament-report release-readiness demo demo-benchmark demo-package dashboard-capture challenge-demo dashboard turn-tournament live-stt-smoke checkpoint
 
 status:
 	python3 scripts/status.py
@@ -18,6 +18,17 @@ realtime-benchmark:
 
 acoustic-barge-benchmark:
 	PYTHONPATH=src python3 scripts/benchmark_acoustic_barge_in.py
+
+appointment-state-benchmark:
+	PYTHONPATH=src python3 scripts/benchmark_appointment_state.py
+
+tts-ab-benchmark:
+	@set -a; \
+	if [ -f "$$HOME/.config/humanflow/runtime.env" ]; then \
+		. "$$HOME/.config/humanflow/runtime.env"; \
+	fi; \
+	set +a; \
+	PYTHONPATH=src python3 scripts/benchmark_tts_ab.py
 
 recovery-benchmark:
 	PYTHONPATH=src python3 scripts/benchmark_recovery.py

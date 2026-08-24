@@ -258,6 +258,9 @@ def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
     assert 'meta.playback_mode !== "browser_speech"' in source
     assert "provider_endpointed: result.isFinal" in source
     assert "silence_duration_ms: Math.round(silenceDuration)" in source
+    assert 'query.set("tts", ui["tts-ab-selection"].value)' in source
+    assert 'id="tts-ab-selection"' in markup
+    assert "eleven_v3_conversational" in markup
     assert "utterance_duration_ms: Math.round(utteranceDuration)" in source
     assert "recognition_result_id: recognitionResultId" in source
     assert "receivedChunkIds.has(meta.chunk_id)" in source

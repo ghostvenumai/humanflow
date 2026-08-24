@@ -10,6 +10,7 @@ const ui = Object.fromEntries([
   "metric-soft-yield", "metric-confirmed-interruption", "metric-audible-stop",
   "metric-backchannel-recovery", "metric-false-interruptions",
   "metric-first-partial", "metric-final-stt"
+  , "tts-ab-selection"
 ].map((id) => [id, document.getElementById(id)]));
 
 let socket;
@@ -175,6 +176,7 @@ function setConnected(connected) {
   ui.connect.disabled = connected;
   ui.interrupt.disabled = !connected;
   ui.send.disabled = !connected;
+  ui["tts-ab-selection"].disabled = connected;
   document.querySelectorAll(".quick button").forEach((button) => { button.disabled = !connected; });
 }
 
@@ -682,7 +684,10 @@ ui.connect.addEventListener("click", async () => {
     if (!capabilities.microphone) throw new Error("getUserMedia-Mikrofon fehlt");
     await startMicrophone();
     const scheme = location.protocol === "https:" ? "wss" : "ws";
-    socket = new WebSocket(`${scheme}://${location.host}/ws${inputOnlyMode ? "?mode=input-only" : ""}`);
+    const query = new URLSearchParams();
+    if (inputOnlyMode) query.set("mode", "input-only");
+    query.set("tts", ui["tts-ab-selection"].value);
+    socket = new WebSocket(`${scheme}://${location.host}/ws?${query.toString()}`);
     socket.binaryType = "arraybuffer";
     socket.onopen = () => {
       setConnected(true);
@@ -721,6 +726,10 @@ ui.connect.addEventListener("click", async () => {
         partialTranscriptItem = null;
         ui["debug-history-roles"].textContent = "[] · CLEAN_NEW_SESSION";
         addConversation("system", `Neue saubere Session ${payload.conversation_id}`, "SYSTEM");
+        activeTtsCandidate = payload.tts_ab_selection === "candidate"
+          ? "B · Rebecca / eleven_v3_conversational"
+          : "A · Rebecca / eleven_flash_v2_5";
+        ui["voice-candidate"].textContent = activeTtsCandidate;
         renderProviders(payload.providers);
         ui["mic-source"].textContent = payload.input_topology?.microphone_source || "getUserMedia";
         ui["pcm-source"].textContent = payload.input_topology?.pcm_source || "pcm_s16le 16000 Hz mono";
