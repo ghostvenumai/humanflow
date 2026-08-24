@@ -1,5 +1,5 @@
 {
-  "captured_utc": "2026-08-24T11:33:07.261950Z",
+  "captured_utc": "2026-08-24T12:55:39.945532Z",
   "checks": {
     "all_responses_nonempty": true,
     "appointment_is_semantically_relevant": true,
@@ -56,77 +56,77 @@
   "schema_version": 1,
   "scope": "real reasoning websocket path; browser microphone/STT/TTS excluded",
   "summary": {
-    "first_model_output_ms_max": 1310.75,
-    "first_model_output_ms_median": 945.853,
-    "input_tokens": 4550,
-    "output_tokens": 435,
+    "first_model_output_ms_max": 1643.125,
+    "first_model_output_ms_median": 1032.237,
+    "input_tokens": 5235,
+    "output_tokens": 425,
     "turns": 6
   },
   "turns": {
     "appointment": {
-      "first_model_output_ms": 987.628103,
-      "generation_ms": 12035.410463,
+      "first_model_output_ms": 1006.150825,
+      "generation_ms": 5975.837394,
       "prompt": "Ich möchte einen Termin am Freitag.",
-      "response": "Gerne, das klingt gut. Welcher Freitag ist dir recht und um welche Uhrzeit passt es dir? Und wofür brauchst du den Termin – also mit wem oder für was?",
-      "speech_chunks": 3,
+      "response": "Gerne. Welcher Freitag ist gemeint, und wofür brauchst du den Termin?",
+      "speech_chunks": 2,
       "usage": {
-        "input_tokens": 982,
-        "output_tokens": 59
+        "input_tokens": 1118,
+        "output_tokens": 31
       }
     },
     "arithmetic": {
-      "first_model_output_ms": 780.822352,
-      "generation_ms": 3522.039654,
+      "first_model_output_ms": 685.359483,
+      "generation_ms": 3776.844426,
       "prompt": "Was ist 25 mal 17?",
       "response": "Das ergibt vierhundertfünfundzwanzig.",
       "speech_chunks": 1,
       "usage": {
-        "input_tokens": 721,
+        "input_tokens": 823,
         "output_tokens": 20
       }
     },
     "capabilities": {
-      "first_model_output_ms": 891.322628,
-      "generation_ms": 23961.221708,
+      "first_model_output_ms": 1163.917862,
+      "generation_ms": 17022.8077,
       "prompt": "Was kannst du?",
-      "response": "Ich bin HumanFlow, ein KI-Assistent. Ich kann mit dir über verschiedenste Themen sprechen – von praktischen Fragen über Allgemeinwissen bis hin zu kreativen Ideen. Ich helfe dir bei Recherchen, erkläre Zusammenhänge, brainstorme mit dir oder beantworte spontane Fragen. Was liegt dir gerade auf dem Herzen?",
-      "speech_chunks": 4,
+      "response": "Ich bin HumanFlow, ein KI-Assistent. Ich kann dir bei vielem helfen – Fragen beantworten, Informationen recherchieren, Probleme durchdenken oder dich bei Aufgaben unterstützen. Sag mir einfach, worum es geht.",
+      "speech_chunks": 3,
       "usage": {
-        "input_tokens": 520,
-        "output_tokens": 104
+        "input_tokens": 638,
+        "output_tokens": 77
       }
     },
     "context_followup": {
-      "first_model_output_ms": 960.664116,
-      "generation_ms": 5705.724765,
+      "first_model_output_ms": 1058.322697,
+      "generation_ms": 5781.008995,
       "prompt": "Wie lautete noch einmal das Ergebnis meiner Rechenaufgabe?",
       "response": "Vierhundertfünfundzwanzig – das war fünfundzwanzig mal siebzehn.",
       "speech_chunks": 1,
       "usage": {
-        "input_tokens": 931,
+        "input_tokens": 1067,
         "output_tokens": 33
       }
     },
     "erp": {
-      "first_model_output_ms": 1310.750189,
-      "generation_ms": 34176.574784,
+      "first_model_output_ms": 1643.124791,
+      "generation_ms": 59769.094611,
       "prompt": "Kannst du mir erklären, was ein ERP-System ist?",
-      "response": "Ein ERP-System ist eine Software, die alle wichtigen Geschäftsprozesse eines Unternehmens verbindet – also Finanzen, Lagerbestand, Personal, Produktion, Vertrieb. Statt dass jede Abteilung ihre eigenen Daten in separaten Systemen verwaltet, läuft alles über eine zentrale Plattform. Das macht Abläufe effizienter und gibt dir einen besseren Überblick übers ganze Unternehmen. Brauchst du noch mehr Details zu einem bestimmten Aspekt?",
-      "speech_chunks": 4,
+      "response": "Ein ERP-System ist eine große Software, die alle wichtigen Geschäftsprozesse eines Unternehmens verbindet – also Lagerwirtschaft, Finanzen, Personal, Verkauf und so weiter. Alle Daten fließen zentral zusammen, sodass niemand mit veralteten Informationen arbeitet. Das erspart viel manuelle Arbeit und hilft, schneller bessere Entscheidungen zu treffen. Große Unternehmen nutzen das fast immer, aber auch mittelständische Betriebe setzen zunehmend darauf. Möchtest du wissen, welche bekannten Systeme es gibt, oder interessiert dich ein konkreter Aspekt davon?",
+      "speech_chunks": 6,
       "usage": {
-        "input_tokens": 761,
-        "output_tokens": 145
+        "input_tokens": 863,
+        "output_tokens": 179
       }
     },
     "weather_limit": {
-      "first_model_output_ms": 931.042557,
-      "generation_ms": 16003.544949,
+      "first_model_output_ms": 924.880914,
+      "generation_ms": 17714.368623,
       "prompt": "Wie ist das Wetter?",
-      "response": "Ich hab leider keinen Zugriff auf aktuelle Wetterdaten. Aber wenn du mir sagst, wo du bist und was du gerade siehst oder weißt, kann ich dir helfen – zum Beispiel einordnen, was das bedeutet oder was dich erwartet.",
-      "speech_chunks": 2,
+      "response": "Ich habe keinen Zugriff auf aktuelle Wetterdaten. Aber wenn du mir sagst, wo du bist oder wie es gerade bei dir aussieht, kann ich dir helfen – zum Beispiel mit Tipps, was du anziehen solltest oder wie du dich auf bestimmte Bedingungen vorbeitest.",
+      "speech_chunks": 3,
       "usage": {
-        "input_tokens": 635,
-        "output_tokens": 74
+        "input_tokens": 726,
+        "output_tokens": 85
       }
     }
   }

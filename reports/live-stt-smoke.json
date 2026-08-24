@@ -21,15 +21,15 @@
   "manual_microphone_quality_attested": false,
   "observed": {
     "committed_events_delivered": 1,
-    "committed_transcript": "Was is 25 mal 17?",
-    "committed_transcript_ms": 3128.695,
-    "first_partial_ms": 2320.171,
-    "partial_events_delivered": 2,
+    "committed_transcript": "Was ist 25 mal 17?",
+    "committed_transcript_ms": 3128.421,
+    "first_partial_ms": 2421.676,
+    "partial_events_delivered": 1,
     "pcm_frames_sent": 32,
     "semantic_numbers_preserved": true,
-    "wall_duration_ms": 3265.294
+    "wall_duration_ms": 3338.443
   },
-  "observed_utc": "2026-08-24T12:47:28.977432Z",
+  "observed_utc": "2026-08-24T12:53:35.673051Z",
   "provider": {
     "mode": "REAL",
     "model": "scribe_v2_realtime",
