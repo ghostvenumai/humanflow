@@ -1,0 +1,17 @@
+{
+  "approved": true,
+  "attested_at_utc": "2026-08-24T17:47:38.085859Z",
+  "attested_by_local_user": "serverserver",
+  "browser": "Google Chrome",
+  "confirmations": {
+    "backchannel_did_not_cancel": true,
+    "german_speech_audible": true,
+    "intentional_barge_in_stopped_audible_output": true,
+    "microphone_pcm_streamed": true,
+    "tool_failure_recovered_without_hangup": true
+  },
+  "representative_calls": 6,
+  "schema_version": 1,
+  "statement": "I personally ran and heard the HumanFlow browser demo; these confirmations are not agent-generated.",
+  "validated_commit": "118c84a8a95ac1a03baef3847667a3e99496dfaa"
+}
