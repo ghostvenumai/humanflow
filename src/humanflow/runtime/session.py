@@ -180,6 +180,12 @@ class RealtimeVoiceSession:
 
         return self._appointment_state_tracker.state
 
+    @property
+    def appointment_states(self) -> dict[str, AppointmentState]:
+        """Independent controller-owned appointment objects keyed by stable ID."""
+
+        return self._appointment_state_tracker.appointments
+
     async def start(self) -> None:
         if self._closed:
             raise RuntimeError("session is closed")
@@ -1152,7 +1158,7 @@ class RealtimeVoiceSession:
         if callable(set_context):
             set_context(
                 appointment_context,
-                state=appointment_delta.state,
+                state=appointment_delta.appointments,
             )
         if appointment_delta.changed:
             self.state_machine.record(

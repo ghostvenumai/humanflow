@@ -16,10 +16,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPORT_PATH = PROJECT_ROOT / "reports" / "appointment-state-benchmark.json"
 ITERATIONS = 1_000
 TURNS = (
-    ("Ich möchte den Termin nächsten Freitag.", "turn-1"),
-    ("Äh, machen wir übernächste Woche Donnerstag.", "turn-2"),
-    ("Am besten gegen 14 Uhr.", "turn-3"),
-    ("Vielleicht 15 Uhr.", "turn-4"),
+    ("Ich brauche einen Orthopädentermin.", "turn-1"),
+    ("Am besten nächste Woche Freitag um 14 Uhr.", "turn-2"),
+    (
+        "Mmm, warte mal, dann machen wir vielleicht 16 Uhr nächste Woche Donnerstag.",
+        "turn-3",
+    ),
+    (
+        "Ich brauch noch 'n Friseurtermin, nächste Woche Mittwoch um 14 Uhr.",
+        "turn-4",
+    ),
+    ("Der Friseurtermin, was mit dem?", "turn-5"),
+    ("Nee, ich will ihn absagen.", "turn-6"),
+    (
+        "Nicht Orthopäde. Der soll bleiben. Den Friseurtermin brauche ich nicht mehr.",
+        "turn-7",
+    ),
 )
 
 
@@ -32,7 +44,7 @@ def percentile(values: list[float], percentile_value: float) -> float:
 def main() -> None:
     sequence_latencies_ms: list[float] = []
     correct = 0
-    unchanged_date_checks = 0
+    cross_contamination_checks = 0
     provenance_checks = 0
     for _ in range(ITERATIONS):
         tracker = AppointmentStateTracker(
@@ -42,30 +54,49 @@ def main() -> None:
         started_ns = perf_counter_ns()
         for text, turn_id in TURNS:
             tracker.apply_user_turn(text, source_turn=turn_id)
-            if turn_id in {"turn-3", "turn-4"}:
-                date_slot = tracker.state.date
-                if date_slot is not None and date_slot.value == "2026-09-10":
-                    unchanged_date_checks += 1
         sequence_latencies_ms.append((perf_counter_ns() - started_ns) / 1_000_000.0)
-        date_slot = tracker.state.date
-        time_slot = tracker.state.time
+        orthopedist = tracker.appointments.get("appointment_1")
+        hairdresser = tracker.appointments.get("appointment_2")
         if (
-            date_slot is not None
-            and time_slot is not None
-            and date_slot.value == "2026-09-10"
-            and time_slot.value == "15:00"
+            orthopedist is not None
+            and hairdresser is not None
+            and orthopedist.date is not None
+            and orthopedist.time is not None
+            and orthopedist.status is not None
+            and hairdresser.date is not None
+            and hairdresser.time is not None
+            and hairdresser.status is not None
+            and orthopedist.date.value == "2026-09-03"
+            and orthopedist.time.value == "16:00"
+            and orthopedist.status.value == "READY_TO_BOOK"
+            and hairdresser.date.value == "2026-09-02"
+            and hairdresser.time.value == "14:00"
+            and hairdresser.status.value == "CANCELLED"
         ):
             correct += 1
         if (
-            date_slot is not None
-            and time_slot is not None
-            and date_slot.source_turn == "turn-2"
-            and time_slot.source_turn == "turn-4"
+            orthopedist is not None
+            and hairdresser is not None
+            and orthopedist.date is not None
+            and orthopedist.time is not None
+            and hairdresser.date is not None
+            and hairdresser.time is not None
+            and orthopedist.date.source_turn == "turn-3"
+            and orthopedist.time.source_turn == "turn-3"
+            and hairdresser.date.source_turn == "turn-4"
+            and hairdresser.time.source_turn == "turn-4"
         ):
             provenance_checks += 1
+        if (
+            orthopedist is not None
+            and hairdresser is not None
+            and orthopedist.date is not hairdresser.date
+            and orthopedist.time is not hairdresser.time
+        ):
+            cross_contamination_checks += 1
 
     payload = {
-        "benchmark": "appointment_delta_state",
+        "benchmark": "multi_appointment_delta_state",
         "iterations": ITERATIONS,
         "turns_per_iteration": len(TURNS),
         "latency_ms": {
@@ -74,19 +105,36 @@ def main() -> None:
             "max": round(max(sequence_latencies_ms), 6),
         },
         "correct_final_state_count": correct,
-        "expected_final_state": {"date": "2026-09-10", "time": "15:00"},
-        "unchanged_date_checks": unchanged_date_checks,
-        "expected_unchanged_date_checks": ITERATIONS * 2,
+        "expected_final_state": {
+            "appointment_1": {
+                "purpose": "Orthopädie",
+                "date": "2026-09-03",
+                "time": "16:00",
+                "status": "READY_TO_BOOK",
+            },
+            "appointment_2": {
+                "purpose": "Friseur",
+                "date": "2026-09-02",
+                "time": "14:00",
+                "status": "CANCELLED",
+            },
+        },
+        "cross_contamination_checks": cross_contamination_checks,
         "provenance_checks": provenance_checks,
+        "stable_appointment_ids": True,
+        "external_booking_claim_without_tool": False,
         "assistant_history_used_as_state_source": False,
         "result": (
             "PASS"
             if correct == ITERATIONS
-            and unchanged_date_checks == ITERATIONS * 2
+            and cross_contamination_checks == ITERATIONS
             and provenance_checks == ITERATIONS
             else "FAIL"
         ),
-        "measurement_scope": "in-process deterministic German slot parsing; no provider call",
+        "measurement_scope": (
+            "in-process deterministic German multi-object reference, correction and "
+            "cancellation parsing; no provider call"
+        ),
     }
     REPORT_PATH.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

@@ -6,7 +6,10 @@ from dataclasses import replace
 from datetime import UTC, date, datetime
 
 from humanflow.domain.conversation import OperationToken
-from humanflow.runtime.appointment_state import AppointmentStateTracker
+from humanflow.runtime.appointment_state import (
+    AppointmentActionState,
+    AppointmentStateTracker,
+)
 from humanflow.runtime.providers import (
     NullTranscriber,
     TimedPcmOutput,
@@ -47,7 +50,7 @@ def test_appointment_updates_are_delta_based_and_old_friday_never_resurfaces() -
 
     assert first.updated_slots == ("date", "status")
     assert changed_date.updated_slots == ("date",)
-    assert fourteen.updated_slots == ("time",)
+    assert fourteen.updated_slots == ("time", "status")
     assert fifteen.updated_slots == ("time",)
     assert tracker.state.date is not None
     assert tracker.state.date.value == "2026-09-10"
@@ -157,3 +160,143 @@ def test_session_supplies_authoritative_state_without_rewriting_user_transcript(
         await session.close()
 
     asyncio.run(scenario())
+
+
+def _slot(tracker: AppointmentStateTracker, appointment_id: str, name: str) -> str | None:
+    value = getattr(tracker.appointments[appointment_id], name)
+    return None if value is None else value.value
+
+
+def test_exact_human_multi_appointment_failure_keeps_objects_isolated() -> None:
+    tracker = _tracker()
+
+    tracker.apply_user_turn("Ich brauche einen Orthopädentermin.", source_turn="turn-1")
+    tracker.apply_user_turn(
+        "Am besten nächste Woche Freitag um 14 Uhr.", source_turn="turn-2"
+    )
+    tracker.apply_user_turn(
+        "Mmm, warte mal, dann machen wir vielleicht 16 Uhr nächste Woche Donnerstag.",
+        source_turn="turn-3",
+    )
+    created_hairdresser = tracker.apply_user_turn(
+        "Ich brauch noch 'n Friseurtermin, nächste Woche Mittwoch um 14 Uhr.",
+        source_turn="turn-4",
+    )
+    focused_hairdresser = tracker.apply_user_turn(
+        "Der Friseurtermin, was mit dem?", source_turn="turn-5"
+    )
+    cancelled = tracker.apply_user_turn(
+        "Nee, ich will ihn absagen.", source_turn="turn-6"
+    )
+    explicit = tracker.apply_user_turn(
+        "Nicht Orthopäde. Der soll bleiben. Den Friseurtermin brauche ich nicht mehr.",
+        source_turn="turn-7",
+    )
+
+    assert tuple(tracker.appointments) == ("appointment_1", "appointment_2")
+    assert created_hairdresser.appointment_id == "appointment_2"
+    assert created_hairdresser.created is True
+    assert focused_hairdresser.appointment_id == "appointment_2"
+    assert cancelled.appointment_id == "appointment_2"
+    assert explicit.appointment_id == "appointment_2"
+
+    assert _slot(tracker, "appointment_1", "purpose") == "Orthopädie"
+    assert _slot(tracker, "appointment_1", "date") == "2026-09-03"
+    assert _slot(tracker, "appointment_1", "time") == "16:00"
+    assert _slot(tracker, "appointment_1", "status") == "READY_TO_BOOK"
+    assert _slot(tracker, "appointment_2", "purpose") == "Friseur"
+    assert _slot(tracker, "appointment_2", "date") == "2026-09-02"
+    assert _slot(tracker, "appointment_2", "time") == "14:00"
+    assert _slot(tracker, "appointment_2", "status") == "CANCELLED"
+    assert tracker.active_focus_appointment_id == "appointment_2"
+
+
+def test_ambiguous_pronoun_requires_clarification_without_mutation() -> None:
+    tracker = _tracker()
+    tracker.apply_user_turn(
+        "Orthopädentermin nächste Woche Donnerstag um 16 Uhr.", source_turn="turn-1"
+    )
+    tracker.apply_user_turn(
+        "Noch ein Friseurtermin nächste Woche Mittwoch um 14 Uhr.", source_turn="turn-2"
+    )
+    before = {
+        appointment_id: appointment.to_dict()
+        for appointment_id, appointment in tracker.appointments.items()
+    }
+
+    overview = tracker.apply_user_turn("Welche Termine habe ich?", source_turn="turn-3")
+    ambiguous = tracker.apply_user_turn(
+        "Nee, ich will ihn absagen.", source_turn="turn-4"
+    )
+
+    assert overview.clarification_required is True
+    assert ambiguous.clarification_required is True
+    assert ambiguous.appointment_id is None
+    assert ambiguous.resolution_reason == "ambiguous_pronoun"
+    assert ambiguous.clarification_options == ("appointment_1", "appointment_2")
+    assert tracker.active_focus_appointment_id is None
+    assert {
+        appointment_id: appointment.to_dict()
+        for appointment_id, appointment in tracker.appointments.items()
+    } == before
+
+
+def test_three_appointments_switch_focus_and_update_only_referenced_object() -> None:
+    tracker = _tracker()
+    tracker.apply_user_turn(
+        "Orthopädentermin nächste Woche Donnerstag um 16 Uhr.", source_turn="turn-1"
+    )
+    tracker.apply_user_turn(
+        "Noch ein Friseurtermin nächste Woche Mittwoch um 14 Uhr.", source_turn="turn-2"
+    )
+    tracker.apply_user_turn(
+        "Außerdem einen Zahnarzttermin nächste Woche Freitag um 10 Uhr.",
+        source_turn="turn-3",
+    )
+    tracker.apply_user_turn(
+        "Der beim Orthopäden soll um 15 Uhr sein.", source_turn="turn-4"
+    )
+    ambiguous_other = tracker.apply_user_turn(
+        "Den anderen um 11 Uhr.", source_turn="turn-5"
+    )
+    tracker.apply_user_turn(
+        "Der Zahnarzttermin soll um 11 Uhr sein.", source_turn="turn-6"
+    )
+
+    assert len(tracker.appointments) == 3
+    assert _slot(tracker, "appointment_1", "date") == "2026-09-03"
+    assert _slot(tracker, "appointment_1", "time") == "15:00"
+    assert _slot(tracker, "appointment_2", "date") == "2026-09-02"
+    assert _slot(tracker, "appointment_2", "time") == "14:00"
+    assert _slot(tracker, "appointment_3", "date") == "2026-09-04"
+    assert ambiguous_other.clarification_required is True
+    assert _slot(tracker, "appointment_3", "time") == "11:00"
+
+
+def test_only_real_tool_result_can_claim_booking_or_external_cancellation() -> None:
+    tracker = _tracker()
+    tracker.apply_user_turn(
+        "Buche meinen Orthopädentermin nächste Woche Donnerstag um 16 Uhr.",
+        source_turn="turn-1",
+    )
+    assert _slot(tracker, "appointment_1", "status") == "READY_TO_BOOK"
+    assert tracker.appointments["appointment_1"].external_action_confirmed is False
+
+    booked = tracker.record_tool_result(
+        "appointment_1", action="book", success=True, source_turn="tool-1"
+    )
+    assert booked.external_action_performed is True
+    assert _slot(tracker, "appointment_1", "status") == "BOOKED"
+
+    pending = tracker.apply_user_turn(
+        "Den Orthopädentermin bitte absagen.", source_turn="turn-2"
+    )
+    assert _slot(tracker, "appointment_1", "status") == "TOOL_PENDING"
+    assert pending.external_action_performed is False
+
+    tracker.record_tool_result(
+        "appointment_1", action="cancel", success=True, source_turn="tool-2"
+    )
+    assert _slot(tracker, "appointment_1", "status") == "CANCELLED"
+    assert tracker.appointments["appointment_1"].external_action_confirmed is True
+    assert AppointmentActionState.BOOKED.value == "BOOKED"
