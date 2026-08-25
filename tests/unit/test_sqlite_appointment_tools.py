@@ -575,6 +575,7 @@ def test_conversation_desire_is_separate_until_database_tool_success(tmp_path: P
     "confirmation",
     (
         "Ja.",
+        "Ja, okay.",
         "Ja bitte.",
         "Super.",
         "Perfekt.",
@@ -846,6 +847,233 @@ def test_unavailable_eleventh_hour_offers_seeded_fifteenth_hour_without_prebooki
         assert provider.call_counts == {
             "search_availability": 1,
             "create_appointment": 1,
+        }
+
+    asyncio.run(scenario())
+
+
+def test_rejected_pending_offer_does_not_book_or_reuse_original_time(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        tracker = _tracker()
+        transcript = "Orthopädentermin übernächste Woche Donnerstag um 11 Uhr."
+        delta = tracker.apply_user_turn(transcript, source_turn="turn-1")
+        provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+        machine, _ = _machine()
+        coordinator = AppointmentTransactionCoordinator(
+            conversation_id="reject-pending-offer",
+            state_machine=machine,
+            provider=provider,
+        )
+
+        _, offered = await coordinator.execute(
+            transcript=transcript,
+            delta=delta,
+            tracker=tracker,
+            correlation_id="turn-1",
+            source_turn="turn-1",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        assert offered is not None
+        assert offered.value["result_status"] == "UNAVAILABLE"
+        assert [
+            slot["start_datetime"] for slot in offered.value["alternative_slots"]
+        ] == ["2026-09-10T15:00:00+02:00"]
+
+        rejected = tracker.apply_user_turn("Nein.", source_turn="turn-2")
+        _, rejected_outcome = await coordinator.execute(
+            transcript="Nein.",
+            delta=rejected,
+            tracker=tracker,
+            correlation_id="turn-2",
+            source_turn="turn-2",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        repeated = tracker.apply_user_turn("Ja, okay.", source_turn="turn-3")
+        _, repeated_outcome = await coordinator.execute(
+            transcript="Ja, okay.",
+            delta=repeated,
+            tracker=tracker,
+            correlation_id="turn-3",
+            source_turn="turn-3",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+
+        assert rejected_outcome is None
+        assert repeated_outcome is None
+        assert provider.list_appointments({})["appointments"] == []
+        assert provider.call_counts == {"search_availability": 1}
+
+    asyncio.run(scenario())
+
+
+def test_second_appointment_confirmation_consumes_atomic_cross_date_offer(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        tracker = AppointmentStateTracker(
+            today=lambda: date(2026, 8, 25),
+            now=lambda: datetime(2026, 8, 25, 10, 0, tzinfo=UTC),
+        )
+        provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+        machine, _ = _machine()
+        coordinator = AppointmentTransactionCoordinator(
+            conversation_id="two-orthopaedics-atomic-offers",
+            state_machine=machine,
+            provider=provider,
+        )
+
+        first_request = (
+            "Ich brauch einen Orthopäden-Termin übernächste Woche Donnerstag "
+            "um 11 Uhr."
+        )
+        first_delta = tracker.apply_user_turn(first_request, source_turn="turn-1")
+        _, first_offer = await coordinator.execute(
+            transcript=first_request,
+            delta=first_delta,
+            tracker=tracker,
+            correlation_id="turn-1",
+            source_turn="turn-1",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        assert first_offer is not None
+        assert [
+            slot["start_datetime"]
+            for slot in first_offer.value["alternative_slots"]
+        ] == ["2026-09-10T15:00:00+02:00"]
+
+        first_confirmation = tracker.apply_user_turn("Super.", source_turn="turn-2")
+        _, first_booking = await coordinator.execute(
+            transcript="Super.",
+            delta=first_confirmation,
+            tracker=tracker,
+            correlation_id="turn-2",
+            source_turn="turn-2",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        assert first_booking is not None
+        assert first_booking.value["result_status"] == "BOOKED"
+
+        second_request = (
+            "Ich bräuchte noch mal Orthopäden-Termin für Mittwoch in drei Wochen "
+            "um 11 Uhr."
+        )
+        second_delta = tracker.apply_user_turn(second_request, source_turn="turn-3")
+        _, second_unavailable = await coordinator.execute(
+            transcript=second_request,
+            delta=second_delta,
+            tracker=tracker,
+            correlation_id="turn-3",
+            source_turn="turn-3",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        assert second_unavailable is not None
+        assert second_unavailable.value["result_status"] == "UNAVAILABLE"
+        assert second_unavailable.value["query_start_date"] == "2026-09-09"
+        assert second_unavailable.value["query_end_date"] == "2026-09-09"
+        assert second_unavailable.value["alternative_slots"] == []
+
+        followup = tracker.apply_user_turn("Wann hast du frei?", source_turn="turn-4")
+        followup_delta, followup_offer = await coordinator.execute(
+            transcript="Wann hast du frei?",
+            delta=followup,
+            tracker=tracker,
+            correlation_id="turn-4",
+            source_turn="turn-4",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        context = coordinator.enrich_reasoning_context(
+            tracker.reasoning_context(followup_delta), followup_offer
+        )
+        payload = json.loads(context or "{}")
+        reply = _authoritative_database_reply(payload)
+        pending = payload["pending_offer"]
+
+        assert followup_offer is not None
+        assert followup_offer.value["result_status"] == "AVAILABLE"
+        assert followup_offer.value["query_start_date"] == "2026-09-09"
+        assert followup_offer.value["query_end_date"] == "2026-09-30"
+        assert [
+            slot["start_datetime"] for slot in followup_offer.value["slots"]
+        ] == ["2026-09-14T12:30:00+02:00"]
+        assert tracker.active_focus_appointment_id == "appointment_2"
+        assert pending == {
+            "appointment_id": "appointment_2",
+            "appointment_type": "Orthopädie",
+            "database_appointment_id": pending["database_appointment_id"],
+            "date": "2026-09-14",
+            "location": "Ingolstadt",
+            "provider_name": "Praxis am Stadtpark (Demo)",
+            "resource_id": "demo-ortho-1",
+            "source_query": {
+                "appointment_type": "Orthopädie",
+                "end_date": "2026-09-30",
+                "max_results": 1,
+                "start_date": "2026-09-09",
+            },
+            "source_result_status": "AVAILABLE",
+            "time": "12:30",
+            "timezone": "Europe/Berlin",
+        }
+        assert tracker.appointments["appointment_1"].date is not None
+        assert tracker.appointments["appointment_1"].date.value == "2026-09-10"
+        assert tracker.appointments["appointment_1"].time is not None
+        assert tracker.appointments["appointment_1"].time.value == "15:00"
+        assert tracker.appointments["appointment_2"].date is not None
+        assert tracker.appointments["appointment_2"].date.value == "2026-09-09"
+        assert tracker.appointments["appointment_2"].time is not None
+        assert tracker.appointments["appointment_2"].time.value == "11:00"
+        assert reply is not None
+        assert "Mittwoch, den 9. September" in reply
+        assert "Montag, den 14. September" in reply
+        assert "12:30 Uhr" in reply
+
+        second_confirmation = tracker.apply_user_turn(
+            "Ja, okay.", source_turn="turn-5"
+        )
+        _, second_booking = await coordinator.execute(
+            transcript="Ja, okay.",
+            delta=second_confirmation,
+            tracker=tracker,
+            correlation_id="turn-5",
+            source_turn="turn-5",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        repeated = tracker.apply_user_turn("Ja, okay.", source_turn="turn-6")
+        _, duplicate = await coordinator.execute(
+            transcript="Ja, okay.",
+            delta=repeated,
+            tracker=tracker,
+            correlation_id="turn-6",
+            source_turn="turn-6",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+
+        rows = provider.list_appointments({})["appointments"]
+        assert second_booking is not None
+        assert second_booking.value["result_status"] == "BOOKED"
+        assert duplicate is None
+        assert len(rows) == 2
+        assert len({row["appointment_id"] for row in rows}) == 2
+        assert {row["start_datetime"] for row in rows} == {
+            "2026-09-10T15:00:00+02:00",
+            "2026-09-14T12:30:00+02:00",
+        }
+        assert all(
+            row["start_datetime"] != "2026-09-09T11:00:00+02:00" for row in rows
+        )
+        assert tracker.appointments["appointment_1"].date is not None
+        assert tracker.appointments["appointment_1"].date.value == "2026-09-10"
+        assert tracker.appointments["appointment_1"].time is not None
+        assert tracker.appointments["appointment_1"].time.value == "15:00"
+        assert tracker.appointments["appointment_2"].date is not None
+        assert tracker.appointments["appointment_2"].date.value == "2026-09-14"
+        assert tracker.appointments["appointment_2"].time is not None
+        assert tracker.appointments["appointment_2"].time.value == "12:30"
+        assert provider.call_counts == {
+            "search_availability": 3,
+            "create_appointment": 2,
         }
 
     asyncio.run(scenario())

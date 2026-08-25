@@ -161,6 +161,15 @@ class SQLiteAppointmentToolProvider:
         location = _optional(arguments, "location")
         preferred_time = _optional(arguments, "preferred_time")
         preferred_daypart = _optional(arguments, "preferred_daypart")
+        max_results_raw = arguments.get("max_results")
+        max_results: int | None = None
+        if max_results_raw is not None:
+            try:
+                max_results = int(max_results_raw)
+            except (TypeError, ValueError) as error:
+                raise ToolProviderError("invalid_max_results") from error
+            if not 1 <= max_results <= 50:
+                raise ToolProviderError("invalid_max_results")
         query = """
             SELECT a.resource_id, p.appointment_type, p.provider_name, p.location,
                    a.start_datetime, a.end_datetime
@@ -199,11 +208,15 @@ class SQLiteAppointmentToolProvider:
             rows = matching
         if preferred_daypart:
             rows = [row for row in rows if _matches_daypart(row["start_datetime"], preferred_daypart)]
+        if max_results is not None:
+            rows = rows[:max_results]
         return {
             "success": True,
             "tool": "search_availability",
             "result_status": "AVAILABLE" if rows else "UNAVAILABLE",
             "demo_data": True,
+            "query_start_date": start_date,
+            "query_end_date": end_date,
             "requested_time": preferred_time,
             "slots": rows,
             "alternative_slots": alternatives,
@@ -235,6 +248,7 @@ class SQLiteAppointmentToolProvider:
                 start_datetime=start_datetime,
                 provider_name=_optional(arguments, "provider_name"),
                 location=_optional(arguments, "location"),
+                resource_id=_optional(arguments, "resource_id"),
             )
             if slot is None:
                 connection.rollback()
@@ -295,6 +309,7 @@ class SQLiteAppointmentToolProvider:
                 start_datetime=target,
                 provider_name=current["provider_name"],
                 location=current["location"],
+                resource_id=current["resource_id"],
                 exclude_appointment_id=appointment_id,
             )
             if slot is None:
@@ -403,6 +418,7 @@ class SQLiteAppointmentToolProvider:
         start_datetime: str,
         provider_name: str | None,
         location: str | None,
+        resource_id: str | None,
         exclude_appointment_id: str | None = None,
     ) -> dict[str, Any] | None:
         query = """
@@ -419,6 +435,9 @@ class SQLiteAppointmentToolProvider:
         if location:
             query += " AND lower(p.location) = lower(?)"
             parameters.append(location)
+        if resource_id:
+            query += " AND a.resource_id = ?"
+            parameters.append(resource_id)
         query += " ORDER BY p.provider_name"
         for raw_slot in connection.execute(query, parameters):
             slot = dict(raw_slot)

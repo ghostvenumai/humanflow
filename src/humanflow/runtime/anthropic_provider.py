@@ -412,6 +412,15 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
                 and isinstance(slot.get("start_datetime"), str)
             ]
             if alternative_starts:
+                requested_date = _authoritative_appointment_date(context)
+                offered_date = alternative_starts[0][:10]
+                if requested_date is not None and offered_date != requested_date:
+                    return (
+                        f"Am {_spoken_full_date(requested_date)} ist leider nichts frei. "
+                        f"Am {_spoken_full_date(offered_date)} hätte ich "
+                        f"{_spoken_datetime(alternative_starts[0], include_date=False)} "
+                        "etwas frei."
+                    )
                 spoken = [
                     _spoken_datetime(value, include_date=False)
                     for value in alternative_starts[:3]
@@ -433,6 +442,15 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
         ]
         if not starts:
             return "Für diesen Tag ist in den Demo-Daten kein Termin frei."
+        requested_date = _authoritative_appointment_date(context)
+        offered_date = starts[0][:10]
+        if requested_date is not None and offered_date != requested_date:
+            return (
+                f"Am {_spoken_full_date(requested_date)} ist leider nichts frei. "
+                f"Am {_spoken_full_date(offered_date)} hätte ich "
+                f"{_spoken_datetime(starts[0], include_date=False)} etwas frei. "
+                "Passt das?"
+            )
         appointment_types = {
             slot.get("appointment_type")
             for slot in slots
@@ -539,6 +557,30 @@ def _spoken_datetime(
         )
         parts.append(f"um {spoken_time}")
     return " ".join(parts)
+
+
+def _spoken_full_date(value: str) -> str:
+    parsed = date.fromisoformat(value[:10])
+    return (
+        f"{_GERMAN_WEEKDAYS[parsed.weekday()]}, den {parsed.day}. "
+        f"{_GERMAN_MONTHS[parsed.month - 1]}"
+    )
+
+
+def _authoritative_appointment_date(
+    context: Mapping[str, object],
+) -> str | None:
+    appointment = _resolved_appointment(context)
+    if appointment is None:
+        return None
+    value = appointment.get("date")
+    if not isinstance(value, str):
+        return None
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return None
+    return value
 
 
 def _spoken_clock(value: str) -> str:

@@ -37,6 +37,7 @@ _PLURAL_OVERVIEW = re.compile(r"\b(welche|meine|alle)\s+termine\b", re.IGNORECAS
 _AVAILABILITY_QUERY = re.compile(
     r"\b(?:welche\s+termine\s+sind\s+frei|was\s+ist\s+frei|"
     r"wann\s+(?:habt|hättet)\s+ihr\s+etwas\s+frei|"
+    r"wann\s+(?:hast|hättest)\s+du(?:\s+etwas)?\s+frei|"
     r"welche\s+zeiten\s+(?:wären|sind)\s+verfügbar|"
     r"freie\s+termine|verfügbare\s+termine)\b",
     re.IGNORECASE,
@@ -401,6 +402,7 @@ class AppointmentStateTracker:
         action: str,
         success: bool,
         source_turn: str,
+        committed_start_datetime: str | None = None,
     ) -> AppointmentStateDelta:
         """The only path allowed to claim an external booking/cancellation result."""
 
@@ -422,7 +424,44 @@ class AppointmentStateTracker:
         appointment.external_action_confirmed = bool(
             success and normalized_action in {"book", "reschedule", "cancel"}
         )
-        self._set_slot(
+        updated_slots: list[str] = []
+        if (
+            success
+            and normalized_action in {"book", "reschedule"}
+            and committed_start_datetime is not None
+        ):
+            committed = datetime.fromisoformat(committed_start_datetime).astimezone(
+                self._timezone
+            )
+            temporal = TemporalResolution(
+                raw_expression=committed_start_datetime,
+                resolved_iso_date=committed.date().isoformat(),
+                timezone=self._timezone.key,
+                resolution_rule="SQLITE_COMMITTED_AVAILABLE_SLOT",
+                confidence=1.0,
+            )
+            if self._set_slot(
+                appointment,
+                "date",
+                value=committed.date().isoformat(),
+                raw_value=committed_start_datetime,
+                confidence=1.0,
+                source_turn=source_turn,
+                timestamp=timestamp,
+                temporal_resolution=temporal,
+            ):
+                updated_slots.append("date")
+            if self._set_slot(
+                appointment,
+                "time",
+                value=committed.strftime("%H:%M"),
+                raw_value=committed_start_datetime,
+                confidence=1.0,
+                source_turn=source_turn,
+                timestamp=timestamp,
+            ):
+                updated_slots.append("time")
+        if self._set_slot(
             appointment,
             "status",
             value=status.value,
@@ -430,12 +469,13 @@ class AppointmentStateTracker:
             confidence=1.0,
             source_turn=source_turn,
             timestamp=timestamp,
-        )
+        ):
+            updated_slots.append("status")
         appointment.updated_at = timestamp
         return self._delta(
             source_turn=source_turn,
             appointment_id=appointment_id,
-            updated_slots=("status",),
+            updated_slots=tuple(updated_slots),
             resolution_reason="explicit_tool_result",
             external_action_performed=True,
         )
