@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from dataclasses import replace
 from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 
 from humanflow.domain.conversation import OperationToken
 from humanflow.runtime.appointment_state import (
@@ -246,6 +248,25 @@ def test_ambiguous_pronoun_requires_clarification_without_mutation() -> None:
         appointment_id: appointment.to_dict()
         for appointment_id, appointment in tracker.appointments.items()
     } == before
+
+
+def test_ambiguous_temporal_expression_requests_clarification_without_date_write() -> None:
+    reference = datetime(2026, 8, 25, 10, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+    tracker = AppointmentStateTracker(current_local_datetime=lambda: reference)
+
+    delta = tracker.apply_user_turn(
+        "Orthopädentermin Mittwoch in der Woche um 11 Uhr.", source_turn="turn-1"
+    )
+    context = json.loads(tracker.reasoning_context(delta) or "{}")
+
+    assert delta.clarification_required is True
+    assert delta.resolution_reason == "ambiguous_temporal_expression"
+    assert delta.appointment_id == "appointment_1"
+    assert tracker.state.purpose is not None
+    assert tracker.state.purpose.value == "Orthopädie"
+    assert tracker.state.time is not None and tracker.state.time.value == "11:00"
+    assert tracker.state.date is None
+    assert context["temporal_clarification"]["resolved_iso_date"] == "2026-08-26"
 
 
 def test_three_appointments_switch_focus_and_update_only_referenced_object() -> None:

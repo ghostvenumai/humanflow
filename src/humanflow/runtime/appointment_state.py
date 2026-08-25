@@ -163,6 +163,7 @@ class AppointmentStateDelta:
     created: bool = False
     clarification_required: bool = False
     clarification_options: tuple[str, ...] = ()
+    temporal_clarification: dict[str, str | float] | None = None
     resolution_reason: str = "no_appointment_reference"
     external_action_performed: bool = False
 
@@ -186,6 +187,7 @@ class AppointmentStateDelta:
             "created": self.created,
             "clarification_required": self.clarification_required,
             "clarification_options": list(self.clarification_options),
+            "temporal_clarification": self.temporal_clarification,
             "resolution_reason": self.resolution_reason,
             "external_action_performed": self.external_action_performed,
         }
@@ -267,17 +269,27 @@ class AppointmentStateTracker:
         normalized = " ".join(text.casefold().split())
         references = _extract_entity_references(text)
         explicitly_about_appointment = bool(_APPOINTMENT_WORD.search(normalized))
+        existing_state = (
+            self.focused_appointment.to_dict()
+            if self.focused_appointment is not None
+            else None
+        )
+        temporal_clarification = self._temporal_resolver.clarification_candidate(
+            text,
+            current_local_datetime=self._current_local_datetime(),
+            existing_appointment_state=existing_state,
+        )
         parsed_date = self._temporal_resolver.resolve(
             text,
             current_local_datetime=self._current_local_datetime(),
-            existing_appointment_state=(
-                self.focused_appointment.to_dict()
-                if self.focused_appointment is not None
-                else None
-            ),
+            existing_appointment_state=existing_state,
         )
         parsed_time = _extract_time(text)
-        has_slot_delta = parsed_date is not None or parsed_time is not None
+        has_slot_delta = (
+            parsed_date is not None
+            or parsed_time is not None
+            or temporal_clarification is not None
+        )
 
         resolution = self._resolve(
             normalized=normalized,
@@ -402,7 +414,17 @@ class AppointmentStateTracker:
             appointment_id=appointment_id,
             updated_slots=tuple(changed),
             created=created,
-            resolution_reason=resolution.reason,
+            clarification_required=temporal_clarification is not None,
+            temporal_clarification=(
+                temporal_clarification.to_dict()
+                if temporal_clarification is not None
+                else None
+            ),
+            resolution_reason=(
+                "ambiguous_temporal_expression"
+                if temporal_clarification is not None
+                else resolution.reason
+            ),
         )
 
     def record_tool_result(
@@ -523,6 +545,7 @@ class AppointmentStateTracker:
             "updated_slots_this_user_turn": list(delta.updated_slots),
             "clarification_required": delta.clarification_required,
             "clarification_options": list(delta.clarification_options),
+            "temporal_clarification": delta.temporal_clarification,
             "external_action_performed": delta.external_action_performed,
             "temporal_resolution": _temporal_provenance(delta.state.get("date")),
             "response_contract": {
@@ -760,6 +783,7 @@ class AppointmentStateTracker:
         created: bool = False,
         clarification_required: bool = False,
         clarification_options: tuple[str, ...] = (),
+        temporal_clarification: dict[str, str | float] | None = None,
         resolution_reason: str,
         external_action_performed: bool = False,
     ) -> AppointmentStateDelta:
@@ -781,6 +805,7 @@ class AppointmentStateTracker:
             created=created,
             clarification_required=clarification_required,
             clarification_options=clarification_options,
+            temporal_clarification=temporal_clarification,
             resolution_reason=resolution_reason,
             external_action_performed=external_action_performed,
         )

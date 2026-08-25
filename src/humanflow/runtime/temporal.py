@@ -60,6 +60,16 @@ _IN_WEEKS = re.compile(
     r"\bin\s+(?P<count>\d+|einer|eine|einem|eins|zwei|drei|vier)\s+wochen?\b",
     re.I,
 )
+_AMBIGUOUS_WEEKDAY_EXPRESSION = re.compile(
+    r"(?:\b(?:irgendwann|nächste\s+zeit)\s+(?P<prefix_weekday>"
+    + "|".join(_WEEKDAYS)
+    + r")\b|\b(?P<week_weekday>"
+    + "|".join(_WEEKDAYS)
+    + r")\s+in\s+der\s+woche\b|\bso\s+um\s+(?P<around_weekday>"
+    + "|".join(_WEEKDAYS)
+    + r")\s+(?:herum|rum)\b)",
+    re.I,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +127,9 @@ class GermanTemporalResolver:
             result = self._result(resolved, raw, rule, confidence, existing_date)
             _enforce_requested_weekday(utterance, result.resolved_iso_date)
             return result
+
+        if _AMBIGUOUS_WEEKDAY_EXPRESSION.search(utterance):
+            return None
 
         lowered = utterance.casefold()
         relative_days = list(_RELATIVE_DAY.finditer(lowered))
@@ -188,6 +201,37 @@ class GermanTemporalResolver:
         result = self._result(resolved, raw, rule, confidence, existing_date)
         _enforce_requested_weekday(utterance, result.resolved_iso_date)
         return result
+
+    def clarification_candidate(
+        self,
+        utterance: str,
+        *,
+        current_local_datetime: datetime,
+        existing_appointment_state: Mapping[str, object] | None = None,
+    ) -> TemporalResolution | None:
+        """Return a tentative date solely for a deterministic clarification question."""
+
+        if not utterance.strip():
+            return None
+        local_now = self._as_local(current_local_datetime)
+        reference = local_now.date()
+        if self._resolve_explicit(utterance, reference) is not None:
+            return None
+        match = _AMBIGUOUS_WEEKDAY_EXPRESSION.search(utterance)
+        if match is None:
+            return None
+        weekday_name = next(value for value in match.groupdict().values() if value)
+        target_weekday = _WEEKDAYS[weekday_name.casefold()]
+        days_ahead = (target_weekday - reference.weekday()) % 7
+        if days_ahead == 0:
+            days_ahead = 7
+        return self._result(
+            reference + timedelta(days=days_ahead),
+            match.group(0),
+            "AMBIGUOUS_WEEKDAY_REQUIRES_CLARIFICATION",
+            0.45,
+            _existing_iso_date(existing_appointment_state),
+        )
 
     def _as_local(self, value: datetime) -> datetime:
         if value.tzinfo is None:

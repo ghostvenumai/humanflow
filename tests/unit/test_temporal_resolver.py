@@ -168,6 +168,51 @@ def test_spoken_weekday_is_invariant_for_relative_week_resolution(
     assert requested_weekday_matches_date(utterance, result.resolved_iso_date)
 
 
+@pytest.mark.parametrize(
+    "utterance",
+    (
+        "Mittwoch in der Woche",
+        "irgendwann Mittwoch",
+        "nächste Zeit Mittwoch",
+        "so um Mittwoch rum",
+    ),
+)
+def test_ambiguous_weekday_requires_clarification_without_mutating_date(
+    utterance: str,
+) -> None:
+    reference = datetime(2026, 8, 25, 10, 0, tzinfo=BERLIN)
+    resolver = GermanTemporalResolver()
+
+    assert resolver.resolve(utterance, current_local_datetime=reference) is None
+    candidate = resolver.clarification_candidate(
+        utterance, current_local_datetime=reference
+    )
+
+    assert candidate is not None
+    assert candidate.resolved_iso_date == "2026-08-26"
+    assert candidate.confidence < 0.5
+    assert candidate.resolution_rule == "AMBIGUOUS_WEEKDAY_REQUIRES_CLARIFICATION"
+
+
+def test_clear_weekday_expressions_do_not_require_clarification() -> None:
+    reference = datetime(2026, 8, 25, 10, 0, tzinfo=BERLIN)
+    resolver = GermanTemporalResolver()
+
+    for utterance in (
+        "diesen Mittwoch",
+        "nächsten Mittwoch",
+        "Mittwoch in zwei Wochen",
+        "übernächste Woche Donnerstag",
+    ):
+        assert (
+            resolver.clarification_candidate(
+                utterance, current_local_datetime=reference
+            )
+            is None
+        )
+        assert resolver.resolve(utterance, current_local_datetime=reference) is not None
+
+
 def test_explicit_weekday_date_contradiction_is_rejected() -> None:
     with pytest.raises(
         ValueError, match="resolved date contradicts explicitly requested weekday"

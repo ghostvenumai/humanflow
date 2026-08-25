@@ -204,7 +204,11 @@ class AnthropicReasoner:
         transaction_contract = _parse_transaction_contract(
             self._authoritative_transaction_context
         )
-        authoritative_reply = _authoritative_database_reply(transaction_contract)
+        authoritative_reply = _authoritative_temporal_clarification_reply(
+            transaction_contract
+        )
+        if authoritative_reply is None:
+            authoritative_reply = _authoritative_database_reply(transaction_contract)
         if authoritative_reply is None:
             authoritative_reply = _authoritative_temporal_reply(
                 transaction_contract, user_text
@@ -481,7 +485,8 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
                 else "dein Termin"
             )
             return (
-                f"Alles klar, {subject} ist {_spoken_datetime(start)} "
+                f"Alles klar, {subject} ist am {_spoken_full_date(start)} "
+                f"{_spoken_datetime(start, include_date=False)} "
                 "in HumanFlow gebucht."
             )
     if tool_name == "reschedule_appointment":
@@ -517,6 +522,26 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
         if descriptions:
             return f"Du hast {_join_german(descriptions, connector='und')}."
     return None
+
+
+def _authoritative_temporal_clarification_reply(
+    context: Mapping[str, object] | None,
+) -> str | None:
+    if context is None or not bool(context.get("clarification_required")):
+        return None
+    if context.get("resolution_reason") != "ambiguous_temporal_expression":
+        return None
+    candidate = context.get("temporal_clarification")
+    if not isinstance(candidate, Mapping):
+        return None
+    resolved = candidate.get("resolved_iso_date")
+    if not isinstance(resolved, str):
+        return None
+    try:
+        date.fromisoformat(resolved)
+    except ValueError:
+        return None
+    return f"Meinst du diesen {_spoken_full_date(resolved)}?"
 
 
 def _authoritative_temporal_reply(

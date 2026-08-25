@@ -6,7 +6,11 @@ from types import SimpleNamespace
 from typing import Any
 
 from humanflow.domain.conversation import OperationToken
-from humanflow.runtime.anthropic_provider import DEFAULT_SYSTEM_PROMPT, AnthropicReasoner
+from humanflow.runtime.anthropic_provider import (
+    DEFAULT_SYSTEM_PROMPT,
+    AnthropicReasoner,
+    _authoritative_database_reply,
+)
 from humanflow.runtime.elevenlabs_provider import FallbackStreamingTTSProvider
 from humanflow.runtime.providers import ProviderMode
 from humanflow.web.app import load_demo_runtime_config
@@ -325,6 +329,50 @@ def test_exact_date_question_uses_authoritative_temporal_state_without_provider_
         assert len(client.messages.calls) == 1
         assert reasoner.last_usage is not None
         assert reasoner.last_usage.to_dict() == {"input_tokens": 0, "output_tokens": 0}
+
+    asyncio.run(scenario())
+
+
+def test_committed_booking_reply_uses_full_authoritative_sqlite_datetime() -> None:
+    reply = _authoritative_database_reply(
+        {
+            "database_tool_result": {
+                "tool_name": "create_appointment",
+                "success": True,
+                "result": {
+                    "success": True,
+                    "result_status": "BOOKED",
+                    "appointment_type": "Orthopädie",
+                    "start_datetime": "2026-08-27T09:00:00+02:00",
+                },
+            }
+        }
+    )
+
+    assert reply == (
+        "Alles klar, dein Orthopädie-Termin ist am Donnerstag, den 27. August "
+        "um 9 Uhr in HumanFlow gebucht."
+    )
+
+
+def test_ambiguous_temporal_clarification_is_authoritative_and_skips_provider() -> None:
+    async def scenario() -> None:
+        client = FakeClient([["Mittwoch passt."]])
+        reasoner = AnthropicReasoner(
+            api_key="test-key-never-sent",
+            model="claude-test-real-adapter",
+            client=client,
+        )
+        reasoner.set_authoritative_transaction_context(
+            '{"clarification_required":true,'
+            '"resolution_reason":"ambiguous_temporal_expression",'
+            '"temporal_clarification":{"resolved_iso_date":"2026-08-26"}}'
+        )
+
+        spoken = await _collect(reasoner, "Mittwoch in der Woche", 1)
+
+        assert spoken.endswith("Meinst du diesen Mittwoch, den 26. August?")
+        assert client.messages.calls == []
 
     asyncio.run(scenario())
 
