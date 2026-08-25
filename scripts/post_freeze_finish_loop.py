@@ -56,7 +56,9 @@ def main() -> int:
         task=arguments.task,
         status=arguments.status,
         baseline_commit=evidence["head"],
-        candidate_commit=evidence["head"] if arguments.status in {"KEEP", "REVERT"} else None,
+        candidate_commit=(
+            evidence["head"] if arguments.status != "IN_PROGRESS" else None
+        ),
         tests_run=arguments.test,
         test_results=arguments.result,
         resource_remaining_percent=arguments.resource_remaining_percent,

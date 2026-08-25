@@ -1,19 +1,19 @@
 {
-  "baseline_commit": "b60e1a50768f1a0f3ecd63ae8cc7dd364842460d",
-  "candidate_commit": "b60e1a50768f1a0f3ecd63ae8cc7dd364842460d",
+  "baseline_commit": "f5eac3a066a06446e6d031e24a5fd1928c4b8786",
+  "candidate_commit": "f5eac3a066a06446e6d031e24a5fd1928c4b8786",
   "iteration": 1,
   "known_failures": [],
   "paid_provider_calls": {},
-  "phase": "B",
+  "phase": "C",
   "remaining_blockers": [],
-  "resource_remaining_percent": 90,
-  "status": "KEEP",
-  "task": "Cost domain, pricing, precision and persistence",
+  "resource_remaining_percent": null,
+  "status": "HUMAN_VALIDATION_PENDING",
+  "task": "Final integration regression and evidence",
   "test_results": [
-    "15 passed"
+    "PASS: 210 pytest; 20/20 torture; 50/50 golden turns; 8/8 scorecard gates"
   ],
   "tests_run": [
-    "pytest tests/unit/test_cost_ledger.py tests/unit/test_finish_loop.py"
+    "ruff + JavaScript syntax + pytest + T01-T20 + golden/benchmarks/replay/evidence"
   ],
-  "updated_at": "2026-08-25T11:49:12.411756Z"
+  "updated_at": "2026-08-25T12:20:57.697485Z"
 }
