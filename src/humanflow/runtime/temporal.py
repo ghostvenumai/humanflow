@@ -56,6 +56,23 @@ _EXPLICIT_NAMED_DATE = re.compile(
     re.I,
 )
 _RELATIVE_DAY = re.compile(r"\b(übermorgen|uebermorgen|morgen)\b", re.I)
+_DAY_COUNTS = {
+    "einen": 1,
+    "einem": 1,
+    "eine": 1,
+    "zwei": 2,
+    "drei": 3,
+    "vier": 4,
+    "fünf": 5,
+    "fuenf": 5,
+    "sechs": 6,
+    "sieben": 7,
+}
+_RELATIVE_DAY_OFFSET = re.compile(
+    r"\b(?P<count>\d+|einen|einem|eine|zwei|drei|vier|fünf|fuenf|sechs|sieben)\s+"
+    r"tage?\s+später\b",
+    re.I,
+)
 _IN_WEEKS = re.compile(
     r"\bin\s+(?P<count>\d+|einer|eine|einem|eins|zwei|drei|vier)\s+wochen?\b",
     re.I,
@@ -132,6 +149,17 @@ class GermanTemporalResolver:
             return None
 
         lowered = utterance.casefold()
+        relative_offset = _RELATIVE_DAY_OFFSET.search(lowered)
+        if relative_offset is not None and existing_date is not None:
+            raw_count = relative_offset.group("count").casefold()
+            count = int(raw_count) if raw_count.isdigit() else _DAY_COUNTS[raw_count]
+            return self._result(
+                date.fromisoformat(existing_date) + timedelta(days=count),
+                utterance[relative_offset.start() : relative_offset.end()],
+                f"DAY_OFFSET_FROM_EXISTING_APPOINTMENT:{raw_count}",
+                0.99,
+                existing_date,
+            )
         relative_days = list(_RELATIVE_DAY.finditer(lowered))
         weekdays = list(_WEEKDAY_PATTERN.finditer(lowered))
         if relative_days and (

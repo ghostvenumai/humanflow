@@ -221,3 +221,22 @@ def test_explicit_weekday_date_contradiction_is_rejected() -> None:
             "Mittwoch, 10. September 2026",
             current_local_datetime=datetime(2026, 8, 25, 10, 0, tzinfo=BERLIN),
         )
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    (("einen Tag später", "2026-09-04"), ("drei Tage später", "2026-09-06")),
+)
+def test_day_offset_is_resolved_from_authoritative_existing_appointment_date(
+    utterance: str, expected: str
+) -> None:
+    result = GermanTemporalResolver().resolve(
+        utterance,
+        current_local_datetime=datetime(2026, 8, 25, 10, 0, tzinfo=BERLIN),
+        existing_appointment_state={"date": {"value": "2026-09-03"}},
+    )
+
+    assert result is not None
+    assert result.resolved_iso_date == expected
+    assert result.raw_expression == utterance
+    assert result.resolution_rule.startswith("DAY_OFFSET_FROM_EXISTING_APPOINTMENT")

@@ -31,6 +31,10 @@ _GENERIC_PRONOUN = re.compile(
     r"den(?=\s+(?:will|möchte)\s+ich\s+absagen))\b",
     re.IGNORECASE,
 )
+_ORDINAL_APPOINTMENT_REFERENCE = re.compile(
+    r"\b(?:den|der)\s+(?P<ordinal>ersten|erste|letzten|letzte)\b",
+    re.IGNORECASE,
+)
 _APPOINTMENT_OVERVIEW = re.compile(
     r"\b(?:(?:welche|meine|alle)\s+termine|"
     r"welchen\s+termin\s+(?:habe|hab)\s+ich|"
@@ -703,6 +707,11 @@ class AppointmentStateTracker:
             for appointment_id, appointment in self._appointments.items()
             if appointment.active
         )
+        ordinal_reference = _ORDINAL_APPOINTMENT_REFERENCE.search(normalized)
+        if ordinal_reference and active_ids:
+            ordinal = ordinal_reference.group("ordinal")
+            appointment_id = active_ids[0] if ordinal.startswith("erst") else active_ids[-1]
+            return _Resolution(appointment_id, "explicit_ordinal_reference")
         if re.search(r"\b(?:den|der)\s+anderen\b", normalized):
             alternatives = tuple(
                 appointment_id
