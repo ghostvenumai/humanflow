@@ -46,6 +46,26 @@ def test_third_identical_failure_opens_circuit_and_allows_only_one_retry() -> No
     assert breaker.state is HarnessFailureState.BLOCKED
 
 
+def test_required_failure_policy_states_are_explicit() -> None:
+    expected = {
+        "BLOCKED",
+        "BLOCKED_MANUAL_VALIDATION",
+        "TEST_DISPUTE",
+        "RESOURCE_CONFLICT",
+        "INTEGRITY_FAILURE",
+        "REPEATED_FAILURE",
+        "NO_PROGRESS",
+        "OSCILLATION_DETECTED",
+        "OUTPUT_COLLAPSE",
+        "BUDGET_EXCEEDED",
+        "SCOPE_VIOLATION",
+        "MERGE_REJECTED",
+        "RELEASE_REJECTED",
+    }
+
+    assert expected.issubset({state.value for state in HarnessFailureState})
+
+
 def test_no_progress_oscillation_output_budget_and_scope_are_distinct() -> None:
     no_progress = FailureCircuitBreaker()
     for iteration in range(1, 4):

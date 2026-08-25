@@ -244,3 +244,22 @@ def test_release_bundle_is_human_gated_and_post_release_regression_only_recommen
     assert regression["status"] == "RELEASE_REJECTED"
     assert regression["rollback_recommended"] is True
     assert regression["rollback_executed"] is False
+
+
+def test_post_release_target_improvement_is_measured_success() -> None:
+    measured = evaluate_post_release(
+        ReleaseMeasurement(
+            "HF-2",
+            "relative_date_success",
+            0.90,
+            0.99,
+            0.98,
+            True,
+            220,
+            ("post-release-success-evidence",),
+        )
+    )
+
+    assert measured["status"] == "MEASURED_SUCCESS"
+    assert measured["rollback_recommended"] is False
+    assert measured["rollback_executed"] is False

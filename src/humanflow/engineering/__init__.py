@@ -25,6 +25,13 @@ from .discovery import (
     ProblemSeverity,
 )
 from .metrics import HarnessMetricsStore, TaskRunMetrics
+from .orchestrator import (
+    EngineeringHarness,
+    HarnessRunResult,
+    ReviewerRunner,
+    WorkerResult,
+    WorkerRunner,
+)
 from .proposals import TaskProposalPolicy, register_proposal
 from .release import (
     PostReleaseStatus,
@@ -66,6 +73,7 @@ __all__ = [
     "DiagnosticPackageWriter",
     "DiscoveryPolicy",
     "EngineeringEvidenceRef",
+    "EngineeringHarness",
     "EngineeringTaskRecord",
     "EvidenceKind",
     "EvidenceInformedAgentRouter",
@@ -74,6 +82,7 @@ __all__ = [
     "FailureFingerprint",
     "FailureSignal",
     "HarnessFailureState",
+    "HarnessRunResult",
     "HarnessMetricsStore",
     "ImprovementDiscoveryEngine",
     "IntegrityReport",
@@ -82,6 +91,7 @@ __all__ = [
     "MetricSeries",
     "MergeGateEvidence",
     "ReviewAssignment",
+    "ReviewerRunner",
     "ReviewResult",
     "ReviewVerdict",
     "PostReleaseStatus",
@@ -101,6 +111,8 @@ __all__ = [
     "VerificationStatus",
     "WorktreeLease",
     "WorktreeManager",
+    "WorkerResult",
+    "WorkerRunner",
     "evaluate_merge_gate",
     "evaluate_post_release",
     "normalize_failure_error",

@@ -56,6 +56,7 @@ class CandidateIntegrityGate:
     DEFAULT_PROTECTED_PATHS = (
         "tests/golden/**",
         "eval/golden/**",
+        "eval/engineering/**",
         "grader/**",
         "hidden_acceptance/**",
         "config/quality-gates.yaml",

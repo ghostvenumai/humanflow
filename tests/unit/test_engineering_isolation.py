@@ -139,6 +139,31 @@ def test_integrity_gate_rejects_added_skip_even_when_test_path_is_allowed(
     assert "TEST_WEAKENING_PATTERN_ADDED" in report.findings
 
 
+def test_engineering_acceptance_fixtures_are_supervisor_protected(
+    tmp_path: Path,
+) -> None:
+    repo, _ = _repository(tmp_path)
+    fixture = repo / "eval" / "engineering" / "scenarios.json"
+    fixture.parent.mkdir(parents=True)
+    fixture.write_text("{}\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "add engineering acceptance fixture")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    fixture.write_text('{"weakened": true}\n')
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "weaken engineering acceptance fixture")
+
+    report = CandidateIntegrityGate().inspect(
+        repository=repo,
+        baseline_commit=baseline,
+        candidate_commit=_git(repo, "rev-parse", "HEAD"),
+        task=_task("HF-1", "eval/engineering/**"),
+    )
+
+    assert report.passed is False
+    assert "PROTECTED_PATH_MODIFIED:eval/engineering/scenarios.json" in report.findings
+
+
 def test_reviewer_is_independent_and_hidden_command_returns_only_evidence(
     tmp_path: Path,
 ) -> None:

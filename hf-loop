@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Compact, fail-closed operator CLI for the offline HumanFlow harness."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from collections import Counter
+from pathlib import Path
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT / "src"))
+
+from humanflow.engineering import HarnessMetricsStore, TaskRegistry  # noqa: E402
+from humanflow.finalization.finish_loop import verify_post_freeze_repository  # noqa: E402
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="hf-loop")
+    subcommands = parser.add_subparsers(dest="command", required=True)
+    for name in ("status", "problems", "tasks", "metrics", "release-candidates"):
+        subcommands.add_parser(name)
+    for name in ("run", "run-ready", "tournament", "verify", "cleanup"):
+        command = subcommands.add_parser(name)
+        command.add_argument("target", nargs="?")
+    parallel = subcommands.add_parser("parallel")
+    parallel.add_argument("--workers", type=int, choices=range(1, 4))
+    arguments = parser.parse_args()
+
+    if arguments.command == "status":
+        print(json.dumps(_status(), indent=2, ensure_ascii=False, sort_keys=True))
+        return 0
+    if arguments.command == "tasks":
+        registry = TaskRegistry.load(ROOT / ".engineering" / "feature_list.json")
+        print(json.dumps([task.to_dict() for task in registry.tasks], indent=2))
+        return 0
+    if arguments.command == "problems":
+        print((ROOT / ".engineering" / "problems.json").read_text(encoding="utf-8"), end="")
+        return 0
+    if arguments.command == "metrics":
+        store = HarnessMetricsStore(ROOT / ".engineering" / "harness-metrics.jsonl")
+        print(json.dumps(store.aggregate(), indent=2, sort_keys=True))
+        return 0
+    if arguments.command == "release-candidates":
+        paths = sorted((ROOT / ".engineering" / "release-candidates").glob("*.json"))
+        print(json.dumps([str(path.relative_to(ROOT)) for path in paths], indent=2))
+        return 0
+
+    config = yaml.safe_load(
+        (ROOT / "config" / "engineering-harness.yaml").read_text(encoding="utf-8")
+    )
+    reason = (
+        "EXTERNAL_EXECUTION_DISABLED"
+        if not config["external_agent_execution"]
+        else "OPERATOR_RUNNER_NOT_CONFIGURED"
+    )
+    print(
+        json.dumps(
+            {
+                "status": "BLOCKED",
+                "command": arguments.command,
+                "target": getattr(arguments, "target", None),
+                "workers": getattr(arguments, "workers", None),
+                "reason": reason,
+                "production_deployment": "MANUAL_ONLY",
+            },
+            indent=2,
+        )
+    )
+    return 2
+
+
+def _status() -> dict[str, object]:
+    repository = verify_post_freeze_repository(
+        ROOT,
+        frozen_commit="798256e447a7d7cb116d2186035f4a85b29744e2",
+        freeze_tag="everlast-72h-build",
+    )
+    registry = TaskRegistry.load(ROOT / ".engineering" / "feature_list.json")
+    config = yaml.safe_load(
+        (ROOT / "config" / "engineering-harness.yaml").read_text(encoding="utf-8")
+    )
+    counts = Counter(task.status.value for task in registry.tasks)
+    worktrees = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.count("worktree ")
+    return {
+        "repository": repository,
+        "tasks": {"total": len(registry.tasks), "by_status": dict(counts)},
+        "worktrees": worktrees,
+        "maximum_parallel_workers": config["maximum_parallel_workers"],
+        "external_agent_execution": config["external_agent_execution"],
+        "hidden_acceptance_configured": config["hidden_acceptance"]["configured"],
+        "production_deployment": config["production_deployment"],
+    }
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
