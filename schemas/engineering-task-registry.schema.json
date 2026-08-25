@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "features": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "passes": {"type": "boolean"},
+          "priority": {"enum": ["P0", "P1", "P2", "P3"]},
+          "risk": {"enum": ["low", "medium", "high", "critical"]},
+          "status": {
+            "enum": [
+              "proposed", "triaged", "ready", "running", "verification",
+              "passed", "failed", "blocked", "merge_candidate", "merged",
+              "released", "measured"
+            ]
+          },
+          "task_id": {"minLength": 1, "type": "string"},
+          "title": {"minLength": 1, "type": "string"}
+        },
+        "required": ["task_id", "title", "priority", "risk", "status", "passes"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema_version": {"const": 1}
+  },
+  "required": ["schema_version", "features"],
+  "type": "object"
+}
