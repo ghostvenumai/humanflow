@@ -9,10 +9,15 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from humanflow.controller.state_machine import ConversationStateMachine
 from humanflow.domain.conversation import ConversationState
 from humanflow.domain.conversation import OperationToken
-from humanflow.runtime.anthropic_provider import _guard_transaction_fragment
+from humanflow.runtime.anthropic_provider import (
+    _authoritative_database_reply,
+    _guard_transaction_fragment,
+)
 from humanflow.runtime.appointment_state import AppointmentStateTracker
 from humanflow.runtime.providers import (
     NullTranscriber,
@@ -117,10 +122,174 @@ def test_sqlite_initialization_and_deterministic_demo_seed(tmp_path: Path) -> No
         }
         providers = connection.execute("SELECT COUNT(*) FROM providers").fetchone()[0]
         availability = connection.execute("SELECT COUNT(*) FROM availability").fetchone()[0]
+        locations = {
+            row[0] for row in connection.execute("SELECT DISTINCT location FROM providers")
+        }
 
     assert {"providers", "availability", "appointments"} <= tables
     assert providers == 2
-    assert availability == 7
+    assert availability == 23
+    assert locations == {"Ingolstadt"}
+
+
+def test_ingolstadt_seed_has_morning_midday_and_afternoon_slots(
+    tmp_path: Path,
+) -> None:
+    provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+    for appointment_type in ("Orthopädie", "Friseur"):
+        result = provider.search_availability(
+            {
+                "appointment_type": appointment_type,
+                "location": "Ingolstadt",
+                "start_date": "2026-08-25",
+                "end_date": "2026-09-15",
+            }
+        )
+        hours = [int(slot["start_datetime"][11:13]) for slot in result["slots"]]
+        assert result["result_status"] == "AVAILABLE"
+        assert sum(hour < 12 for hour in hours) >= 3
+        assert sum(12 <= hour < 15 for hour in hours) >= 3
+        assert sum(hour >= 15 for hour in hours) >= 3
+
+
+@pytest.mark.parametrize(
+    "transcript",
+    (
+        "Welche Termine sind frei?",
+        "Was ist frei?",
+        "Wann habt ihr etwas frei?",
+        "Welche Zeiten wären verfügbar?",
+    ),
+)
+def test_availability_intents_route_only_to_search(
+    tmp_path: Path, transcript: str
+) -> None:
+    async def scenario() -> None:
+        tracker = _tracker()
+        delta = tracker.apply_user_turn(transcript, source_turn="availability-turn")
+        provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+        machine, _ = _machine()
+        coordinator = AppointmentTransactionCoordinator(
+            conversation_id="availability-routing",
+            state_machine=machine,
+            provider=provider,
+            today=lambda: date(2026, 8, 25),
+        )
+        _, outcome = await coordinator.execute(
+            transcript=transcript,
+            delta=delta,
+            tracker=tracker,
+            correlation_id="availability-turn",
+            source_turn="availability-turn",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+
+        assert outcome is not None
+        assert outcome.tool_name == "search_availability"
+        assert outcome.value["result_status"] == "AVAILABLE"
+        assert provider.call_counts == {"search_availability": 1}
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "transcript",
+    (
+        "Welche Termine habe ich?",
+        "Was habe ich gebucht?",
+        "Zeig mir meine Termine.",
+    ),
+)
+def test_booked_appointment_intents_route_only_to_list(
+    tmp_path: Path, transcript: str
+) -> None:
+    async def scenario() -> None:
+        tracker = _tracker()
+        delta = tracker.apply_user_turn(transcript, source_turn="list-turn")
+        provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+        machine, _ = _machine()
+        coordinator = AppointmentTransactionCoordinator(
+            conversation_id="list-routing",
+            state_machine=machine,
+            provider=provider,
+        )
+        _, outcome = await coordinator.execute(
+            transcript=transcript,
+            delta=delta,
+            tracker=tracker,
+            correlation_id="list-turn",
+            source_turn="list-turn",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+
+        assert outcome is not None
+        assert outcome.tool_name == "list_appointments"
+        assert provider.call_counts == {"list_appointments": 1}
+
+    asyncio.run(scenario())
+
+
+def test_unavailable_requested_time_is_not_booked_and_offers_nearest_slots(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        transcript = "Orthopädentermin Mittwoch in zwei Wochen um 12:30 Uhr."
+        tracker = _tracker()
+        delta = tracker.apply_user_turn(transcript, source_turn="turn-1")
+        provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+        machine, _ = _machine()
+        coordinator = AppointmentTransactionCoordinator(
+            conversation_id="unavailable-slot",
+            state_machine=machine,
+            provider=provider,
+        )
+        tool_delta, outcome = await coordinator.execute(
+            transcript=transcript,
+            delta=delta,
+            tracker=tracker,
+            correlation_id="turn-1",
+            source_turn="turn-1",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+
+        assert outcome is not None and outcome.tool_name == "search_availability"
+        assert outcome.value["result_status"] == "UNAVAILABLE"
+        assert outcome.value["slots"] == []
+        assert [
+            slot["start_datetime"][11:16]
+            for slot in outcome.value["alternative_slots"][:2]
+        ] == ["11:30", "14:00"]
+        assert provider.call_counts == {"search_availability": 1}
+        assert provider.list_appointments({})["appointments"] == []
+        context = coordinator.enrich_reasoning_context(
+            tracker.reasoning_context(tool_delta), outcome
+        )
+        response = _authoritative_database_reply(json.loads(context or "{}"))
+        assert response is not None
+        assert "12:30 Uhr ist leider nicht frei" in response
+        assert "11:30 Uhr" in response and "14 Uhr" in response
+        assert "technisch" not in response.casefold()
+
+    asyncio.run(scenario())
+
+
+def test_booking_conflict_is_business_result_not_technical_failure() -> None:
+    response = _authoritative_database_reply(
+        {
+            "database_tool_result": {
+                "tool_name": "create_appointment",
+                "success": False,
+                "result": {
+                    "success": False,
+                    "result_status": "BOOKING_CONFLICT",
+                    "error_code": "BOOKING_CONFLICT",
+                },
+            }
+        }
+    )
+
+    assert response == "Der gewünschte Termin ist leider nicht frei."
+    assert "technisch" not in response.casefold()
 
 
 def test_availability_create_conflict_reschedule_cancel_and_list(tmp_path: Path) -> None:
@@ -164,6 +333,7 @@ def test_availability_create_conflict_reschedule_cancel_and_list(tmp_path: Path)
         assert conflict == {
             "success": False,
             "tool": "create_appointment",
+            "result_status": "BOOKING_CONFLICT",
             "error_code": "BOOKING_CONFLICT",
             "appointment_id": "appointment-b",
         }
@@ -277,7 +447,7 @@ def test_conversation_desire_is_separate_until_database_tool_success(tmp_path: P
             provider=provider,
         )
         token = machine.issue_operation(kind="response")
-        tool_delta, outcome = await coordinator.execute(
+        searched_delta, searched = await coordinator.execute(
             transcript="Orthopädentermin nächste Woche Donnerstag um 10:30 Uhr.",
             delta=delta,
             tracker=tracker,
@@ -285,11 +455,33 @@ def test_conversation_desire_is_separate_until_database_tool_success(tmp_path: P
             source_turn="turn-1",
             parent_token=token,
         )
-        context = coordinator.enrich_reasoning_context(
-            tracker.reasoning_context(tool_delta), outcome
+        searched_context = coordinator.enrich_reasoning_context(
+            tracker.reasoning_context(searched_delta), searched
         )
 
-        assert outcome is not None and outcome.success is True
+        assert searched is not None and searched.tool_name == "search_availability"
+        assert searched.value["result_status"] == "AVAILABLE"
+        assert provider.list_appointments({})["appointments"] == []
+        assert tracker.state.status is not None
+        assert tracker.state.status.value == "AVAILABLE"
+        assert searched_context is not None
+        assert json.loads(searched_context)["external_action_performed"] is False
+
+        confirmation = tracker.apply_user_turn("Ja, bitte buchen.", source_turn="turn-2")
+        booked_delta, booked = await coordinator.execute(
+            transcript="Ja, bitte buchen.",
+            delta=confirmation,
+            tracker=tracker,
+            correlation_id="turn-2",
+            source_turn="turn-2",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        context = coordinator.enrich_reasoning_context(
+            tracker.reasoning_context(booked_delta), booked
+        )
+
+        assert booked is not None and booked.tool_name == "create_appointment"
+        assert booked.success is True and booked.value["result_status"] == "BOOKED"
         assert tracker.state.status is not None and tracker.state.status.value == "BOOKED"
         assert len(provider.list_appointments({})["appointments"]) == 1
         assert context is not None and json.loads(context)["external_action_performed"] is True
@@ -317,20 +509,30 @@ def test_tool_failure_leaves_database_unchanged_and_forbids_false_success(
             state_machine=machine,
             provider=provider,
         )
-        token = machine.issue_operation(kind="response")
-        tool_delta, outcome = await coordinator.execute(
+        searched_delta, searched = await coordinator.execute(
             transcript="Orthopädentermin nächste Woche Donnerstag um 10:30 Uhr.",
             delta=delta,
             tracker=tracker,
             correlation_id="turn-1",
             source_turn="turn-1",
-            parent_token=token,
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        assert searched is not None and searched.tool_name == "search_availability"
+        confirmation = tracker.apply_user_turn("Ja, bitte buchen.", source_turn="turn-2")
+        tool_delta, outcome = await coordinator.execute(
+            transcript="Ja, bitte buchen.",
+            delta=confirmation,
+            tracker=tracker,
+            correlation_id="turn-2",
+            source_turn="turn-2",
+            parent_token=machine.issue_operation(kind="response"),
         )
         context = coordinator.enrich_reasoning_context(
             tracker.reasoning_context(tool_delta), outcome
         )
 
         assert outcome is not None and outcome.success is False
+        assert outcome.value["result_status"] == "TECHNICAL_FAILURE"
         assert provider.list_appointments({})["appointments"] == []
         assert context is not None
         payload = json.loads(context)
@@ -439,9 +641,11 @@ def test_realtime_session_uses_persistent_tools_for_full_demo_flow(tmp_path: Pat
         turns = (
             ("Orthopädentermin nächste Woche Donnerstag um 10:30 Uhr.", "turn-1"),
             ("Moment, mach lieber 14 Uhr.", "turn-2"),
-            ("Ich brauche noch einen Friseurtermin nächsten Montag um 11 Uhr.", "turn-3"),
-            ("Welche Termine habe ich?", "turn-4"),
-            ("Den Friseurtermin brauche ich nicht mehr.", "turn-5"),
+            ("Ja, bitte buchen.", "turn-3"),
+            ("Ich brauche noch einen Friseurtermin nächsten Montag um 11 Uhr.", "turn-4"),
+            ("Ja, bitte buchen.", "turn-5"),
+            ("Welche Termine habe ich?", "turn-6"),
+            ("Den Friseurtermin brauche ich nicht mehr.", "turn-7"),
         )
         for text, turn_id in turns:
             await session.submit_transcript(_turn(text, turn_id))

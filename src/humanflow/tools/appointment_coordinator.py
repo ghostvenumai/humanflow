@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from uuid import NAMESPACE_URL, uuid5
 from zoneinfo import ZoneInfo
 
@@ -22,6 +23,24 @@ from humanflow.telemetry.events import EventType
 
 from .executor import ResilientToolExecutor
 from .providers import ToolProvider
+
+
+_AVAILABILITY_INTENT = re.compile(
+    r"\b(?:welche\s+termine\s+sind\s+frei|was\s+ist\s+frei|"
+    r"wann\s+(?:habt|hättet)\s+ihr\s+etwas\s+frei|"
+    r"welche\s+zeiten\s+(?:wären|sind)\s+verfügbar|"
+    r"freie\s+termine|verfügbare\s+termine)\b",
+    re.IGNORECASE,
+)
+_BOOKED_LIST_INTENT = re.compile(
+    r"\b(?:welche\s+termine\s+habe\s+ich|was\s+habe\s+ich\s+gebucht|"
+    r"zeig(?:e)?\s+mir\s+meine\s+termine|meine\s+termine|alle\s+termine)\b",
+    re.IGNORECASE,
+)
+_BOOKING_CONFIRMATION = re.compile(
+    r"\b(?:ja|okay|ok|passt|bestätige|buchen|buch(?:e)?|nimm)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +75,7 @@ class AppointmentTransactionCoordinator:
         provider: ToolProvider,
         timeout_ms: float = 4_000.0,
         timezone: str = "Europe/Berlin",
+        today: Callable[[], date] | None = None,
     ) -> None:
         self._conversation_id = conversation_id
         self._state_machine = state_machine
@@ -66,7 +86,10 @@ class AppointmentTransactionCoordinator:
             max_attempts=1,
         )
         self._timezone = ZoneInfo(timezone)
+        self._today = today or (lambda: datetime.now(self._timezone).date())
         self._persisted_ids: dict[str, str] = {}
+        self._known_available_slots: dict[str, set[str]] = {}
+        self._pending_creates: dict[str, dict[str, Any]] = {}
 
     async def execute(
         self,
@@ -81,13 +104,14 @@ class AppointmentTransactionCoordinator:
         plan = self._plan(transcript=transcript, delta=delta, tracker=tracker)
         if plan is None:
             return delta, None
-        tool_name, arguments = plan
+        tool_name, arguments, local_appointment_id = plan
         result = await self._executor.execute(
             tool_name,
             arguments,
             fallback=lambda name, _: {
                 "success": False,
                 "tool": name,
+                "result_status": "TECHNICAL_FAILURE",
                 "error_code": "TOOL_UNAVAILABLE",
             },
             correlation_id=correlation_id,
@@ -105,8 +129,30 @@ class AppointmentTransactionCoordinator:
             parent_token, correlation_id=correlation_id
         ):
             return delta, outcome
-        appointment_id = delta.appointment_id
-        if appointment_id is not None and tool_name != "list_appointments":
+        semantic_success = success
+        if tool_name == "search_availability":
+            semantic_success = value.get("result_status") == "AVAILABLE"
+            self._remember_availability(
+                local_appointment_id=local_appointment_id,
+                arguments=arguments,
+                value=value,
+                tracker=tracker,
+            )
+        elif tool_name == "create_appointment" and local_appointment_id is not None:
+            self._pending_creates.pop(local_appointment_id, None)
+            if success:
+                self._persisted_ids[local_appointment_id] = str(
+                    value["appointment_id"]
+                )
+        should_record_action_state = (
+            local_appointment_id is not None
+            and tool_name != "list_appointments"
+            and not (
+                tool_name == "search_availability"
+                and local_appointment_id in self._persisted_ids
+            )
+        )
+        if should_record_action_state:
             action = {
                 "search_availability": "search",
                 "create_appointment": "book",
@@ -114,9 +160,9 @@ class AppointmentTransactionCoordinator:
                 "cancel_appointment": "cancel",
             }[tool_name]
             delta = tracker.record_tool_result(
-                appointment_id,
+                local_appointment_id,
                 action=action,
-                success=success,
+                success=semantic_success,
                 source_turn=f"tool:{source_turn}",
             )
         self._record_domain_event(
@@ -165,46 +211,171 @@ class AppointmentTransactionCoordinator:
         transcript: str,
         delta: AppointmentStateDelta,
         tracker: AppointmentStateTracker,
-    ) -> tuple[str, dict[str, Any]] | None:
-        del transcript
-        if delta.resolution_reason == "multi_appointment_overview":
-            return "list_appointments", {"include_cancelled": False}
+    ) -> tuple[str, dict[str, Any], str | None] | None:
+        if _AVAILABILITY_INTENT.search(transcript):
+            return self._availability_plan(delta=delta, tracker=tracker)
+        if (
+            delta.resolution_reason == "multi_appointment_overview"
+            or _BOOKED_LIST_INTENT.search(transcript)
+        ):
+            return "list_appointments", {"include_cancelled": False}, None
+        focused_id = tracker.active_focus_appointment_id
+        if (
+            focused_id is not None
+            and focused_id in self._pending_creates
+            and _confirms_booking(transcript)
+        ):
+            return (
+                "create_appointment",
+                dict(self._pending_creates[focused_id]),
+                focused_id,
+            )
         if delta.clarification_required or delta.appointment_id is None:
             return None
         appointment = tracker.appointments[delta.appointment_id]
         persisted_id = self._persisted_ids.get(delta.appointment_id)
         status = _slot(appointment, "status")
+        if status == AppointmentActionState.CANCELLED.value:
+            return None
         if status == AppointmentActionState.TOOL_PENDING.value:
             if persisted_id is None:
                 return None
-            return "cancel_appointment", {"appointment_id": persisted_id}
+            return (
+                "cancel_appointment",
+                {"appointment_id": persisted_id},
+                delta.appointment_id,
+            )
         appointment_type = _appointment_type(appointment)
         date_value = _slot(appointment, "date")
         time_value = _slot(appointment, "time")
         if persisted_id is not None and {"date", "time"}.intersection(delta.updated_slots):
             if date_value and time_value:
-                return "reschedule_appointment", {
-                    "appointment_id": persisted_id,
-                    "start_datetime": self._local_datetime(date_value, time_value),
-                }
+                return (
+                    "reschedule_appointment",
+                    {
+                        "appointment_id": persisted_id,
+                        "start_datetime": self._local_datetime(date_value, time_value),
+                    },
+                    delta.appointment_id,
+                )
         if persisted_id is None and date_value and time_value and appointment_type:
-            persisted_id = self._database_appointment_id(delta.appointment_id)
-            self._persisted_ids[delta.appointment_id] = persisted_id
-            return "create_appointment", {
-                "appointment_id": persisted_id,
+            start_datetime = self._local_datetime(date_value, time_value)
+            create_arguments = {
+                "appointment_id": self._database_appointment_id(delta.appointment_id),
                 "appointment_type": appointment_type,
                 "provider_name": _slot(appointment, "provider"),
                 "location": _slot(appointment, "location"),
-                "start_datetime": self._local_datetime(date_value, time_value),
+                "start_datetime": start_datetime,
             }
+            if start_datetime in self._known_available_slots.get(
+                delta.appointment_id, set()
+            ):
+                return "create_appointment", create_arguments, delta.appointment_id
+            return (
+                "search_availability",
+                {
+                    "appointment_type": appointment_type,
+                    "provider_name": _slot(appointment, "provider"),
+                    "location": _slot(appointment, "location"),
+                    "date": date_value,
+                    "preferred_time": time_value,
+                },
+                delta.appointment_id,
+            )
         if date_value and not time_value and appointment_type:
-            return "search_availability", {
-                "appointment_type": appointment_type,
+            return (
+                "search_availability",
+                {
+                    "appointment_type": appointment_type,
+                    "provider_name": _slot(appointment, "provider"),
+                    "location": _slot(appointment, "location"),
+                    "date": date_value,
+                },
+                delta.appointment_id,
+            )
+        return None
+
+    def _availability_plan(
+        self,
+        *,
+        delta: AppointmentStateDelta,
+        tracker: AppointmentStateTracker,
+    ) -> tuple[str, dict[str, Any], str | None]:
+        local_id = delta.appointment_id or tracker.active_focus_appointment_id
+        appointment = (
+            tracker.appointments.get(local_id) if local_id is not None else None
+        )
+        date_value = _slot(appointment, "date") if appointment is not None else None
+        start_date = date_value or self._today().isoformat()
+        end_date = date_value or (self._today() + timedelta(days=21)).isoformat()
+        arguments: dict[str, Any] = {
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+        if appointment is not None:
+            optional = {
+                "appointment_type": _appointment_type(appointment),
                 "provider_name": _slot(appointment, "provider"),
                 "location": _slot(appointment, "location"),
-                "date": date_value,
+                "preferred_time": (
+                    _slot(appointment, "time")
+                    if "time" in delta.updated_slots
+                    else None
+                ),
             }
-        return None
+            arguments.update({name: value for name, value in optional.items() if value})
+        return "search_availability", arguments, local_id
+
+    def _remember_availability(
+        self,
+        *,
+        local_appointment_id: str | None,
+        arguments: Mapping[str, Any],
+        value: Mapping[str, Any],
+        tracker: AppointmentStateTracker,
+    ) -> None:
+        if local_appointment_id is None:
+            return
+        if local_appointment_id in self._persisted_ids:
+            return
+        requested_time = arguments.get("preferred_time")
+        if requested_time and value.get("result_status") == "UNAVAILABLE":
+            offered = list(value.get("alternative_slots", ()))
+        elif requested_time:
+            offered = []
+        else:
+            offered = list(value.get("slots", ()))
+        known = self._known_available_slots.setdefault(local_appointment_id, set())
+        for slot in offered:
+            if isinstance(slot, Mapping) and isinstance(
+                slot.get("start_datetime"), str
+            ):
+                known.add(slot["start_datetime"])
+        if value.get("result_status") != "AVAILABLE" or not arguments.get(
+            "preferred_time"
+        ):
+            self._pending_creates.pop(local_appointment_id, None)
+            return
+        appointment = tracker.appointments[local_appointment_id]
+        start_datetime = next(
+            (
+                slot["start_datetime"]
+                for slot in value.get("slots", ())
+                if isinstance(slot, Mapping)
+                and isinstance(slot.get("start_datetime"), str)
+            ),
+            None,
+        )
+        appointment_type = _appointment_type(appointment)
+        if start_datetime is None or appointment_type is None:
+            return
+        self._pending_creates[local_appointment_id] = {
+            "appointment_id": self._database_appointment_id(local_appointment_id),
+            "appointment_type": appointment_type,
+            "provider_name": _slot(appointment, "provider"),
+            "location": _slot(appointment, "location"),
+            "start_datetime": start_datetime,
+        }
 
     def _database_appointment_id(self, local_appointment_id: str) -> str:
         stable = uuid5(
@@ -257,6 +428,7 @@ class AppointmentTransactionCoordinator:
                 "error_class": outcome.failure_reason,
                 "transaction_result": {
                     "status": outcome.value.get("status"),
+                    "result_status": outcome.value.get("result_status"),
                     "error_code": outcome.value.get("error_code"),
                     "result_count": len(outcome.value.get("appointments", ()))
                     if isinstance(outcome.value.get("appointments"), list)
@@ -278,3 +450,8 @@ def _appointment_type(appointment: AppointmentState) -> str | None:
     if purpose and purpose != "Termin":
         return purpose
     return _slot(appointment, "specialty")
+
+
+def _confirms_booking(transcript: str) -> bool:
+    normalized = " ".join(transcript.casefold().split())
+    return "nein" not in normalized and _BOOKING_CONFIRMATION.search(normalized) is not None

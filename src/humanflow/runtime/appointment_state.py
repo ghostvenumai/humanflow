@@ -34,9 +34,20 @@ _GENERIC_PRONOUN = re.compile(
     re.IGNORECASE,
 )
 _PLURAL_OVERVIEW = re.compile(r"\b(welche|meine|alle)\s+termine\b", re.IGNORECASE)
+_AVAILABILITY_QUERY = re.compile(
+    r"\b(?:welche\s+termine\s+sind\s+frei|was\s+ist\s+frei|"
+    r"wann\s+(?:habt|hättet)\s+ihr\s+etwas\s+frei|"
+    r"welche\s+zeiten\s+(?:wären|sind)\s+verfügbar|"
+    r"freie\s+termine|verfügbare\s+termine)\b",
+    re.IGNORECASE,
+)
 _CANCEL_REQUEST = re.compile(
     r"\b(absagen|stornieren|canceln|brauche\s+ich\s+nicht\s+mehr|"
     r"nicht\s+mehr\s+brauch|will\s+(?:ihn|den)\s+absagen)\b",
+    re.IGNORECASE,
+)
+_BOOKING_CONFIRMATION = re.compile(
+    r"\b(?:ja|okay|ok|passt|bestätige|buchen|buch(?:e)?|nimm)\b",
     re.IGNORECASE,
 )
 
@@ -508,7 +519,16 @@ class AppointmentStateTracker:
         explicitly_about_appointment: bool,
         has_slot_delta: bool,
     ) -> _Resolution:
-        if _PLURAL_OVERVIEW.search(normalized) and not references:
+        if _AVAILABILITY_QUERY.search(normalized) and not references and not has_slot_delta:
+            return _Resolution(
+                self.active_focus_appointment_id,
+                "availability_query",
+            )
+        if (
+            _PLURAL_OVERVIEW.search(normalized)
+            and not _AVAILABILITY_QUERY.search(normalized)
+            and not references
+        ):
             options = tuple(
                 appointment_id
                 for appointment_id, appointment in self._appointments.items()
@@ -569,6 +589,15 @@ class AppointmentStateTracker:
                 None,
                 "new_additional_generic_appointment",
                 create_entity=_EntityReference("Termin", None, "Termin", 0),
+            )
+        if (
+            self.active_focus_appointment_id is not None
+            and "nein" not in normalized
+            and _BOOKING_CONFIRMATION.search(normalized)
+        ):
+            return _Resolution(
+                self.active_focus_appointment_id,
+                "booking_confirmation_for_active_focus",
             )
         if self.active_focus_appointment_id is not None and (
             explicitly_about_appointment or has_slot_delta or pronoun

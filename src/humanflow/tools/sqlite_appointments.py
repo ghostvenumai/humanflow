@@ -34,18 +34,34 @@ class DemoAvailability:
 
 
 _DEMO_PROVIDERS = (
-    ("demo-ortho-1", "Orthopädie", "Praxis am Stadtpark (Demo)", "Berlin", 1),
-    ("demo-friseur-1", "Friseur", "Salon Morgenrot (Demo)", "Berlin", 1),
+    ("demo-ortho-1", "Orthopädie", "Praxis am Stadtpark (Demo)", "Ingolstadt", 1),
+    ("demo-friseur-1", "Friseur", "Salon Morgenrot (Demo)", "Ingolstadt", 1),
 )
 
 _DEMO_AVAILABILITY = (
+    DemoAvailability("demo-ortho-1", "2026-08-27T09:00:00+02:00", "2026-08-27T09:30:00+02:00"),
+    DemoAvailability("demo-ortho-1", "2026-08-27T12:00:00+02:00", "2026-08-27T12:30:00+02:00"),
+    DemoAvailability("demo-ortho-1", "2026-08-27T15:30:00+02:00", "2026-08-27T16:00:00+02:00"),
+    DemoAvailability("demo-ortho-1", "2026-09-02T11:30:00+02:00", "2026-09-02T12:00:00+02:00"),
+    DemoAvailability("demo-ortho-1", "2026-09-02T14:00:00+02:00", "2026-09-02T14:30:00+02:00"),
     DemoAvailability("demo-ortho-1", "2026-09-03T10:30:00+02:00", "2026-09-03T11:00:00+02:00"),
     DemoAvailability("demo-ortho-1", "2026-09-03T14:00:00+02:00", "2026-09-03T14:30:00+02:00"),
     DemoAvailability("demo-ortho-1", "2026-09-04T09:30:00+02:00", "2026-09-04T10:00:00+02:00"),
     DemoAvailability("demo-ortho-1", "2026-09-10T15:00:00+02:00", "2026-09-10T15:30:00+02:00"),
+    DemoAvailability("demo-ortho-1", "2026-09-14T12:30:00+02:00", "2026-09-14T13:00:00+02:00"),
+    DemoAvailability("demo-ortho-1", "2026-09-15T16:00:00+02:00", "2026-09-15T16:30:00+02:00"),
+    DemoAvailability("demo-friseur-1", "2026-08-26T09:30:00+02:00", "2026-08-26T10:00:00+02:00"),
+    DemoAvailability("demo-friseur-1", "2026-08-26T12:00:00+02:00", "2026-08-26T12:30:00+02:00"),
+    DemoAvailability("demo-friseur-1", "2026-08-26T15:00:00+02:00", "2026-08-26T15:30:00+02:00"),
     DemoAvailability("demo-friseur-1", "2026-08-31T11:00:00+02:00", "2026-08-31T11:30:00+02:00"),
     DemoAvailability("demo-friseur-1", "2026-09-02T14:00:00+02:00", "2026-09-02T14:30:00+02:00"),
     DemoAvailability("demo-friseur-1", "2026-09-03T16:00:00+02:00", "2026-09-03T16:30:00+02:00"),
+    DemoAvailability("demo-friseur-1", "2026-09-07T10:00:00+02:00", "2026-09-07T10:30:00+02:00"),
+    DemoAvailability("demo-friseur-1", "2026-09-07T13:00:00+02:00", "2026-09-07T13:30:00+02:00"),
+    DemoAvailability("demo-friseur-1", "2026-09-07T16:30:00+02:00", "2026-09-07T17:00:00+02:00"),
+    DemoAvailability("demo-friseur-1", "2026-09-14T11:30:00+02:00", "2026-09-14T12:00:00+02:00"),
+    DemoAvailability("demo-friseur-1", "2026-09-14T14:30:00+02:00", "2026-09-14T15:00:00+02:00"),
+    DemoAvailability("demo-friseur-1", "2026-09-14T17:00:00+02:00", "2026-09-14T17:30:00+02:00"),
 )
 
 
@@ -104,9 +120,14 @@ class SQLiteAppointmentToolProvider:
                 """
             )
             connection.executemany(
-                """INSERT OR IGNORE INTO providers
+                """INSERT INTO providers
                    (resource_id, appointment_type, provider_name, location, is_demo)
-                   VALUES (?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(resource_id) DO UPDATE SET
+                       appointment_type = excluded.appointment_type,
+                       provider_name = excluded.provider_name,
+                       location = excluded.location,
+                       is_demo = excluded.is_demo""",
                 _DEMO_PROVIDERS,
             )
             connection.executemany(
@@ -131,7 +152,7 @@ class SQLiteAppointmentToolProvider:
         return ToolProviderResponse(response_id=str(uuid4()), value=value)
 
     def search_availability(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        appointment_type = _required(arguments, "appointment_type")
+        appointment_type = _optional(arguments, "appointment_type")
         start_date = str(arguments.get("date") or arguments.get("start_date") or "").strip()
         end_date = str(arguments.get("end_date") or start_date).strip()
         if not start_date or not end_date:
@@ -145,8 +166,7 @@ class SQLiteAppointmentToolProvider:
                    a.start_datetime, a.end_datetime
             FROM availability AS a
             JOIN providers AS p ON p.resource_id = a.resource_id
-            WHERE lower(p.appointment_type) = lower(?)
-              AND substr(a.start_datetime, 1, 10) BETWEEN ? AND ?
+            WHERE substr(a.start_datetime, 1, 10) BETWEEN ? AND ?
               AND NOT EXISTS (
                   SELECT 1 FROM appointments AS booked
                   WHERE booked.resource_id = a.resource_id
@@ -155,7 +175,10 @@ class SQLiteAppointmentToolProvider:
                     AND booked.end_datetime > a.start_datetime
               )
         """
-        parameters: list[Any] = [appointment_type, start_date, end_date]
+        parameters: list[Any] = [start_date, end_date]
+        if appointment_type:
+            query += " AND lower(p.appointment_type) = lower(?)"
+            parameters.append(appointment_type)
         if provider_name:
             query += " AND lower(p.provider_name) = lower(?)"
             parameters.append(provider_name)
@@ -165,15 +188,25 @@ class SQLiteAppointmentToolProvider:
         query += " ORDER BY a.start_datetime, p.provider_name"
         with self._connect() as connection:
             rows = [dict(row) for row in connection.execute(query, parameters)]
+        alternatives: list[dict[str, Any]] = []
         if preferred_time:
-            rows = [row for row in rows if row["start_datetime"][11:16] == preferred_time]
+            matching = [
+                row for row in rows if row["start_datetime"][11:16] == preferred_time
+            ]
+            alternatives = _nearest_slots(
+                [row for row in rows if row not in matching], preferred_time
+            )[:3]
+            rows = matching
         if preferred_daypart:
             rows = [row for row in rows if _matches_daypart(row["start_datetime"], preferred_daypart)]
         return {
             "success": True,
             "tool": "search_availability",
+            "result_status": "AVAILABLE" if rows else "UNAVAILABLE",
             "demo_data": True,
+            "requested_time": preferred_time,
             "slots": rows,
+            "alternative_slots": alternatives,
         }
 
     def create_appointment(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -188,7 +221,12 @@ class SQLiteAppointmentToolProvider:
             ).fetchone()
             if existing is not None:
                 value = dict(existing)
-                value.update(success=True, idempotent_replay=True, tool="create_appointment")
+                value.update(
+                    success=True,
+                    idempotent_replay=True,
+                    tool="create_appointment",
+                    result_status="BOOKED",
+                )
                 connection.commit()
                 return value
             slot = self._available_slot(
@@ -228,6 +266,7 @@ class SQLiteAppointmentToolProvider:
         return {
             "success": True,
             "tool": "create_appointment",
+            "result_status": "BOOKED",
             "appointment_id": appointment_id,
             "status": "BOOKED",
             **slot,
@@ -244,7 +283,12 @@ class SQLiteAppointmentToolProvider:
             ).fetchone()
             if current is None or current["status"] != "BOOKED":
                 connection.rollback()
-                return _failure("reschedule_appointment", "APPOINTMENT_NOT_BOOKED", appointment_id)
+                return _failure(
+                    "reschedule_appointment",
+                    "APPOINTMENT_NOT_BOOKED",
+                    appointment_id,
+                    result_status="UNAVAILABLE",
+                )
             slot = self._available_slot(
                 connection,
                 appointment_type=current["appointment_type"],
@@ -280,6 +324,7 @@ class SQLiteAppointmentToolProvider:
         return {
             "success": True,
             "tool": "reschedule_appointment",
+            "result_status": "RESCHEDULED",
             "appointment_id": appointment_id,
             "status": "BOOKED",
             "old_slot": old_slot,
@@ -301,10 +346,20 @@ class SQLiteAppointmentToolProvider:
             ).fetchone()
             if current is None:
                 connection.rollback()
-                return _failure("cancel_appointment", "APPOINTMENT_NOT_FOUND", appointment_id)
+                return _failure(
+                    "cancel_appointment",
+                    "APPOINTMENT_NOT_FOUND",
+                    appointment_id,
+                    result_status="UNAVAILABLE",
+                )
             if current["status"] == "CANCELLED":
                 value = dict(current)
-                value.update(success=True, idempotent_replay=True, tool="cancel_appointment")
+                value.update(
+                    success=True,
+                    idempotent_replay=True,
+                    tool="cancel_appointment",
+                    result_status="CANCELLED",
+                )
                 connection.commit()
                 return value
             operation_guard()
@@ -316,6 +371,7 @@ class SQLiteAppointmentToolProvider:
         return {
             "success": True,
             "tool": "cancel_appointment",
+            "result_status": "CANCELLED",
             "appointment_id": appointment_id,
             "appointment_type": current["appointment_type"],
             "start_datetime": current["start_datetime"],
@@ -332,7 +388,12 @@ class SQLiteAppointmentToolProvider:
         query += " ORDER BY start_datetime, appointment_id"
         with self._connect() as connection:
             rows = [dict(row) for row in connection.execute(query, parameters)]
-        return {"success": True, "tool": "list_appointments", "appointments": rows}
+        return {
+            "success": True,
+            "tool": "list_appointments",
+            "result_status": "BOOKED" if rows else "UNAVAILABLE",
+            "appointments": rows,
+        }
 
     def _available_slot(
         self,
@@ -424,17 +485,47 @@ def _matches_daypart(start_datetime: str, daypart: str) -> bool:
     raise ToolProviderError("unsupported_daypart")
 
 
-def _failure(tool: str, code: str, appointment_id: str | None = None) -> dict[str, Any]:
+def _nearest_slots(
+    rows: list[dict[str, Any]], preferred_time: str
+) -> list[dict[str, Any]]:
+    requested_hour, requested_minute = (int(part) for part in preferred_time.split(":"))
+    requested_minutes = requested_hour * 60 + requested_minute
+    return sorted(
+        rows,
+        key=lambda row: (
+            abs(
+                int(row["start_datetime"][11:13]) * 60
+                + int(row["start_datetime"][14:16])
+                - requested_minutes
+            ),
+            row["start_datetime"],
+        ),
+    )
+
+
+def _failure(
+    tool: str,
+    code: str,
+    appointment_id: str | None = None,
+    *,
+    result_status: str = "TECHNICAL_FAILURE",
+) -> dict[str, Any]:
     return {
         "success": False,
         "tool": tool,
+        "result_status": result_status,
         "error_code": code,
         "appointment_id": appointment_id,
     }
 
 
 def _conflict(tool: str, appointment_id: str) -> dict[str, Any]:
-    return _failure(tool, "BOOKING_CONFLICT", appointment_id)
+    return _failure(
+        tool,
+        "BOOKING_CONFLICT",
+        appointment_id,
+        result_status="BOOKING_CONFLICT",
+    )
 
 
 def _utc_now() -> str:

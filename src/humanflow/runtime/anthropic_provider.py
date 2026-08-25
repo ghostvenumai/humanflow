@@ -369,14 +369,44 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
     result = raw_outcome.get("result")
     if not isinstance(tool_name, str) or not isinstance(result, Mapping):
         return None
+    result_status = result.get("result_status")
     if raw_outcome.get("success") is not True:
-        if result.get("error_code") == "BOOKING_CONFLICT":
-            return "Der gewünschte Termin ist leider nicht verfügbar."
+        if result_status == "BOOKING_CONFLICT":
+            return "Der gewünschte Termin ist leider nicht frei."
+        if result_status == "UNAVAILABLE":
+            return "Diesen Termin finde ich nicht als aktive Buchung."
         return "Das hat gerade nicht geklappt. Ich kann es noch einmal versuchen."
     if tool_name == "search_availability":
         slots = result.get("slots")
+        alternatives = result.get("alternative_slots")
+        requested_time = result.get("requested_time")
+        if result_status == "UNAVAILABLE":
+            prefix = (
+                f"{_spoken_clock(requested_time)} ist leider nicht frei."
+                if isinstance(requested_time, str)
+                else "Dafür ist leider kein Termin frei."
+            )
+            alternative_rows = alternatives if isinstance(alternatives, list) else []
+            alternative_starts = [
+                slot.get("start_datetime")
+                for slot in alternative_rows
+                if isinstance(slot, Mapping)
+                and isinstance(slot.get("start_datetime"), str)
+            ]
+            if alternative_starts:
+                spoken = [
+                    _spoken_datetime(value, include_date=False)
+                    for value in alternative_starts[:3]
+                ]
+                return f"{prefix} Ich hätte {_join_german(spoken)} etwas frei."
+            return prefix
         if not isinstance(slots, list) or not slots:
             return "Für diesen Tag ist in den Demo-Daten kein Termin frei."
+        if isinstance(requested_time, str):
+            return (
+                f"{_spoken_clock(requested_time)} ist frei. "
+                "Soll ich den Termin buchen?"
+            )
         starts = [
             slot.get("start_datetime")
             for slot in slots
@@ -384,6 +414,20 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
         ]
         if not starts:
             return "Für diesen Tag ist in den Demo-Daten kein Termin frei."
+        appointment_types = {
+            slot.get("appointment_type")
+            for slot in slots
+            if isinstance(slot, Mapping) and isinstance(slot.get("appointment_type"), str)
+        }
+        if len(appointment_types) > 1:
+            descriptions = [
+                f"{slot['appointment_type']} {_spoken_datetime(slot['start_datetime'])}"
+                for slot in slots[:3]
+                if isinstance(slot, Mapping)
+                and isinstance(slot.get("appointment_type"), str)
+                and isinstance(slot.get("start_datetime"), str)
+            ]
+            return f"Frei sind {_join_german(descriptions)}."
         spoken = [_spoken_datetime(value, include_date=False) for value in starts[:3]]
         day = _spoken_datetime(starts[0], include_time=False)
         return f"{day} hätte ich {_join_german(spoken)} etwas frei."
@@ -446,6 +490,11 @@ def _spoken_datetime(
         )
         parts.append(f"um {spoken_time}")
     return " ".join(parts)
+
+
+def _spoken_clock(value: str) -> str:
+    hour, minute = (int(part) for part in value.split(":"))
+    return f"{hour} Uhr" if minute == 0 else f"{hour}:{minute:02d} Uhr"
 
 
 def _join_german(values: list[str], *, connector: str = "oder") -> str:
