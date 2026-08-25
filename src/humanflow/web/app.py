@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
+from decimal import Decimal
 from time import monotonic_ns
 from typing import Any
 from uuid import uuid4
@@ -22,6 +23,15 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from humanflow.audio.models import AudioFrame
+from humanflow.cost import (
+    AsyncCostRecorder,
+    CostLedger,
+    PricingCatalog,
+    RuntimeCostObserver,
+    aggregate_cost_rows,
+    build_cost_summary_report,
+    write_cost_summary_report,
+)
 from humanflow.runtime.anthropic_provider import (
     DEFAULT_ANTHROPIC_MODEL,
     AnthropicReasoner,
@@ -102,6 +112,8 @@ class DemoRuntimeConfig:
     tts_candidate_factory: Callable[[], StreamingTTSProvider] | None = None
     appointment_tool_provider_factory: Callable[[], ToolProvider] | None = None
     appointment_tool_timeout_ms: float = 4_000.0
+    cost_database_path: Path | None = None
+    pricing_catalog_path: Path | None = None
 
     @property
     def ready(self) -> bool:
@@ -512,6 +524,10 @@ def load_demo_runtime_config(
         tts_candidate_factory=create_candidate_synthesizer,
         appointment_tool_provider_factory=create_appointment_tools,
         appointment_tool_timeout_ms=max(4_000.0, appointment_tool_delay_ms + 1_000.0),
+        cost_database_path=Path(
+            values.get("HUMANFLOW_COST_DB", str(appointment_database_path))
+        ),
+        pricing_catalog_path=PROJECT_ROOT / "pricing" / "provider_pricing.json",
     )
 
 
@@ -520,6 +536,17 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
     assessment_lock = asyncio.Lock()
     browser_session_lease = BrowserSessionLease()
     live_barge_in_metrics = LiveBargeInMetrics()
+    cost_ledger: CostLedger | None = None
+    cost_pricing: PricingCatalog | None = None
+    if runtime.cost_database_path is not None and runtime.pricing_catalog_path is not None:
+        try:
+            cost_ledger = CostLedger(runtime.cost_database_path)
+            cost_pricing = PricingCatalog.load(runtime.pricing_catalog_path)
+            cost_ledger.store_pricing_rules(cost_pricing.rules)
+        except Exception as error:
+            LOGGER.warning("Cost Ledger disabled without affecting demo: %s", type(error).__name__)
+            cost_ledger = None
+            cost_pricing = None
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -583,6 +610,30 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
     async def live_barge_in() -> dict[str, Any]:
         return live_barge_in_metrics.to_dict()
 
+    @application.get("/api/costs")
+    async def costs(session_id: str | None = None) -> dict[str, Any]:
+        if cost_ledger is None or cost_pricing is None:
+            return {
+                "status": "COST_LEDGER_UNAVAILABLE",
+                "conversation_impact": "NONE",
+            }
+        selected = session_id or cost_ledger.latest_session_id()
+        if selected is None:
+            return {
+                "status": "NO_SESSION_DATA",
+                "appointment_backend": "LOCAL_DEMO_SQLITE",
+            }
+        persisted = cost_ledger.load_session_summary(selected)
+        summary = persisted or aggregate_cost_rows(
+            cost_ledger.rows(session_id=selected), session_id=selected
+        )
+        return {
+            "status": "SESSION_ECONOMICS_AVAILABLE",
+            "appointment_backend": "LOCAL_DEMO_SQLITE",
+            "production_telephony": "NOT_ESTABLISHED",
+            "summary": summary,
+        }
+
     @application.post("/api/voice-quality")
     async def record_voice_quality(payload: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -643,6 +694,25 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             outbound, observer=live_barge_in_metrics.observe
         )
         transcriber = runtime.transcriber_factory()
+        session_started_ns = monotonic_ns()
+        cost_observer = None
+        if cost_ledger is not None and cost_pricing is not None:
+            def cost_failure(kind: str, payload: dict[str, Any]) -> None:
+                LOGGER.warning("%s: %s", kind, payload.get("reason"))
+                outbound.put_nowait(
+                    {
+                        "type": "cost_observability",
+                        "event_type": kind,
+                        "payload": {**payload, "conversation_continues": True},
+                    }
+                )
+
+            cost_observer = RuntimeCostObserver(
+                session_id=conversation_id,
+                conversation_id=conversation_id,
+                recorder=AsyncCostRecorder(cost_ledger, on_failure=cost_failure),
+                pricing=cost_pricing,
+            )
         session = RealtimeVoiceSession(
             conversation_id=conversation_id,
             sink=sink,
@@ -652,6 +722,7 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             audio_output=audio_output,
             appointment_tool_provider=runtime.appointment_tool_provider_factory(),
             appointment_tool_timeout_ms=runtime.appointment_tool_timeout_ms,
+            cost_observer=cost_observer,
         )
         sequence = 0
         stt_input_failed = False
@@ -793,6 +864,36 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
             try:
                 await session.close(reason_code="browser_disconnected")
             finally:
+                if cost_ledger is not None and cost_pricing is not None:
+                    try:
+                        active_seconds = (
+                            monotonic_ns() - session_started_ns
+                        ) / 1_000_000_000
+                        summary = aggregate_cost_rows(
+                            cost_ledger.rows(session_id=conversation_id),
+                            session_id=conversation_id,
+                            active_duration_seconds=Decimal(str(active_seconds)),
+                        )
+                        generated_at = datetime.now(UTC).isoformat().replace(
+                            "+00:00", "Z"
+                        )
+                        cost_ledger.save_session_summary(
+                            conversation_id, generated_at, summary
+                        )
+                        write_cost_summary_report(
+                            REPORTS_DIR / "cost-summary.json",
+                            build_cost_summary_report(
+                                cost_ledger,
+                                cost_pricing,
+                                session_id=conversation_id,
+                                active_duration_seconds=Decimal(str(active_seconds)),
+                            ),
+                        )
+                    except Exception as error:
+                        LOGGER.warning(
+                            "Cost summary failed without affecting session: %s",
+                            type(error).__name__,
+                        )
                 await browser_session_lease.release(conversation_id)
 
     return application

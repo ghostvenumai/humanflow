@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from time import monotonic_ns
 from typing import Callable
 from uuid import uuid4
@@ -13,12 +14,16 @@ from humanflow.audio.analysis import analyze_pcm16
 from humanflow.audio.ledger import PlayedAudioLedger
 from humanflow.audio.models import AudioChunk, AudioFrame, PlaybackReceipt
 from humanflow.controller.state_machine import ConversationStateMachine
+from humanflow.cost.runtime import RuntimeCostObserver
 from humanflow.domain.conversation import ConversationState, OperationToken
 from humanflow.telemetry.events import EventType
 from humanflow.telemetry.sinks import TelemetrySink
 from humanflow.turns.models import TurnDecision, TurnDecisionType
 from humanflow.turns.policies import HybridTurnPolicy
-from humanflow.tools.appointment_coordinator import AppointmentTransactionCoordinator
+from humanflow.tools.appointment_coordinator import (
+    AppointmentTransactionCoordinator,
+    AppointmentTransactionOutcome,
+)
 from humanflow.tools.providers import ToolProvider
 
 from .providers import (
@@ -95,6 +100,7 @@ class RealtimeVoiceSession:
         appointment_state_tracker: AppointmentStateTracker | None = None,
         appointment_tool_provider: ToolProvider | None = None,
         appointment_tool_timeout_ms: float = 4_000.0,
+        cost_observer: RuntimeCostObserver | None = None,
         soft_yield_recovery_delay_ms: float = 420.0,
         input_queue_size: int = 256,
         clock_ns: Callable[[], int] = monotonic_ns,
@@ -133,6 +139,9 @@ class RealtimeVoiceSession:
             if appointment_tool_provider is not None
             else None
         )
+        self._cost_observer = cost_observer
+        self._stt_audio_seconds_since_commit = Decimal("0")
+        self._stt_partials_since_commit = 0
         self._soft_yield_recovery_delay_ms = soft_yield_recovery_delay_ms
         self._input_queue: asyncio.Queue[AudioFrame | None] = asyncio.Queue(input_queue_size)
         self._clock_ns = clock_ns
@@ -872,6 +881,11 @@ class RealtimeVoiceSession:
                 await self._input_queue.put(None)
                 await self._input_task
         await self._transcriber.close()
+        if self._cost_observer is not None:
+            try:
+                await self._cost_observer.close()
+            except Exception as error:
+                self._record_cost_failure("close", error)
         correlation_id = str(uuid4())
         if self.state is not ConversationState.LISTENING:
             if self.state in {ConversationState.INTERRUPTED, ConversationState.RECOVERING}:
@@ -896,6 +910,156 @@ class RealtimeVoiceSession:
             correlation_id=correlation_id,
         )
 
+    def _record_stt_cost(self, update: TranscriptUpdate) -> None:
+        observer = self._cost_observer
+        if observer is None:
+            return
+        provider = update.provider or provider_info(self._transcriber, role="stt")
+        self._observe_cost(
+            "record_stt",
+            operation_id=f"stt:{update.provenance.transcript_id}",
+            turn_id=update.provenance.transcript_id,
+            provider=provider.provider,
+            model=provider.model,
+            audio_seconds=self._stt_audio_seconds_since_commit,
+            partial_count=self._stt_partials_since_commit,
+            provider_session_id=update.provenance.stt_session_id,
+        )
+        self._stt_audio_seconds_since_commit = Decimal("0")
+        self._stt_partials_since_commit = 0
+
+    def _record_tool_cost(
+        self,
+        *,
+        outcome: AppointmentTransactionOutcome,
+        token: OperationToken,
+        turn_id: str,
+    ) -> None:
+        observer = self._cost_observer
+        if observer is None:
+            return
+        appointment_id = outcome.value.get("appointment_id")
+        result_status = outcome.value.get("result_status") or outcome.value.get("status")
+        self._observe_cost(
+            "record_tool",
+            operation_id=f"{token.operation_id}:tool:{outcome.tool_name}",
+            turn_id=turn_id,
+            tool_name=outcome.tool_name,
+            duration_ms=outcome.elapsed_ms,
+            success=outcome.success,
+            retry=False,
+            appointment_id=(str(appointment_id) if appointment_id is not None else None),
+            transaction_result=(str(result_status) if result_status is not None else None),
+            failure_class=outcome.failure_reason,
+        )
+
+    def _record_tts_cost(
+        self,
+        *,
+        token: OperationToken,
+        turn_id: str,
+        response_id: str,
+        segment_id: str,
+        submitted_characters: int,
+        generated_audio_seconds: Decimal,
+        actual_provider: dict[str, object],
+        fallback: bool,
+        cancelled: bool,
+    ) -> None:
+        observer = self._cost_observer
+        if observer is None:
+            return
+        primary = provider_info(self._synthesizer, role="tts")
+        if fallback:
+            failure_class = getattr(
+                self._synthesizer, "last_fallback_reason", None
+            ) or "primary_failed_before_audio"
+            self._observe_cost(
+                "record_primary_tts_failure",
+                operation_id=f"{token.operation_id}:tts:{segment_id}:primary-failure",
+                turn_id=turn_id,
+                response_id=response_id,
+                provider=primary.provider,
+                model=primary.model,
+                failure_class=str(failure_class),
+            )
+        metrics = getattr(self._synthesizer, "last_request_metrics", None)
+        reported_characters = getattr(metrics, "reported_billable_characters", None)
+        first_audio_latency_ms = getattr(metrics, "first_pcm_latency_ms", None)
+        self._observe_cost(
+            "record_tts",
+            operation_id=f"{token.operation_id}:tts:{segment_id}",
+            turn_id=turn_id,
+            response_id=response_id,
+            provider=str(actual_provider.get("provider") or primary.provider),
+            model=str(actual_provider.get("model") or primary.model),
+            characters=submitted_characters,
+            audio_seconds=generated_audio_seconds,
+            reported_billable_characters=(
+                int(reported_characters)
+                if isinstance(reported_characters, int)
+                else None
+            ),
+            fallback=fallback,
+            cancelled=cancelled,
+            latency_ms=(
+                float(first_audio_latency_ms)
+                if isinstance(first_audio_latency_ms, (int, float))
+                else None
+            ),
+        )
+
+    def _record_llm_cost(
+        self,
+        *,
+        usage_payload: object,
+        token: OperationToken,
+        turn_id: str,
+        response_id: str,
+        provider: dict[str, str],
+        generation_started_ns: int,
+    ) -> None:
+        observer = self._cost_observer
+        if observer is None or not isinstance(usage_payload, dict):
+            return
+        self._observe_cost(
+            "record_llm",
+            operation_id=f"{token.operation_id}:llm",
+            turn_id=turn_id,
+            response_id=response_id,
+            provider=provider["provider"],
+            model=provider["model"],
+            input_tokens=int(usage_payload.get("input_tokens", 0)),
+            output_tokens=int(usage_payload.get("output_tokens", 0)),
+            latency_ms=max(
+                0.0,
+                (self._clock_ns() - generation_started_ns) / 1_000_000.0,
+            ),
+            success=True,
+        )
+
+    def _observe_cost(self, method_name: str, **arguments: object) -> object | None:
+        observer = self._cost_observer
+        if observer is None:
+            return None
+        try:
+            return getattr(observer, method_name)(**arguments)
+        except Exception as error:
+            self._record_cost_failure(method_name, error)
+            return None
+
+    def _record_cost_failure(self, operation: str, error: Exception) -> None:
+        self.state_machine.record(
+            EventType.COST_LEDGER_WRITE_FAILED,
+            correlation_id=str(uuid4()),
+            reason_code="cost_observability_isolated_from_conversation",
+            payload={
+                "operation": operation,
+                "exception_type": type(error).__name__,
+                "conversation_continues": True,
+            },
+        )
+
     async def _input_loop(self) -> None:
         while True:
             frame = await self._input_queue.get()
@@ -903,7 +1067,14 @@ class RealtimeVoiceSession:
                 if frame is None:
                     return
                 updates = await self._transcriber.ingest(frame)
+                self._stt_audio_seconds_since_commit += Decimal(
+                    frame.samples_per_channel
+                ) / Decimal(frame.sample_rate_hz)
                 for update in updates:
+                    if update.is_final:
+                        self._record_stt_cost(update)
+                    else:
+                        self._stt_partials_since_commit += 1
                     try:
                         await self.accept_user_transcript(update)
                     except TranscriptRejected:
@@ -1249,6 +1420,7 @@ class RealtimeVoiceSession:
         speech_provider = provider_info(self._synthesizer, role="tts")
         try:
             coordinator = self._appointment_transaction_coordinator
+            tool_outcome = None
             if coordinator is not None:
                 tool_delta, tool_outcome = await coordinator.execute(
                     transcript=transcript,
@@ -1258,6 +1430,12 @@ class RealtimeVoiceSession:
                     source_turn=user_transcript_id,
                     parent_token=token,
                 )
+                if tool_outcome is not None:
+                    self._record_tool_cost(
+                        outcome=tool_outcome,
+                        token=token,
+                        turn_id=user_transcript_id,
+                    )
                 appointment_context = self._appointment_state_tracker.reasoning_context(
                     tool_delta
                 )
@@ -1394,7 +1572,9 @@ class RealtimeVoiceSession:
                         request, cancel_event=self._cancel_event
                     )
                     segment_audio_emitted = False
+                    segment_audio_seconds = Decimal("0")
                     fallback_recorded = False
+                    actual_speech_provider = speech_provider.to_dict()
                     try:
                         async for chunk in stream:
                             self._raise_completed_playback_failure(playback_tasks)
@@ -1441,6 +1621,9 @@ class RealtimeVoiceSession:
                             audio_chunk_sequence = max(
                                 audio_chunk_sequence, chunk.frame.sequence + 1
                             )
+                            segment_audio_seconds += Decimal(
+                                chunk.frame.samples_per_channel
+                            ) / Decimal(chunk.frame.sample_rate_hz)
                             generated_ns = self._clock_ns()
                             self.ledger.register_generated(chunk, generated_ns=generated_ns)
                             self.ledger.mark_queued(
@@ -1509,6 +1692,17 @@ class RealtimeVoiceSession:
                         close_stream = getattr(stream, "aclose", None)
                         if close_stream is not None:
                             await close_stream()
+                    self._record_tts_cost(
+                        token=token,
+                        turn_id=user_transcript_id,
+                        response_id=response_id,
+                        segment_id=segment_id,
+                        submitted_characters=len(spoken_text),
+                        generated_audio_seconds=segment_audio_seconds,
+                        actual_provider=actual_speech_provider,
+                        fallback=fallback_recorded,
+                        cancelled=self._cancel_event.is_set(),
+                    )
                     if not segment_audio_emitted and not self._cancel_event.is_set():
                         raise RuntimeError("tts_provider_returned_no_chunks")
                     if self._cancel_event.is_set():
@@ -1526,6 +1720,14 @@ class RealtimeVoiceSession:
             if not self._cancel_event.is_set():
                 usage = getattr(self._reasoner, "last_usage", None)
                 usage_payload = usage.to_dict() if hasattr(usage, "to_dict") else None
+                self._record_llm_cost(
+                    usage_payload=usage_payload,
+                    token=token,
+                    turn_id=user_transcript_id,
+                    response_id=response_id,
+                    provider=reasoning_provider.to_dict(),
+                    generation_started_ns=generation_started_ns,
+                )
                 history_roles = self.conversation_history_roles
                 user_history_writes = None
                 if history_user_count_before is not None:
@@ -1650,6 +1852,14 @@ class RealtimeVoiceSession:
                         correlation_id=correlation_id,
                     )
             self.ledger.assert_invariants()
+            if self._cost_observer is not None:
+                self._observe_cost(
+                    "record_played_audio",
+                    operation_id=f"{token.operation_id}:played-audio",
+                    turn_id=user_transcript_id,
+                    response_id=response_id,
+                    entries=self.ledger.entries,
+                )
             self._release_playback_owner(
                 response_id=response_id,
                 correlation_id=correlation_id,

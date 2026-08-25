@@ -400,6 +400,15 @@ class FallbackStreamingTTSProvider:
     def last_fallback_reason(self) -> str | None:
         return self._last_fallback_reason
 
+    @property
+    def last_request_metrics(self) -> TTSRequestMetrics | None:
+        """Expose primary metrics only when primary synthesis actually supplied audio."""
+
+        if self._active_provider_info.provider != self.provider_info.provider:
+            return None
+        metrics = getattr(self._primary, "last_request_metrics", None)
+        return metrics if isinstance(metrics, TTSRequestMetrics) else None
+
     async def stream_speech(
         self,
         request: SpeechSynthesisRequest,

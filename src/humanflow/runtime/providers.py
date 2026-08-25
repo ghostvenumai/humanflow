@@ -442,6 +442,10 @@ class GaplessSegmentTTSProvider:
     def fallback_info(self) -> ProviderInfo | None:
         return getattr(self._upstream, "fallback_info", None)
 
+    @property
+    def last_request_metrics(self) -> object | None:
+        return getattr(self._upstream, "last_request_metrics", None)
+
     async def stream_speech(
         self,
         request: SpeechSynthesisRequest,

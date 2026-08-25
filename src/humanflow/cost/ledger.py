@@ -234,6 +234,25 @@ class CostLedger:
         with self._connect() as connection:
             return [dict(row) for row in connection.execute(query, parameters)]
 
+    def latest_session_id(self) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT session_id FROM cost_events
+                   ORDER BY timestamp_monotonic_ns DESC, cost_event_id DESC LIMIT 1"""
+            ).fetchone()
+        return None if row is None else str(row[0])
+
+    def load_session_summary(self, session_id: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT summary_json FROM session_cost_summary WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        payload = json.loads(row[0])
+        return payload if isinstance(payload, dict) else None
+
     def save_session_summary(
         self,
         session_id: str,
