@@ -41,6 +41,10 @@ _BOOKED_LIST_INTENT = re.compile(
     r"zeig(?:e)?\s+mir\s+meine\s+termine|meine\s+termine|alle\s+termine)\b",
     re.IGNORECASE,
 )
+_CONTEXTUAL_BOOKED_LIST_VARIANT = re.compile(
+    r"\bwelche\s+minis\s+(?:habe|hab)\s+ich\b",
+    re.IGNORECASE,
+)
 _BOOKING_CORRECTION = re.compile(
     r"\b(?:nein|nicht|lieber|stattdessen|warte|moment|doch\s+nicht)\b",
     re.IGNORECASE,
@@ -402,7 +406,7 @@ class AppointmentTransactionCoordinator:
                 return None
         if (
             delta.resolution_reason == "multi_appointment_overview"
-            or _BOOKED_LIST_INTENT.search(transcript)
+            or _is_booked_list_intent(transcript, tracker=tracker)
         ):
             self._invalidate_all_pending_offers()
             return "list_appointments", {"include_cancelled": False}, None
@@ -720,6 +724,20 @@ def _confirms_booking(transcript: str) -> bool:
         and len(tokens) <= 8
         and set(tokens).issubset(_AFFIRMATIVE_TOKENS)
         and set(tokens).intersection(_AFFIRMATIVE_SIGNAL_TOKENS)
+    )
+
+
+def _is_booked_list_intent(
+    transcript: str,
+    *,
+    tracker: AppointmentStateTracker,
+) -> bool:
+    return bool(
+        _BOOKED_LIST_INTENT.search(transcript)
+        or (
+            tracker.appointments
+            and _CONTEXTUAL_BOOKED_LIST_VARIANT.search(transcript)
+        )
     )
 
 

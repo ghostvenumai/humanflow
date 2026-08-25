@@ -14,7 +14,11 @@ from humanflow.runtime.providers import (
     TranscriptUpdate,
 )
 from humanflow.runtime.session import RealtimeVoiceSession
-from humanflow.runtime.transcript_events import TranscriptProvenance
+from humanflow.runtime.transcript_events import (
+    ConversationEventKind,
+    TranscriptOrigin,
+    TranscriptProvenance,
+)
 from humanflow.telemetry.events import EventType
 from humanflow.telemetry.sinks import InMemoryTelemetrySink
 from humanflow.turns.models import TurnDecisionType, TurnSignals
@@ -83,6 +87,37 @@ def _partial_interruption(text: str) -> TranscriptUpdate:
     )
 
 
+def _streaming_turn(
+    text: str,
+    *,
+    audio_frame_sequence: int,
+) -> TranscriptUpdate:
+    return TranscriptUpdate(
+        text=text,
+        is_final=True,
+        provenance=TranscriptProvenance(
+            transcript_id=f"scribe-final-{audio_frame_sequence}-{len(text)}",
+            event_kind=ConversationEventKind.USER_TRANSCRIPT_FINAL,
+            source="streaming_stt",
+            origin=TranscriptOrigin.STREAMING_STT_PROVIDER,
+            stream_id="authoritative-mic",
+            stt_session_id="scribe-test-session",
+            audio_capture_id="capture-test",
+            timestamp_ns=monotonic_ns(),
+            recognition_input_binding="EXACT_GETUSERMEDIA_PCM16",
+            audio_frame_sequence=audio_frame_sequence,
+        ),
+        signals=TurnSignals(
+            speech_active=False,
+            silence_duration_ms=650,
+            utterance_duration_ms=900,
+            semantic_complete=True,
+            acoustic_completion=1.0,
+            provider_endpointed=True,
+        ),
+    )
+
+
 def _pcm_frame(sequence: int, amplitude: int, base_ns: int) -> AudioFrame:
     return AudioFrame(
         stream_id="authoritative-mic",
@@ -122,7 +157,9 @@ def test_mhm_soft_yields_and_resumes_without_permanent_cancellation() -> None:
         for sequence in range(10, 20):
             session.receive_audio(_pcm_frame(sequence, 0, base_ns))
 
-        decision = await session.submit_transcript(_turn("mhm"))
+        decision = await session.submit_transcript(
+            _streaming_turn("mhm", audio_frame_sequence=19)
+        )
 
         assert decision.decision is TurnDecisionType.BACKCHANNEL
         assert len(output.ducks) == 1
@@ -342,7 +379,12 @@ def test_correction_after_acoustic_cancel_becomes_exactly_one_new_user_turn() ->
         await asyncio.sleep(0)
         await session.wait_for_response()
 
-        decision = await session.submit_transcript(_turn("Nein, mach lieber Montag."))
+        decision = await session.submit_transcript(
+            _streaming_turn(
+                "Nein, mach lieber Montag.",
+                audio_frame_sequence=31,
+            )
+        )
         await session.wait_for_response()
 
         assert decision.decision is TurnDecisionType.INTERRUPTION
@@ -385,7 +427,9 @@ def test_short_semantic_takeover_cancels_after_final_but_not_on_onset() -> None:
             session.receive_audio(_pcm_frame(sequence, 0, base_ns))
         assert not output.invalidations
 
-        decision = await session.submit_transcript(_turn("Warum?"))
+        decision = await session.submit_transcript(
+            _streaming_turn("Warum?", audio_frame_sequence=19)
+        )
         await session.wait_for_response()
 
         assert decision.decision is TurnDecisionType.INTERRUPTION

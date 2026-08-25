@@ -41,6 +41,12 @@ from .acoustic_barge_in import (
     AcousticEventType,
 )
 from .appointment_state import AppointmentState, AppointmentStateDelta, AppointmentStateTracker
+from .final_admission import (
+    FinalAdmissionAssessment,
+    FinalTranscriptAdmissionGate,
+    PcmSpeechEpisodeEvent,
+    PcmSpeechEpisodeEventType,
+)
 from .prosody import ProsodyPlanner
 from .speech_text import GermanSpeechNormalizer
 from .self_speech import SelfSpeechAssessment, SelfSpeechGuard
@@ -96,6 +102,7 @@ class RealtimeVoiceSession:
         prosody_planner: ProsodyPlanner | None = None,
         speech_normalizer: GermanSpeechNormalizer | None = None,
         self_speech_guard: SelfSpeechGuard | None = None,
+        final_admission_gate: FinalTranscriptAdmissionGate | None = None,
         acoustic_barge_in_detector: AcousticBargeInDetector | None = None,
         appointment_state_tracker: AppointmentStateTracker | None = None,
         appointment_tool_provider: ToolProvider | None = None,
@@ -123,6 +130,9 @@ class RealtimeVoiceSession:
         self._prosody_planner = prosody_planner or ProsodyPlanner()
         self._speech_normalizer = speech_normalizer or GermanSpeechNormalizer()
         self._self_speech_guard = self_speech_guard or SelfSpeechGuard()
+        self._final_admission_gate = (
+            final_admission_gate or FinalTranscriptAdmissionGate()
+        )
         self._acoustic_barge_in = (
             acoustic_barge_in_detector or AcousticBargeInDetector()
         )
@@ -246,10 +256,20 @@ class RealtimeVoiceSession:
                 ConversationState.OVERLAP,
             }
         )
+        admission_events = self._final_admission_gate.observe(frame)
+        speech_episode_id = self._final_admission_gate.active_episode_id
+        if admission_events:
+            speech_episode_id = admission_events[-1].episode.speech_episode_id
+        for admission_event in admission_events:
+            if not assistant_playback_active:
+                self._record_pcm_speech_episode_event(admission_event)
         for event in self._acoustic_barge_in.observe(
             frame, assistant_playback_active=assistant_playback_active
         ):
-            self._handle_acoustic_barge_in(event)
+            self._handle_acoustic_barge_in(
+                event,
+                speech_episode_id=speech_episode_id,
+            )
         try:
             self._input_queue.put_nowait(frame)
         except asyncio.QueueFull as error:
@@ -392,6 +412,49 @@ class RealtimeVoiceSession:
                 correlation_id=correlation_id,
                 reason_code="recent_assistant_speech_content_and_timing_match",
             )
+        final_admission: FinalAdmissionAssessment | None = None
+        if update.is_final and provenance.origin is TranscriptOrigin.STREAMING_STT_PROVIDER:
+            final_admission = self._final_admission_gate.assess_final(
+                update,
+                assistant_playback_active=playback_active,
+                self_speech=assessment,
+            )
+            self._record_final_admission(
+                update=update,
+                assessment=final_admission,
+                correlation_id=correlation_id,
+            )
+            if not final_admission.accepted:
+                reason = final_admission.reason_code
+                self._seen_final_transcript_ids.add(provenance.transcript_id)
+                self._record_transcript_provenance(
+                    update=update,
+                    correlation_id=correlation_id,
+                    accepted_by_user_ingestion=False,
+                    accepted_as_user_turn=False,
+                    rejection_reason=reason,
+                    response_id=assessment.matched_response_id,
+                    final_admission=final_admission,
+                )
+                if assessment.suppress:
+                    self._record_self_speech_event(
+                        EventType.SELF_SPEECH_SUPPRESSED,
+                        update=update,
+                        assessment=assessment,
+                        correlation_id=correlation_id,
+                        reason_code=reason,
+                    )
+                self.state_machine.record(
+                    EventType.TRANSCRIPT_REJECTED,
+                    correlation_id=correlation_id,
+                    reason_code=reason,
+                    payload={
+                        "transcript_id": provenance.transcript_id,
+                        "final_to_user_history": "FORBIDDEN",
+                        "speech_episode_id": final_admission.speech_episode_id,
+                    },
+                )
+                raise TranscriptRejected(reason)
         if assessment.suppress:
             reason = assessment.rejection_reason or "probable_assistant_self_speech"
             self._record_transcript_provenance(
@@ -415,7 +478,10 @@ class RealtimeVoiceSession:
             self._seen_final_transcript_ids.add(provenance.transcript_id)
 
         response_task_before = self._response_task
-        decision = await self._handle_transcript(update)
+        decision = await self._handle_transcript(
+            update,
+            final_admission=final_admission,
+        )
         accepted_as_user_turn = (
             update.is_final and self._response_task is not response_task_before
         )
@@ -432,6 +498,7 @@ class RealtimeVoiceSession:
             accepted_as_user_turn=accepted_as_user_turn,
             rejection_reason=None,
             response_id=assessment.matched_response_id,
+            final_admission=final_admission,
         )
         if assessment.candidate:
             self._record_self_speech_event(
@@ -443,7 +510,33 @@ class RealtimeVoiceSession:
             )
         return decision
 
-    def _handle_acoustic_barge_in(self, event: AcousticBargeInEvent) -> None:
+    def _record_pcm_speech_episode_event(
+        self, event: PcmSpeechEpisodeEvent
+    ) -> None:
+        started = event.event_type is PcmSpeechEpisodeEventType.STARTED
+        self._user_audio_active = started
+        self.state_machine.record(
+            EventType.USER_AUDIO_STARTED if started else EventType.USER_AUDIO_STOPPED,
+            correlation_id=event.episode.speech_episode_id,
+            reason_code=(
+                "authoritative_pcm_final_admission_speech_onset"
+                if started
+                else "authoritative_pcm_final_admission_speech_ended"
+            ),
+            payload={
+                **event.episode.to_dict(),
+                "observed_ns": event.observed_ns,
+                "source": "AUTHORITATIVE_GETUSERMEDIA_PCM16",
+                "consumer": "FINAL_TRANSCRIPT_ADMISSION",
+            },
+        )
+
+    def _handle_acoustic_barge_in(
+        self,
+        event: AcousticBargeInEvent,
+        *,
+        speech_episode_id: str | None = None,
+    ) -> None:
         """React to PCM VAD before STT produces language."""
 
         response_id = self._response_id
@@ -462,6 +555,7 @@ class RealtimeVoiceSession:
             "acoustic_speech_onset_latency_ms": event.detection_latency_ms,
             "source": "AUTHORITATIVE_GETUSERMEDIA_PCM16",
             "stt_dependency": "NONE",
+            "speech_episode_id": speech_episode_id,
         }
         if event.event_type is AcousticEventType.SPEECH_ONSET:
             if (
@@ -1123,7 +1217,12 @@ class RealtimeVoiceSession:
             else:
                 self._input_queue.task_done()
 
-    async def _handle_transcript(self, update: TranscriptUpdate) -> TurnDecision:
+    async def _handle_transcript(
+        self,
+        update: TranscriptUpdate,
+        *,
+        final_admission: FinalAdmissionAssessment | None = None,
+    ) -> TurnDecision:
         correlation_id = str(uuid4())
         transcript_provider = update.provider or provider_info(
             self._transcriber, role="stt"
@@ -1172,6 +1271,11 @@ class RealtimeVoiceSession:
                 "event_kind": update.provenance.event_kind.value,
                 "transcript_id": update.provenance.transcript_id,
                 "provider": transcript_provider.to_dict(),
+                "final_admission": (
+                    final_admission.to_dict()
+                    if final_admission is not None
+                    else None
+                ),
                 "partial_transcript_to_user_history": (
                     "FORBIDDEN" if not update.is_final else None
                 ),
@@ -2235,6 +2339,7 @@ class RealtimeVoiceSession:
         accepted_as_user_turn: bool,
         rejection_reason: str | None,
         response_id: str | None = None,
+        final_admission: FinalAdmissionAssessment | None = None,
     ) -> None:
         provenance = update.provenance
         self.state_machine.record(
@@ -2255,6 +2360,11 @@ class RealtimeVoiceSession:
                 "accepted_by_user_ingestion": accepted_by_user_ingestion,
                 "accepted_as_user_turn": accepted_as_user_turn,
                 "rejection_reason": rejection_reason,
+                "final_admission": (
+                    final_admission.to_dict()
+                    if final_admission is not None
+                    else None
+                ),
                 "provider": (
                     update.provider.to_dict()
                     if update.provider is not None
@@ -2263,6 +2373,30 @@ class RealtimeVoiceSession:
                 "partial_transcript_to_user_history": (
                     "FORBIDDEN" if not update.is_final else None
                 ),
+            },
+        )
+
+    def _record_final_admission(
+        self,
+        *,
+        update: TranscriptUpdate,
+        assessment: FinalAdmissionAssessment,
+        correlation_id: str,
+    ) -> None:
+        self.state_machine.record(
+            (
+                EventType.FINAL_ADMISSION_ACCEPTED
+                if assessment.accepted
+                else EventType.FINAL_ADMISSION_REJECTED
+            ),
+            correlation_id=correlation_id,
+            reason_code=assessment.reason_code,
+            payload={
+                "transcript_id": update.provenance.transcript_id,
+                "stream_id": update.provenance.stream_id,
+                "audio_capture_id": update.provenance.audio_capture_id,
+                "audio_frame_sequence": update.provenance.audio_frame_sequence,
+                **assessment.to_dict(),
             },
         )
 

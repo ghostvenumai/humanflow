@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import struct
 from collections.abc import AsyncIterator
 from time import monotonic_ns
 
 import pytest
 
+from humanflow.audio.models import AudioFrame
 from humanflow.domain.conversation import OperationToken
 from humanflow.runtime.providers import (
     TimedPcmOutput,
@@ -119,6 +121,8 @@ def _streaming_update(
     speech_active: bool = False,
     stt_session_id: str = "scribe-test-session",
     input_binding: str = "EXACT_GETUSERMEDIA_PCM16",
+    timestamp_ns: int | None = None,
+    audio_frame_sequence: int | None = None,
 ) -> TranscriptUpdate:
     return TranscriptUpdate(
         text=text,
@@ -136,10 +140,46 @@ def _streaming_update(
             stream_id="browser-pcm-track",
             stt_session_id=stt_session_id,
             audio_capture_id="capture-test",
-            timestamp_ns=monotonic_ns(),
+            timestamp_ns=timestamp_ns or monotonic_ns(),
             recognition_input_binding=input_binding,
+            audio_frame_sequence=audio_frame_sequence,
         ),
     )
+
+
+def _feed_pcm_episode(
+    session: RealtimeVoiceSession,
+    *,
+    voiced_frames: int = 10,
+    silence_frames: int = 10,
+    amplitude: int = 5_000,
+    start_sequence: int = 0,
+) -> tuple[int, int]:
+    total_frames = voiced_frames + silence_frames
+    base_ns = monotonic_ns() - total_frames * 20_000_000
+    for offset in range(voiced_frames):
+        sequence = start_sequence + offset
+        session.receive_audio(
+            AudioFrame(
+                stream_id="browser-pcm-track",
+                sequence=sequence,
+                pcm16=struct.pack("<h", amplitude) * 320,
+                sample_rate_hz=16_000,
+                captured_ns=base_ns + offset * 20_000_000,
+            )
+        )
+    for offset in range(voiced_frames, total_frames):
+        sequence = start_sequence + offset
+        session.receive_audio(
+            AudioFrame(
+                stream_id="browser-pcm-track",
+                sequence=sequence,
+                pcm16=struct.pack("<h", 0) * 320,
+                sample_rate_hz=16_000,
+                captured_ns=base_ns + offset * 20_000_000,
+            )
+        )
+    return monotonic_ns(), start_sequence + total_frames - 1
 
 
 async def _wait_speaking(session: RealtimeVoiceSession) -> None:
@@ -277,9 +317,12 @@ def test_duplicate_streaming_final_writes_user_history_at_most_once() -> None:
             audio_output=TimedPcmOutput(quantum_ms=1),
         )
         await session.start()
+        final_ns, final_sequence = _feed_pcm_episode(session)
         update = _streaming_update(
             "Was ist fünfundzwanzig mal siebzehn?",
             transcript_id="scribe-committed-once",
+            timestamp_ns=final_ns,
+            audio_frame_sequence=final_sequence,
         )
 
         await session.accept_user_transcript(update)
@@ -288,6 +331,145 @@ def test_duplicate_streaming_final_writes_user_history_at_most_once() -> None:
             await session.accept_user_transcript(update)
 
         assert reasoner.transcripts == ["Was ist fünfundzwanzig mal siebzehn?"]
+        await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_streaming_final_requires_and_records_authoritative_pcm_episode() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        reasoner = RecordingReasoner()
+        session = RealtimeVoiceSession(
+            conversation_id="final-admission-valid-pcm",
+            sink=sink,
+            transcriber=NullInputTranscriber(),  # type: ignore[arg-type]
+            reasoner=reasoner,
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=5),
+            audio_output=TimedPcmOutput(quantum_ms=1),
+        )
+        await session.start()
+        final_ns, final_sequence = _feed_pcm_episode(session)
+        await session.accept_user_transcript(
+            _streaming_update(
+                "Was ist fünfundzwanzig mal siebzehn?",
+                transcript_id="valid-pcm-final",
+                timestamp_ns=final_ns,
+                audio_frame_sequence=final_sequence,
+            )
+        )
+        await session.wait_for_response()
+
+        admission = next(
+            event
+            for event in sink.events
+            if event.event_type is EventType.FINAL_ADMISSION_ACCEPTED
+        )
+        assert admission.payload["speech_episode_id"] == "pcm-speech-1"
+        assert admission.payload["voiced_duration_ms"] == 200.0
+        assert admission.payload["alignment_ms"] is not None
+        assert reasoner.transcripts == ["Was ist fünfundzwanzig mal siebzehn?"]
+        await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_phantom_final_without_pcm_is_suppressed_and_session_keeps_listening() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        reasoner = RecordingReasoner()
+        session = RealtimeVoiceSession(
+            conversation_id="phantom-farewell-no-pcm",
+            sink=sink,
+            transcriber=NullInputTranscriber(),  # type: ignore[arg-type]
+            reasoner=reasoner,
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=5),
+            audio_output=TimedPcmOutput(quantum_ms=1),
+        )
+        await session.start()
+
+        with pytest.raises(
+            TranscriptRejected,
+            match="final_without_authoritative_pcm_speech_episode",
+        ):
+            await session.accept_user_transcript(
+                _streaming_update(
+                    "So, tschüss, meine Mademoiselle.",
+                    transcript_id="phantom-farewell-final",
+                )
+            )
+
+        assert reasoner.transcripts == []
+        assert session.appointment_states == {}
+        assert session.state.value == "LISTENING"
+        assert not any(
+            event.event_type is EventType.CALL_ENDED for event in sink.events
+        )
+        rejected = next(
+            event
+            for event in sink.events
+            if event.event_type is EventType.FINAL_ADMISSION_REJECTED
+        )
+        assert rejected.reason_code == "final_without_authoritative_pcm_speech_episode"
+        assert rejected.payload["speech_episode_id"] is None
+
+        final_ns, final_sequence = _feed_pcm_episode(session)
+        await session.accept_user_transcript(
+            _streaming_update(
+                "Ich brauche einen Termin.",
+                transcript_id="real-turn-after-phantom",
+                timestamp_ns=final_ns,
+                audio_frame_sequence=final_sequence,
+            )
+        )
+        await session.wait_for_response()
+        assert reasoner.transcripts == ["Ich brauche einen Termin."]
+        await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_short_noise_episode_cannot_authorize_unrelated_final() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        reasoner = RecordingReasoner()
+        session = RealtimeVoiceSession(
+            conversation_id="short-noise-phantom-final",
+            sink=sink,
+            transcriber=NullInputTranscriber(),  # type: ignore[arg-type]
+            reasoner=reasoner,
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=5),
+            audio_output=TimedPcmOutput(quantum_ms=1),
+        )
+        await session.start()
+        final_ns, final_sequence = _feed_pcm_episode(
+            session,
+            voiced_frames=4,
+            silence_frames=10,
+            amplitude=7_000,
+        )
+
+        with pytest.raises(
+            TranscriptRejected,
+            match="pcm_speech_episode_below_minimum_evidence",
+        ):
+            await session.accept_user_transcript(
+                _streaming_update(
+                    "Ja, okay, dann viel Erfolg.",
+                    transcript_id="short-noise-unrelated-final",
+                    timestamp_ns=final_ns,
+                    audio_frame_sequence=final_sequence,
+                )
+            )
+
+        assert reasoner.transcripts == []
+        rejected = next(
+            event
+            for event in sink.events
+            if event.event_type is EventType.FINAL_ADMISSION_REJECTED
+        )
+        assert rejected.payload["voiced_duration_ms"] == 80.0
+        assert session.appointment_states == {}
         await session.close()
 
     asyncio.run(scenario())
@@ -360,6 +542,59 @@ def test_repeated_assistant_fragment_during_playback_cannot_poison_history() -> 
             event.event_type is EventType.SELF_SPEECH_SUPPRESSED
             for event in sink.events
         )
+        await session.wait_for_response()
+        await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_weak_pcm_plus_active_assistant_similarity_rejects_final() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        reasoner = RecordingReasoner()
+        session = RealtimeVoiceSession(
+            conversation_id="weak-pcm-active-assistant-final",
+            sink=sink,
+            transcriber=NullInputTranscriber(),  # type: ignore[arg-type]
+            reasoner=reasoner,
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=900),
+            audio_output=TimedPcmOutput(quantum_ms=2),
+        )
+        await session.start()
+        await session.accept_user_transcript(
+            TranscriptUpdate(
+                text="Was kannst du?",
+                is_final=True,
+                signals=_signals(),
+                provenance=TranscriptProvenance.user_fixture(final=True),
+            )
+        )
+        await _wait_speaking(session)
+        final_ns, final_sequence = _feed_pcm_episode(
+            session,
+            voiced_frames=8,
+            silence_frames=10,
+        )
+
+        with pytest.raises(TranscriptRejected, match="probable_assistant_self_speech"):
+            await session.accept_user_transcript(
+                _streaming_update(
+                    "Ich bin HumanFlow, ein KI-Assistent und helfe dir gern.",
+                    transcript_id="weak-active-echo-final",
+                    timestamp_ns=final_ns,
+                    audio_frame_sequence=final_sequence,
+                )
+            )
+
+        assert reasoner.transcripts == ["Was kannst du?"]
+        rejected = next(
+            event
+            for event in sink.events
+            if event.event_type is EventType.FINAL_ADMISSION_REJECTED
+        )
+        assert rejected.payload["assistant_playback_active"] is True
+        assert rejected.payload["self_speech_candidate"] is True
+        assert rejected.payload["voiced_duration_ms"] == 160.0
         await session.wait_for_response()
         await session.close()
 
@@ -440,10 +675,13 @@ def test_legitimate_repetition_after_guard_window_reaches_history_path() -> None
             self_speech_guard=guard,
         )
         await session.start()
+        final_ns, final_sequence = _feed_pcm_episode(session)
         await session.accept_user_transcript(
             _streaming_update(
                 ASSISTANT_SENTENCE,
                 transcript_id="legitimate-repeat-final",
+                timestamp_ns=final_ns,
+                audio_frame_sequence=final_sequence,
             )
         )
         await session.wait_for_response()

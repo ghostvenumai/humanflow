@@ -40,6 +40,10 @@ _APPOINTMENT_OVERVIEW = re.compile(
     r"zeig(?:e)?\s+mir\s+meine\s+termine)\b",
     re.IGNORECASE,
 )
+_CONTEXTUAL_APPOINTMENT_OVERVIEW_VARIANT = re.compile(
+    r"\bwelche\s+minis\s+(?:habe|hab)\s+ich\b",
+    re.IGNORECASE,
+)
 _AVAILABILITY_QUERY = re.compile(
     r"\b(?:welche\s+termine\s+sind\s+frei|was\s+ist\s+frei|"
     r"wann\s+(?:habt|hättet)\s+ihr\s+etwas\s+frei|"
@@ -572,7 +576,13 @@ class AppointmentStateTracker:
                 "availability_query",
             )
         if (
-            _APPOINTMENT_OVERVIEW.search(normalized)
+            (
+                _APPOINTMENT_OVERVIEW.search(normalized)
+                or (
+                    self._appointments
+                    and _CONTEXTUAL_APPOINTMENT_OVERVIEW_VARIANT.search(normalized)
+                )
+            )
             and not _AVAILABILITY_QUERY.search(normalized)
             and not references
         ):

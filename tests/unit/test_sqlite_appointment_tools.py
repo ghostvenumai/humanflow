@@ -1060,10 +1060,10 @@ def test_second_appointment_confirmation_consumes_atomic_cross_date_offer(
         assert "12:30 Uhr" in reply
 
         second_confirmation = tracker.apply_user_turn(
-            "Ja, okay.", source_turn="turn-5"
+            "Ja, ja, okay.", source_turn="turn-5"
         )
         _, second_booking = await coordinator.execute(
-            transcript="Ja, okay.",
+            transcript="Ja, ja, okay.",
             delta=second_confirmation,
             tracker=tracker,
             correlation_id="turn-5",
@@ -1156,8 +1156,13 @@ def test_affirmative_with_correction_invalidates_offer_and_never_books(
     asyncio.run(scenario())
 
 
-def test_singular_list_intent_outranks_and_invalidates_pending_offer(
+@pytest.mark.parametrize(
+    "list_text",
+    ("Welchen Termin habe ich?", "Welche Minis hab ich?"),
+)
+def test_list_intent_outranks_and_invalidates_pending_offer(
     tmp_path: Path,
+    list_text: str,
 ) -> None:
     async def scenario() -> None:
         tracker = AppointmentStateTracker(
@@ -1167,7 +1172,7 @@ def test_singular_list_intent_outranks_and_invalidates_pending_offer(
         provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
         machine, _ = _machine()
         coordinator = AppointmentTransactionCoordinator(
-            conversation_id="singular-list-priority",
+            conversation_id=f"list-priority-{len(list_text)}",
             state_machine=machine,
             provider=provider,
         )
@@ -1223,7 +1228,6 @@ def test_singular_list_intent_outranks_and_invalidates_pending_offer(
             "2026-09-14T12:30:00+02:00"
         ]
 
-        list_text = "Welchen Termin habe ich?"
         list_delta = tracker.apply_user_turn(list_text, source_turn="turn-5")
         enriched_delta, listed = await coordinator.execute(
             transcript=list_text,
