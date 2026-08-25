@@ -139,6 +139,45 @@ class SQLiteAppointmentToolProvider:
                 ],
             )
 
+    def reset_demo_appointments(self) -> dict[str, int]:
+        """Delete bookings attached to demo resources while preserving seed data."""
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            demo_appointments = int(
+                connection.execute(
+                    """SELECT COUNT(*) FROM appointments
+                       WHERE resource_id IN (
+                           SELECT resource_id FROM providers WHERE is_demo = 1
+                       )"""
+                ).fetchone()[0]
+            )
+            connection.execute(
+                """DELETE FROM appointments
+                   WHERE resource_id IN (
+                       SELECT resource_id FROM providers WHERE is_demo = 1
+                   )"""
+            )
+            demo_providers = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM providers WHERE is_demo = 1"
+                ).fetchone()[0]
+            )
+            demo_availability = int(
+                connection.execute(
+                    """SELECT COUNT(*) FROM availability
+                       WHERE resource_id IN (
+                           SELECT resource_id FROM providers WHERE is_demo = 1
+                       )"""
+                ).fetchone()[0]
+            )
+            connection.commit()
+        return {
+            "deleted_demo_appointments": demo_appointments,
+            "preserved_demo_providers": demo_providers,
+            "preserved_demo_availability": demo_availability,
+        }
+
     async def call(self, name: str, arguments: dict[str, Any]) -> ToolProviderResponse:
         if name not in _SUPPORTED_TOOLS:
             raise ToolProviderError("unknown_tool")

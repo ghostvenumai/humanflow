@@ -33,7 +33,13 @@ _GENERIC_PRONOUN = re.compile(
     r"den(?=\s+(?:will|möchte)\s+ich\s+absagen))\b",
     re.IGNORECASE,
 )
-_PLURAL_OVERVIEW = re.compile(r"\b(welche|meine|alle)\s+termine\b", re.IGNORECASE)
+_APPOINTMENT_OVERVIEW = re.compile(
+    r"\b(?:(?:welche|meine|alle)\s+termine|"
+    r"welchen\s+termin\s+(?:habe|hab)\s+ich|"
+    r"was\s+habe\s+ich\s+gebucht|"
+    r"zeig(?:e)?\s+mir\s+meine\s+termine)\b",
+    re.IGNORECASE,
+)
 _AVAILABILITY_QUERY = re.compile(
     r"\b(?:welche\s+termine\s+sind\s+frei|was\s+ist\s+frei|"
     r"wann\s+(?:habt|hättet)\s+ihr\s+etwas\s+frei|"
@@ -566,7 +572,7 @@ class AppointmentStateTracker:
                 "availability_query",
             )
         if (
-            _PLURAL_OVERVIEW.search(normalized)
+            _APPOINTMENT_OVERVIEW.search(normalized)
             and not _AVAILABILITY_QUERY.search(normalized)
             and not references
         ):

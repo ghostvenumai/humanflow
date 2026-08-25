@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from dataclasses import dataclass, replace
+from datetime import UTC, date, datetime, time, timedelta
+from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 from uuid import NAMESPACE_URL, uuid5
@@ -35,14 +36,9 @@ _AVAILABILITY_INTENT = re.compile(
     re.IGNORECASE,
 )
 _BOOKED_LIST_INTENT = re.compile(
-    r"\b(?:welche\s+termine\s+habe\s+ich|was\s+habe\s+ich\s+gebucht|"
+    r"\b(?:welche\s+termine\s+(?:habe|hab)\s+ich|"
+    r"welchen\s+termin\s+(?:habe|hab)\s+ich|was\s+habe\s+ich\s+gebucht|"
     r"zeig(?:e)?\s+mir\s+meine\s+termine|meine\s+termine|alle\s+termine)\b",
-    re.IGNORECASE,
-)
-_BOOKING_CONFIRMATION = re.compile(
-    r"^(?:ja(?:[\s,]+(?:okay|ok|bitte(?:\s+buchen)?|perfekt|super|alles\s+ist\s+super|machen\s+wir|"
-    r"nehmen\s+wir))?|super|perfekt|passt|machen\s+wir|nehmen\s+wir|okay|ok|"
-    r"bitte\s+buchen|buch(?:e)?(?:n\s+wir)?)$",
     re.IGNORECASE,
 )
 _BOOKING_CORRECTION = re.compile(
@@ -52,6 +48,35 @@ _BOOKING_CORRECTION = re.compile(
 _OPEN_AVAILABILITY_FOLLOWUP = re.compile(
     r"\bwann\s+(?:hast|hättest)\s+du(?:\s+etwas)?\s+frei\b",
     re.IGNORECASE,
+)
+_CONFIRMATION_TOKEN = re.compile(r"[^\wäöüß]+", re.IGNORECASE)
+_AFFIRMATIVE_TOKENS = frozenset(
+    {
+        "ja",
+        "okay",
+        "ok",
+        "super",
+        "perfekt",
+        "passt",
+        "so",
+        "machen",
+        "nehmen",
+        "wir",
+        "bitte",
+        "buchen",
+        "buche",
+        "buch",
+        "alles",
+        "ist",
+        "klar",
+        "gut",
+        "gerne",
+        "äh",
+        "ähm",
+    }
+)
+_AFFIRMATIVE_SIGNAL_TOKENS = frozenset(
+    {"ja", "okay", "ok", "super", "perfekt", "passt", "machen", "nehmen", "buchen", "buche", "buch"}
 )
 
 
@@ -76,6 +101,15 @@ class AppointmentTransactionOutcome:
         }
 
 
+class PendingOfferStatus(StrEnum):
+    OFFERED = "OFFERED"
+    CONFIRMED = "CONFIRMED"
+    COMMITTING = "COMMITTING"
+    BOOKED = "BOOKED"
+    REJECTED = "REJECTED"
+    INVALIDATED = "INVALIDATED"
+
+
 @dataclass(frozen=True, slots=True)
 class PendingAvailabilityOffer:
     """One atomic SQLite-backed slot that an affirmation may confirm."""
@@ -90,6 +124,9 @@ class PendingAvailabilityOffer:
     resource_id: str
     source_query: Mapping[str, Any]
     source_result_status: str
+    created_at_utc: str
+    generation: int
+    status: PendingOfferStatus = PendingOfferStatus.OFFERED
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_query", MappingProxyType(dict(self.source_query)))
@@ -112,6 +149,18 @@ class PendingAvailabilityOffer:
             "start_datetime": self.start_datetime,
         }
 
+    def is_valid_for(self, local_appointment_id: str) -> bool:
+        return bool(
+            self.local_appointment_id == local_appointment_id
+            and self.status is PendingOfferStatus.OFFERED
+            and self.start_datetime
+            and self.timezone
+            and self.appointment_type
+            and self.provider_name
+            and self.location
+            and self.resource_id
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "appointment_id": self.local_appointment_id,
@@ -125,6 +174,9 @@ class PendingAvailabilityOffer:
             "resource_id": self.resource_id,
             "source_query": dict(self.source_query),
             "source_result_status": self.source_result_status,
+            "created_at_utc": self.created_at_utc,
+            "generation": self.generation,
+            "status": self.status.value,
         }
 
 
@@ -155,6 +207,7 @@ class AppointmentTransactionCoordinator:
         self._pending_offers: dict[str, PendingAvailabilityOffer] = {}
         self._last_tool_results: dict[str, AppointmentTransactionOutcome] = {}
         self._last_availability_queries: dict[str, Mapping[str, Any]] = {}
+        self._offer_generation = 0
 
     async def execute(
         self,
@@ -170,6 +223,12 @@ class AppointmentTransactionCoordinator:
         if plan is None:
             return delta, None
         tool_name, arguments, local_appointment_id = plan
+        if tool_name == "create_appointment" and local_appointment_id is not None:
+            self._transition_pending_offer(
+                local_appointment_id,
+                from_status=PendingOfferStatus.CONFIRMED,
+                to_status=PendingOfferStatus.COMMITTING,
+            )
         result = await self._executor.execute(
             tool_name,
             arguments,
@@ -193,6 +252,10 @@ class AppointmentTransactionCoordinator:
         if not self._state_machine.accept_result(
             parent_token, correlation_id=correlation_id
         ):
+            if tool_name == "create_appointment" and local_appointment_id is not None:
+                self._finish_pending_offer(
+                    local_appointment_id, PendingOfferStatus.INVALIDATED
+                )
             return delta, outcome
         semantic_success = success
         if tool_name == "search_availability":
@@ -209,12 +272,20 @@ class AppointmentTransactionCoordinator:
                 )
         elif tool_name == "create_appointment" and local_appointment_id is not None:
             if success:
-                self._pending_offers.pop(local_appointment_id, None)
+                self._finish_pending_offer(local_appointment_id, PendingOfferStatus.BOOKED)
                 self._persisted_ids[local_appointment_id] = str(
                     value["appointment_id"]
                 )
             elif value.get("result_status") == "BOOKING_CONFLICT":
-                self._pending_offers.pop(local_appointment_id, None)
+                self._finish_pending_offer(
+                    local_appointment_id, PendingOfferStatus.INVALIDATED
+                )
+            else:
+                self._transition_pending_offer(
+                    local_appointment_id,
+                    from_status=PendingOfferStatus.COMMITTING,
+                    to_status=PendingOfferStatus.OFFERED,
+                )
         if local_appointment_id is not None:
             self._last_tool_results[local_appointment_id] = outcome
         should_record_action_state = (
@@ -304,32 +375,61 @@ class AppointmentTransactionCoordinator:
             transcript, candidate_date
         ):
             raise RuntimeError("temporal_weekday_date_invariant_violated")
-        if _AVAILABILITY_INTENT.search(transcript):
-            return self._availability_plan(
-                transcript=transcript,
-                delta=delta,
-                tracker=tracker,
+        focused_id = tracker.active_focus_appointment_id
+        focused = (
+            tracker.appointments.get(focused_id) if focused_id is not None else None
+        )
+        focused_status = _slot(focused, "status") if focused is not None else None
+        has_slot_correction = bool({"date", "time"}.intersection(delta.updated_slots))
+        rejected_pending_offer = bool(
+            focused_id is not None
+            and focused_id in self._pending_offers
+            and _rejects_pending_offer(transcript)
+        )
+        if focused_id is not None and focused_id in self._pending_offers and (
+            has_slot_correction
+            or rejected_pending_offer
+            or focused_status
+            in {AppointmentActionState.CANCELLED.value, AppointmentActionState.TOOL_PENDING.value}
+        ):
+            terminal_status = (
+                PendingOfferStatus.REJECTED
+                if rejected_pending_offer and not has_slot_correction
+                else PendingOfferStatus.INVALIDATED
             )
+            self._finish_pending_offer(focused_id, terminal_status)
+            if rejected_pending_offer and not has_slot_correction:
+                return None
         if (
             delta.resolution_reason == "multi_appointment_overview"
             or _BOOKED_LIST_INTENT.search(transcript)
         ):
+            self._invalidate_all_pending_offers()
             return "list_appointments", {"include_cancelled": False}, None
-        focused_id = tracker.active_focus_appointment_id
-        if (
-            focused_id is not None
-            and focused_id in self._pending_offers
-            and _rejects_pending_offer(transcript)
-        ):
-            self._pending_offers.pop(focused_id, None)
-            if not {"date", "time"}.intersection(delta.updated_slots):
-                return None
+        if _AVAILABILITY_INTENT.search(transcript):
+            plan = self._availability_plan(
+                transcript=transcript,
+                delta=delta,
+                tracker=tracker,
+            )
+            local_id = plan[2]
+            if local_id is not None:
+                self._finish_pending_offer(local_id, PendingOfferStatus.INVALIDATED)
+            return plan
         if (
             focused_id is not None
             and focused_id in self._pending_offers
             and _confirms_booking(transcript)
         ):
             offer = self._pending_offers[focused_id]
+            if not offer.is_valid_for(focused_id):
+                self._finish_pending_offer(
+                    focused_id, PendingOfferStatus.INVALIDATED
+                )
+                return None
+            self._pending_offers[focused_id] = replace(
+                offer, status=PendingOfferStatus.CONFIRMED
+            )
             return (
                 "create_appointment",
                 offer.create_arguments(),
@@ -494,9 +594,44 @@ class AppointmentTransactionCoordinator:
             resource_id=str(required["resource_id"]),
             source_query={name: item for name, item in arguments.items() if item is not None},
             source_result_status=str(value.get("result_status")),
+            created_at_utc=datetime.now(UTC).isoformat(),
+            generation=self._next_offer_generation(),
         )
         self._pending_offers[local_appointment_id] = offer
         return offer
+
+    def _next_offer_generation(self) -> int:
+        self._offer_generation += 1
+        return self._offer_generation
+
+    def _transition_pending_offer(
+        self,
+        local_appointment_id: str,
+        *,
+        from_status: PendingOfferStatus,
+        to_status: PendingOfferStatus,
+    ) -> None:
+        offer = self._pending_offers.get(local_appointment_id)
+        if offer is None or offer.status is not from_status:
+            raise RuntimeError("invalid_pending_offer_transition")
+        self._pending_offers[local_appointment_id] = replace(offer, status=to_status)
+
+    def _finish_pending_offer(
+        self,
+        local_appointment_id: str,
+        status: PendingOfferStatus,
+    ) -> None:
+        offer = self._pending_offers.get(local_appointment_id)
+        if offer is None:
+            return
+        self._pending_offers[local_appointment_id] = replace(offer, status=status)
+        self._pending_offers.pop(local_appointment_id, None)
+
+    def _invalidate_all_pending_offers(self) -> None:
+        for local_appointment_id in tuple(self._pending_offers):
+            self._finish_pending_offer(
+                local_appointment_id, PendingOfferStatus.INVALIDATED
+            )
 
     def _database_appointment_id(self, local_appointment_id: str) -> str:
         stable = uuid5(
@@ -574,10 +709,17 @@ def _appointment_type(appointment: AppointmentState) -> str | None:
 
 
 def _confirms_booking(transcript: str) -> bool:
-    normalized = " ".join(transcript.casefold().strip().rstrip(".!?").split())
-    return (
-        _BOOKING_CORRECTION.search(normalized) is None
-        and _BOOKING_CONFIRMATION.fullmatch(normalized) is not None
+    normalized = " ".join(transcript.casefold().split())
+    if _BOOKING_CORRECTION.search(normalized) is not None:
+        return False
+    tokens = tuple(
+        token for token in _CONFIRMATION_TOKEN.sub(" ", normalized).split() if token
+    )
+    return bool(
+        tokens
+        and len(tokens) <= 8
+        and set(tokens).issubset(_AFFIRMATIVE_TOKENS)
+        and set(tokens).intersection(_AFFIRMATIVE_SIGNAL_TOKENS)
     )
 
 
