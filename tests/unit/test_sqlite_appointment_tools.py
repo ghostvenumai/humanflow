@@ -151,6 +151,49 @@ def test_ingolstadt_seed_has_morning_midday_and_afternoon_slots(
         assert sum(12 <= hour < 15 for hour in hours) >= 3
         assert sum(hour >= 15 for hour in hours) >= 3
 
+    orthopedics = provider.search_availability(
+        {
+            "appointment_type": "Orthopädie",
+            "location": "Ingolstadt",
+            "date": "2026-09-02",
+        }
+    )
+    assert [slot["start_datetime"][11:16] for slot in orthopedics["slots"]] == [
+        "11:30",
+        "14:00",
+    ]
+
+
+def test_relative_tomorrow_datetime_matches_seeded_sqlite_slot(tmp_path: Path) -> None:
+    tracker = AppointmentStateTracker(
+        today=lambda: date(2026, 8, 25),
+        now=lambda: datetime(2026, 8, 25, 10, 0, tzinfo=UTC),
+    )
+    delta = tracker.apply_user_turn(
+        "Friseurtermin morgen gegen 12 Uhr in Ingolstadt.",
+        source_turn="turn-tomorrow",
+    )
+    appointment = tracker.appointments[delta.appointment_id or ""]
+    assert appointment.date is not None
+    assert appointment.date.raw_expression == "morgen"
+    assert appointment.date.value == "2026-08-26"
+    assert appointment.date.timezone == "Europe/Berlin"
+    assert appointment.time is not None and appointment.time.value == "12:00"
+
+    result = SQLiteAppointmentToolProvider(
+        tmp_path / "appointments.sqlite3"
+    ).search_availability(
+        {
+            "appointment_type": "Friseur",
+            "location": "Ingolstadt",
+            "date": appointment.date.value,
+            "preferred_time": appointment.time.value,
+        }
+    )
+
+    assert result["result_status"] == "AVAILABLE"
+    assert result["slots"][0]["start_datetime"] == "2026-08-26T12:00:00+02:00"
+
 
 @pytest.mark.parametrize(
     "transcript",
@@ -290,6 +333,44 @@ def test_booking_conflict_is_business_result_not_technical_failure() -> None:
 
     assert response == "Der gewünschte Termin ist leider nicht frei."
     assert "technisch" not in response.casefold()
+
+
+def test_demo_calendar_responses_are_truthful_about_local_scope() -> None:
+    available = _authoritative_database_reply(
+        {
+            "database_tool_result": {
+                "tool_name": "search_availability",
+                "success": True,
+                "result": {
+                    "success": True,
+                    "result_status": "AVAILABLE",
+                    "requested_time": "14:00",
+                    "slots": [
+                        {"start_datetime": "2026-09-02T14:00:00+02:00"}
+                    ],
+                },
+            }
+        }
+    )
+    booked = _authoritative_database_reply(
+        {
+            "database_tool_result": {
+                "tool_name": "create_appointment",
+                "success": True,
+                "result": {
+                    "success": True,
+                    "result_status": "BOOKED",
+                    "appointment_type": "Orthopädie",
+                    "start_datetime": "2026-09-02T14:00:00+02:00",
+                },
+            }
+        }
+    )
+
+    assert available is not None and "hinterlegten Demo-Terminen" in available
+    assert booked is not None and "in HumanFlow gebucht" in booked
+    assert "echten Kalender" not in available
+    assert "Arztpraxis" not in booked
 
 
 def test_availability_create_conflict_reschedule_cancel_and_list(tmp_path: Path) -> None:

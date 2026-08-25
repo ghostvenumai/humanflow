@@ -35,11 +35,14 @@ Nutze den bisherigen
 Gesprächsverlauf für Rückfragen und Verweise. Erfinde keine Live-Daten und keine
 ausgeführten Aktionen. Bei Fragen zum aktuellen Wetter sage ausdrücklich, dass du
 keinen Zugriff auf aktuelle Wetterdaten hast, und biete Hilfe anhand vom Nutzer
-genannter Daten an. Du hast derzeit auch keinen echten Kalender. Erkläre diese
-Grenzen natürlich und hilf anschließend so konkret wie möglich weiter. Behaupte bei
+genannter Daten an. Relative Datumsangaben löst HumanFlow deterministisch in
+Europe/Berlin auf; verwende dafür ausschließlich den autoritativen Terminstatus.
+HumanFlow kann die hinterlegten lokalen Demo-Verfügbarkeiten prüfen, aber nicht die
+Live-Kalender beliebiger echter Praxen. Erkläre diese Grenze nur, wenn sie relevant
+ist, und hilf anschließend so konkret wie möglich weiter. Behaupte bei
 Terminwünschen niemals, ein Termin sei bereits gebucht, solange kein erfolgreicher
-lokaler SQLite-Toolaufruf vorliegt. Du hast derzeit auch keinen echten Kalender; die
-SQLite-Terminwerkzeuge enthalten ausschließlich klar gekennzeichnete Demo-Daten.
+lokaler SQLite-Toolaufruf vorliegt. Die SQLite-Terminwerkzeuge enthalten ausschließlich
+klar gekennzeichnete lokale Demo-Daten.
 Beginne nicht mit einer generischen Empfangsbestätigung wie „Ich habe Sie verstanden“.
 Schreibe Daten und Uhrzeiten so, dass eine deutsche Sprachausgabe sie eindeutig und
 natürlich vorlesen kann. Rechenresultate gibst du immer als Ziffern in einem kurzen
@@ -89,6 +92,12 @@ _AI_DISCLOSURE = re.compile(
 _IDENTITY_REQUEST = re.compile(
     r"\b(?:wer|was)\s+bist\s+du\b|\bbist\s+du\s+(?:eine?\s+)?ki\b|"
     r"\bwer\s+ist\s+human\s*flow\b",
+    re.IGNORECASE,
+)
+_DATE_QUERY = re.compile(
+    r"\b(?:welches(?:\s+genaue)?\s+datum|wann\s+ist\s+(?:mein|der|dieser)\s+"
+    r"(?:\w+-?)?termin|an\s+welchem\s+tag\s+ist\s+(?:mein|der|dieser)\s+"
+    r"(?:\w+-?)?termin)\b",
     re.IGNORECASE,
 )
 
@@ -194,8 +203,29 @@ class AnthropicReasoner:
         transaction_contract = _parse_transaction_contract(
             self._authoritative_transaction_context
         )
-        database_reply = _authoritative_database_reply(transaction_contract)
+        authoritative_reply = _authoritative_database_reply(transaction_contract)
+        if authoritative_reply is None:
+            authoritative_reply = _authoritative_temporal_reply(
+                transaction_contract, user_text
+            )
         identity_requested = _IDENTITY_REQUEST.search(user_text) is not None
+
+        if authoritative_reply is not None:
+            guarded = self._enforce_ai_disclosure(
+                authoritative_reply,
+                identity_requested=identity_requested,
+            )
+            self._history.extend(
+                (
+                    {"role": "user", "content": user_text},
+                    {"role": "assistant", "content": guarded},
+                )
+            )
+            self._history = self._history[-self._max_history_messages :]
+            _assert_history_roles(self._history)
+            self._last_usage = ReasoningUsage(input_tokens=0, output_tokens=0)
+            yield guarded
+            return
 
         system_prompt = self._system_prompt
         if self._ai_disclosure_count == 0:
@@ -255,12 +285,7 @@ class AnthropicReasoner:
                 pending += delta
                 ready, pending = _take_speech_boundaries(pending)
                 for fragment in ready:
-                    if database_reply is not None:
-                        if delivered_text:
-                            continue
-                        guarded = database_reply
-                    else:
-                        guarded = _guard_transaction_fragment(fragment, transaction_contract)
+                    guarded = _guard_transaction_fragment(fragment, transaction_contract)
                     guarded = self._enforce_ai_disclosure(
                         guarded, identity_requested=identity_requested
                     )
@@ -270,15 +295,7 @@ class AnthropicReasoner:
                     yield guarded
             final_message = await stream.get_final_message()
 
-        if database_reply is not None and not delivered_text:
-            guarded = database_reply
-            guarded = self._enforce_ai_disclosure(
-                guarded, identity_requested=identity_requested
-            )
-            if guarded:
-                delivered_text.append(guarded)
-                yield guarded
-        elif pending.strip() and database_reply is None:
+        if pending.strip():
             guarded = _guard_transaction_fragment(pending.strip(), transaction_contract)
             guarded = self._enforce_ai_disclosure(
                 guarded, identity_requested=identity_requested
@@ -404,7 +421,8 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
             return "Für diesen Tag ist in den Demo-Daten kein Termin frei."
         if isinstance(requested_time, str):
             return (
-                f"{_spoken_clock(requested_time)} ist frei. "
+                f"{_spoken_clock(requested_time)} ist in den hinterlegten "
+                "Demo-Terminen frei. "
                 "Soll ich den Termin buchen?"
             )
         starts = [
@@ -427,10 +445,13 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
                 and isinstance(slot.get("appointment_type"), str)
                 and isinstance(slot.get("start_datetime"), str)
             ]
-            return f"Frei sind {_join_german(descriptions)}."
+            return f"In den hinterlegten Demo-Terminen sind {_join_german(descriptions)} frei."
         spoken = [_spoken_datetime(value, include_date=False) for value in starts[:3]]
         day = _spoken_datetime(starts[0], include_time=False)
-        return f"{day} hätte ich {_join_german(spoken)} etwas frei."
+        return (
+            f"In den hinterlegten Demo-Terminen hätte ich {day} "
+            f"{_join_german(spoken)} frei."
+        )
     if tool_name == "create_appointment":
         start = result.get("start_datetime")
         appointment_type = result.get("appointment_type")
@@ -440,13 +461,17 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
                 if isinstance(appointment_type, str)
                 else "dein Termin"
             )
-            return f"Alles klar, {subject} ist {_spoken_datetime(start)} gebucht."
+            return (
+                f"Alles klar, {subject} ist {_spoken_datetime(start)} "
+                "in HumanFlow gebucht."
+            )
     if tool_name == "reschedule_appointment":
         new_slot = result.get("new_slot")
         if isinstance(new_slot, Mapping) and isinstance(new_slot.get("start_datetime"), str):
             return (
                 "Okay, ich habe den Termin auf "
-                f"{_spoken_datetime(new_slot['start_datetime'])} verschoben."
+                f"{_spoken_datetime(new_slot['start_datetime'])} "
+                "in HumanFlow verschoben."
             )
     if tool_name == "cancel_appointment":
         appointment_type = result.get("appointment_type")
@@ -455,7 +480,7 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
             if isinstance(appointment_type, str)
             else "der Termin"
         )
-        return f"Okay, {subject} ist abgesagt."
+        return f"Okay, {subject} ist in HumanFlow abgesagt."
     if tool_name == "list_appointments":
         appointments = result.get("appointments")
         if not isinstance(appointments, list) or not appointments:
@@ -473,6 +498,29 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
         if descriptions:
             return f"Du hast {_join_german(descriptions, connector='und')}."
     return None
+
+
+def _authoritative_temporal_reply(
+    context: Mapping[str, object] | None,
+    user_text: str,
+) -> str | None:
+    if context is None or not _DATE_QUERY.search(user_text):
+        return None
+    if bool(context.get("clarification_required")):
+        return None
+    appointment = _resolved_appointment(context)
+    if appointment is None:
+        return None
+    raw_date = appointment.get("date")
+    if not isinstance(raw_date, str):
+        return None
+    try:
+        resolved = date.fromisoformat(raw_date)
+    except ValueError:
+        return None
+    weekday = _GERMAN_WEEKDAYS[resolved.weekday()]
+    month = _GERMAN_MONTHS[resolved.month - 1]
+    return f"Der Termin ist am {weekday}, dem {resolved.day}. {month}."
 
 
 def _spoken_datetime(

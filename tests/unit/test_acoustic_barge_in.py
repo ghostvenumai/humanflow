@@ -96,6 +96,40 @@ def test_noise_transient_never_ducks_or_cancels() -> None:
     assert events == []
 
 
+def test_stationary_low_level_noise_never_soft_yields_or_hard_cancels() -> None:
+    detector = AcousticBargeInDetector()
+    events = []
+    for sequence in range(100):
+        events.extend(
+            detector.observe(
+                _frame(sequence, 700), assistant_playback_active=True
+            )
+        )
+
+    assert events == []
+
+
+def test_speech_like_background_is_indistinguishable_from_real_takeover_pcm() -> None:
+    background_detector = AcousticBargeInDetector()
+    takeover_detector = AcousticBargeInDetector()
+    background_events = []
+    takeover_events = []
+    for sequence in range(26):
+        frame = _frame(sequence, 5_000)
+        background_events.extend(
+            background_detector.observe(frame, assistant_playback_active=True)
+        )
+        takeover_events.extend(
+            takeover_detector.observe(frame, assistant_playback_active=True)
+        )
+
+    assert [event.event_type for event in background_events] == [
+        AcousticEventType.SPEECH_ONSET,
+        AcousticEventType.SUSTAINED_TAKEOVER,
+    ]
+    assert background_events == takeover_events
+
+
 def test_audio_outside_assistant_playback_cannot_emit_barge_in() -> None:
     detector = AcousticBargeInDetector()
     events = []

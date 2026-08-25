@@ -1,0 +1,92 @@
+{
+  "decision": "NO_CHANGE_REQUIRED",
+  "decision_reason": "The reported browser volume drop is not reproduced by stationary noise. A detector-only suppression of speech-like input would endanger intentional barge-in; human browser correlation remains required.",
+  "finding": "Quiet and stationary low-level fixtures cause no duck or hard cancel. Speech-like background and intentional speech are intentionally identical at the mono PCM boundary and therefore cannot be safely separated by an energy-only detector without risking real floor-taking.",
+  "generated_at_utc": "2026-08-25T11:39:16.802285Z",
+  "known_limitation": "Synthetic PCM does not establish audible browser volume pumping or classify unattributed real-world speech-like sound as background noise.",
+  "measurement_scope": "LOCAL_SYNTHETIC_PCM_DETECTOR_ONLY",
+  "scenarios": [
+    {
+      "audible_stop_evidence": "NOT_MEASURED_DETECTOR_ONLY",
+      "duck_duration_ms": null,
+      "event_types": [],
+      "false_hard_cancel_count": 0,
+      "hard_cancel_count": 0,
+      "possible_interruption_count": 0,
+      "resume_count": 0,
+      "scenario": "quiet_baseline",
+      "scope": "LOCAL_SYNTHETIC_PCM",
+      "soft_yield_count": 0,
+      "source_classification": "quiet",
+      "vad_speech_onset_count": 0
+    },
+    {
+      "audible_stop_evidence": "NOT_MEASURED_DETECTOR_ONLY",
+      "duck_duration_ms": null,
+      "event_types": [],
+      "false_hard_cancel_count": 0,
+      "hard_cancel_count": 0,
+      "possible_interruption_count": 0,
+      "resume_count": 0,
+      "scenario": "stationary_low_level_noise",
+      "scope": "LOCAL_SYNTHETIC_PCM",
+      "soft_yield_count": 0,
+      "source_classification": "stationary_low_level_noise",
+      "vad_speech_onset_count": 0
+    },
+    {
+      "audible_stop_evidence": "NOT_MEASURED_DETECTOR_ONLY",
+      "duck_duration_ms": 440.0,
+      "event_types": [
+        "SPEECH_ONSET",
+        "SUSTAINED_TAKEOVER",
+        "SPEECH_ENDED"
+      ],
+      "false_hard_cancel_count": null,
+      "hard_cancel_count": 1,
+      "possible_interruption_count": 1,
+      "resume_count": 0,
+      "scenario": "speech_like_background",
+      "scope": "LOCAL_SYNTHETIC_PCM",
+      "soft_yield_count": 1,
+      "source_classification": "synthetic_speech_like_unattributed",
+      "vad_speech_onset_count": 1
+    },
+    {
+      "audible_stop_evidence": "NOT_MEASURED_DETECTOR_ONLY",
+      "duck_duration_ms": 440.0,
+      "event_types": [
+        "SPEECH_ONSET",
+        "SUSTAINED_TAKEOVER",
+        "SPEECH_ENDED"
+      ],
+      "false_hard_cancel_count": null,
+      "hard_cancel_count": 1,
+      "possible_interruption_count": 1,
+      "resume_count": 0,
+      "scenario": "intentional_user_interruption",
+      "scope": "LOCAL_SYNTHETIC_PCM",
+      "soft_yield_count": 1,
+      "source_classification": "synthetic_intentional_user_speech",
+      "vad_speech_onset_count": 1
+    },
+    {
+      "audible_stop_evidence": "NOT_MEASURED_DETECTOR_ONLY",
+      "duck_duration_ms": 300.0,
+      "event_types": [
+        "SPEECH_ONSET",
+        "SPEECH_ENDED"
+      ],
+      "false_hard_cancel_count": null,
+      "hard_cancel_count": 0,
+      "possible_interruption_count": 1,
+      "resume_count": 1,
+      "scenario": "mhm_backchannel",
+      "scope": "LOCAL_SYNTHETIC_PCM",
+      "soft_yield_count": 1,
+      "source_classification": "synthetic_backchannel",
+      "vad_speech_onset_count": 1
+    }
+  ],
+  "schema_version": 1
+}

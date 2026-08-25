@@ -285,6 +285,57 @@ def test_database_availability_reply_cannot_invent_model_slots() -> None:
     asyncio.run(scenario())
 
 
+def test_exact_date_question_uses_authoritative_temporal_state_without_provider_call() -> None:
+    async def scenario() -> None:
+        client = FakeClient([["Dein Terminwunsch ist notiert."]])
+        reasoner = AnthropicReasoner(
+            api_key="test-key-never-sent",
+            model="claude-test-real-adapter",
+            client=client,
+        )
+
+        await _collect(reasoner, "Ich brauche einen Orthopädentermin.", 1)
+        reasoner.set_authoritative_transaction_context(
+            '{"appointments":{"appointment_1":{"purpose":"Orthopädie",'
+            '"date":"2026-09-02","time":"14:00","status":"BOOKED"}},'
+            '"resolved_appointment_id_this_turn":"appointment_1",'
+            '"clarification_required":false}'
+        )
+        spoken = await _collect(reasoner, "Welches genaue Datum ist der Termin?", 2)
+
+        assert spoken == "Der Termin ist am Mittwoch, dem 2. September."
+        assert len(client.messages.calls) == 1
+        assert reasoner.last_usage is not None
+        assert reasoner.last_usage.to_dict() == {"input_tokens": 0, "output_tokens": 0}
+
+    asyncio.run(scenario())
+
+
+def test_exact_date_question_uses_only_resolved_appointment_object() -> None:
+    async def scenario() -> None:
+        client = FakeClient([])
+        reasoner = AnthropicReasoner(
+            api_key="test-key-never-sent",
+            model="claude-test-real-adapter",
+            client=client,
+        )
+        reasoner.set_authoritative_transaction_context(
+            '{"appointments":{'
+            '"appointment_1":{"purpose":"Orthopädie","date":"2026-09-02"},'
+            '"appointment_2":{"purpose":"Friseur","date":"2026-09-14"}},'
+            '"resolved_appointment_id_this_turn":"appointment_2",'
+            '"clarification_required":false}'
+        )
+
+        spoken = await _collect(reasoner, "Welches Datum ist mein Friseurtermin?", 1)
+
+        assert "Montag, dem 14. September" in spoken
+        assert "2. September" not in spoken
+        assert client.messages.calls == []
+
+    asyncio.run(scenario())
+
+
 def test_transaction_guard_repairs_unverified_external_cancellation_claim() -> None:
     async def scenario() -> None:
         client = FakeClient([["Okay, dein Friseur-Termin ist storniert."]])
