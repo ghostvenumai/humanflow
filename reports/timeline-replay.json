@@ -1,23 +1,23 @@
 {
   "claim_limit": "Synthetic local sessions; not production-call quality evidence.",
   "deterministic_second_pass_equal": true,
-  "generated_at_utc": "2026-08-25T09:18:09.156765Z",
+  "generated_at_utc": "2026-08-25T12:17:27.416299Z",
   "replay": {
     "audible_barge_in_latency_ms": [
-      1.246461
+      2.353189
     ],
     "conversations": 2,
     "events": 122,
     "ttfa_ms": [
-      8.735976,
-      9.766214
+      11.678984,
+      7.328622
     ]
   },
   "schema_version": 1,
   "timeline": {
     "contains_real_runtime_monotonic_timestamps": true,
     "path": "reports/realtime-timeline.jsonl",
-    "sha256": "be5c69386a64a3602d10f9e1c6e8ef9a97b24dea73a65eb8c6a372a61bdf807a",
+    "sha256": "f1ad751522b3681a68dc00a5856730839e3dbbe299a7e4ef9f856ce25560284b",
     "synthetic": true
   }
 }

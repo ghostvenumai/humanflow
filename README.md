@@ -49,7 +49,8 @@ quality measurements.
 
 The generated scorecard deliberately distinguishes `PASS_LOCAL_EVIDENCE` from a
 production claim. Without a real-call dataset, the production release claim remains
-`NOT_ESTABLISHED_NO_REAL_CALL_DATA`, even when all local engineering gates pass.
+`TELEPHONY_PRODUCTION_NOT_ESTABLISHED`, while separately preserving the recorded
+`REAL_BROWSER_AUDIO_VALIDATED` evidence when the human attestation exists.
 
 ## Browser demo
 

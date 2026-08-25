@@ -4,13 +4,13 @@
       "sha256": "a7f894864ad2616426b4ac78384b416470c24af61668fa5b6386496f3aa50bb1"
     },
     "reports/realtime-core-benchmark.json": {
-      "sha256": "e8cb90013ffc50dd8037fcb743ee3a870a57bdf839c10339513473c1157cb865"
+      "sha256": "e608c6bba27ac6cad31d333b518b328a9edf15a42fd4391f8e5ae69b2fdc8afb"
     },
     "reports/recovery-benchmark.json": {
-      "sha256": "4914e7f4f3c382cb9af439d153dbb7cfb7eb3892a35ecbdd352eee20981837e6"
+      "sha256": "a4cd40e25b982ace85c2da42490401973d8cc91ed4ccccaa2fbb8de49d66d9a8"
     },
     "reports/torture-run.json": {
-      "sha256": "61fc782991b410a9ccfc5fa19d71e6eebe1b8a3da57c1f5b1755a3dbcd7cbf78"
+      "sha256": "ee90e9f1e8fb659bc8a0351a7a22d280b90aed4b7e928b986eac5c0ec0731fb9"
     },
     "tests/golden/turn_cases.jsonl": {
       "sha256": "89e2e2c0ae56e2a88c2a7a2cf7a956365b3ed3004b5f7cfffb6fbaf1d6f48e99"
@@ -18,7 +18,7 @@
   },
   "gates": {
     "audible_barge_in_latency_ms": {
-      "observed": 1.65,
+      "observed": 2.498,
       "operator": "lt",
       "passed": true,
       "sample_count": 40,
@@ -66,7 +66,7 @@
       "target": 0.95
     },
     "ttfa_ms": {
-      "observed": 11.104,
+      "observed": 11.664,
       "operator": "lt",
       "passed": true,
       "sample_count": 40,
@@ -82,7 +82,7 @@
       "target": 0
     }
   },
-  "generated_at_utc": "2026-08-24T18:10:09.574771Z",
+  "generated_at_utc": "2026-08-25T12:18:29.483278Z",
   "metrics": {
     "audible_barge_in_latency_ms": {
       "baseline_value": null,
@@ -90,7 +90,7 @@
       "scope": "local_timed_pcm_sink",
       "source": "reports/realtime-core-benchmark.json",
       "statistic": "p50",
-      "value": 1.65
+      "value": 2.498
     },
     "call_completion_rate": {
       "baseline_value": null,
@@ -143,7 +143,7 @@
       "scope": "local_event_loop_transport",
       "source": "reports/realtime-core-benchmark.json",
       "statistic": "p50",
-      "value": 11.104
+      "value": 11.664
     },
     "unexpected_hangups": {
       "baseline_value": null,
@@ -157,10 +157,11 @@
   "protected_artifacts_unchanged_by_scorecard": true,
   "schema_version": 1,
   "summary": {
+    "browser_audio_evidence": "REAL_BROWSER_AUDIO_VALIDATED",
     "engineering_evidence_status": "PASS_LOCAL_EVIDENCE",
     "gates_failed": 0,
     "gates_passed": 8,
     "gates_total": 8,
-    "production_release_claim": "NOT_ESTABLISHED_NO_REAL_CALL_DATA"
+    "production_release_claim": "TELEPHONY_PRODUCTION_NOT_ESTABLISHED"
   }
 }

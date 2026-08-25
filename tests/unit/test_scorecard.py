@@ -13,7 +13,10 @@ def test_scorecard_uses_protected_gates_and_labels_local_evidence_scope() -> Non
     assert scorecard["summary"]["gates_failed"] == 0
     assert scorecard["summary"]["engineering_evidence_status"] == "PASS_LOCAL_EVIDENCE"
     assert scorecard["summary"]["production_release_claim"] == (
-        "NOT_ESTABLISHED_NO_REAL_CALL_DATA"
+        "TELEPHONY_PRODUCTION_NOT_ESTABLISHED"
+    )
+    assert scorecard["summary"]["browser_audio_evidence"] == (
+        "REAL_BROWSER_AUDIO_VALIDATED"
     )
     assert scorecard["metrics"]["ttfa_ms"]["sample_count"] == 40
     assert scorecard["metrics"]["tool_failure_recovery_rate"]["sample_count"] == 60

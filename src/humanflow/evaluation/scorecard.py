@@ -185,6 +185,11 @@ def build_scorecard(root: Path) -> dict[str, Any]:
 
     passed = sum(result["passed"] for result in gate_results.values())
     artifacts = (gates_path, corpus_path, realtime_path, recovery_path, torture_path)
+    manual_validation_path = root / "sprint" / "manual-validation.json"
+    manual_validation = (
+        _load_json(manual_validation_path) if manual_validation_path.is_file() else {}
+    )
+    browser_audio_validated = manual_validation.get("approved") is True
     return {
         "schema_version": 1,
         "protected_artifacts_unchanged_by_scorecard": True,
@@ -200,6 +205,11 @@ def build_scorecard(root: Path) -> dict[str, Any]:
             "engineering_evidence_status": (
                 "PASS_LOCAL_EVIDENCE" if passed == len(gate_results) else "FAIL"
             ),
-            "production_release_claim": "NOT_ESTABLISHED_NO_REAL_CALL_DATA",
+            "browser_audio_evidence": (
+                "REAL_BROWSER_AUDIO_VALIDATED"
+                if browser_audio_validated
+                else "HUMAN_BROWSER_AUDIO_VALIDATION_PENDING"
+            ),
+            "production_release_claim": "TELEPHONY_PRODUCTION_NOT_ESTABLISHED",
         },
     }

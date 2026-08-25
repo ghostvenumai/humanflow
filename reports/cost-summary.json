@@ -6,7 +6,7 @@
     "provider_usage": "ACTUAL_USAGE when returned or exactly observed",
     "unheard_audio": "estimated allocation; generated provider usage is never reduced"
   },
-  "generated_at": "2026-08-25T12:05:04.233220Z",
+  "generated_at": "2026-08-25T12:17:44.443704Z",
   "known_limitations": [
     "Production Anthropic and ElevenLabs pricing is unverified and inactive.",
     "Heard/unheard monetary allocation is estimated from Played Audio Ledger samples.",

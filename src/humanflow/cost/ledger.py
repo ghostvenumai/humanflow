@@ -7,6 +7,8 @@ import json
 import sqlite3
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from queue import Full, Queue
+from threading import Thread
 from typing import Any, Protocol
 
 from .models import CostEvent
@@ -296,8 +298,9 @@ class AsyncCostRecorder:
             raise ValueError("queue_size must be positive")
         self._writer = writer
         self._on_failure = on_failure or (lambda _kind, _payload: None)
-        self._queue: asyncio.Queue[CostEvent | None] = asyncio.Queue(queue_size)
-        self._worker: asyncio.Task[None] | None = None
+        self._queue: Queue[CostEvent | None] = Queue(queue_size)
+        self._worker: Thread | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._closed = False
 
     def record_nowait(self, event: CostEvent) -> bool:
@@ -305,18 +308,23 @@ class AsyncCostRecorder:
             self._notify("COST_LEDGER_WRITE_FAILED", event, "recorder_closed")
             return False
         if self._worker is None:
-            self._worker = asyncio.create_task(
-                self._run(), name=f"humanflow-cost-ledger-{event.session_id}"
+            self._loop = asyncio.get_running_loop()
+            self._worker = Thread(
+                target=self._run,
+                name=f"humanflow-cost-ledger-{event.session_id}",
+                daemon=True,
             )
+            self._worker.start()
         try:
             self._queue.put_nowait(event)
-        except asyncio.QueueFull:
+        except Full:
             self._notify("COST_LEDGER_WRITE_FAILED", event, "queue_full")
             return False
         return True
 
     async def flush(self) -> None:
-        await self._queue.join()
+        while self._queue.unfinished_tasks:
+            await asyncio.sleep(0.001)
 
     async def close(self) -> None:
         if self._closed:
@@ -324,17 +332,25 @@ class AsyncCostRecorder:
         self._closed = True
         if self._worker is None:
             return
-        await self._queue.put(None)
-        await self._worker
-
-    async def _run(self) -> None:
         while True:
-            event = await self._queue.get()
+            try:
+                self._queue.put_nowait(None)
+            except Full:
+                await asyncio.sleep(0.001)
+                continue
+            break
+        while self._worker.is_alive():
+            await asyncio.sleep(0.001)
+        await asyncio.sleep(0)
+
+    def _run(self) -> None:
+        while True:
+            event = self._queue.get()
             try:
                 if event is None:
                     return
                 try:
-                    inserted = await asyncio.to_thread(self._writer.append, event)
+                    inserted = self._writer.append(event)
                 except Exception as error:
                     self._notify(
                         "COST_LEDGER_WRITE_FAILED",
@@ -352,12 +368,14 @@ class AsyncCostRecorder:
                 self._queue.task_done()
 
     def _notify(self, kind: str, event: CostEvent, reason: str) -> None:
-        self._on_failure(
-            kind,
-            {
-                "cost_event_id": event.cost_event_id,
-                "operation_id": event.operation_id,
-                "service_type": event.service_type.value,
-                "reason": reason,
-            },
-        )
+        payload = {
+            "cost_event_id": event.cost_event_id,
+            "operation_id": event.operation_id,
+            "service_type": event.service_type.value,
+            "reason": reason,
+        }
+        loop = self._loop
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(self._on_failure, kind, payload)
+        else:
+            self._on_failure(kind, payload)

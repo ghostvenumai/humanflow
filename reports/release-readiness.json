@@ -3,18 +3,21 @@
     "demo_manifest_status": "READY_FOR_MANUAL_VALIDATION_NOT_FROZEN",
     "local_gates_failed": 0,
     "passed": true,
-    "production_release_claim": "NOT_ESTABLISHED_NO_REAL_CALL_DATA"
+    "production_release_claim": "TELEPHONY_PRODUCTION_NOT_ESTABLISHED"
   },
   "freeze": {
-    "complete": false,
-    "path": "sprint/freeze.json"
+    "complete": true,
+    "evidence_source": "git:main:sprint/freeze.json",
+    "final_build_commit": "798256e447a7d7cb116d2186035f4a85b29744e2",
+    "tag": "everlast-72h-build",
+    "tag_matches_frozen_commit": true
   },
-  "generated_at_utc": "2026-08-24T14:31:22.097673Z",
+  "generated_at_utc": "2026-08-25T12:19:46.855044Z",
   "manual_browser_audio_validation": {
-    "exists": false,
-    "passed": false,
+    "exists": true,
+    "passed": true,
     "path": "sprint/manual-validation.json"
   },
   "schema_version": 1,
-  "status": "BLOCKED_MANUAL_BROWSER_AUDIO_VALIDATION"
+  "status": "FROZEN"
 }

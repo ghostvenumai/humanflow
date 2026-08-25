@@ -14,7 +14,7 @@
       "executable": "/home/serverserver/.local/bin/claude",
       "external_execution_authorized": false,
       "installed": true,
-      "version": "2.1.229 (Claude Code)"
+      "version": "2.1.243 (Claude Code)"
     }
   ],
   "evaluator_self_test": {
@@ -46,7 +46,7 @@
   },
   "external_agent_calls_made": 0,
   "external_spend_usd": 0.0,
-  "generated_at_utc": "2026-08-24T16:12:16.243865Z",
+  "generated_at_utc": "2026-08-25T12:17:44.457025Z",
   "production_code_selected_by_synthetic_test": false,
   "real_candidate_registration": {
     "candidates": [
