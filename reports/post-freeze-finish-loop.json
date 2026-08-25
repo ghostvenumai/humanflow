@@ -1,0 +1,19 @@
+{
+  "baseline_commit": "b60e1a50768f1a0f3ecd63ae8cc7dd364842460d",
+  "candidate_commit": "b60e1a50768f1a0f3ecd63ae8cc7dd364842460d",
+  "iteration": 1,
+  "known_failures": [],
+  "paid_provider_calls": {},
+  "phase": "B",
+  "remaining_blockers": [],
+  "resource_remaining_percent": 90,
+  "status": "KEEP",
+  "task": "Cost domain, pricing, precision and persistence",
+  "test_results": [
+    "15 passed"
+  ],
+  "tests_run": [
+    "pytest tests/unit/test_cost_ledger.py tests/unit/test_finish_loop.py"
+  ],
+  "updated_at": "2026-08-25T11:49:12.411756Z"
+}

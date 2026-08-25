@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "catalog_version": "2026-08-25-post-freeze-v1",
+  "rules": [
+    {
+      "pricing_rule_id": "anthropic-claude-haiku-4-5-unverified",
+      "pricing_version": "2026-08-25-unverified",
+      "provider": "anthropic-messages-api",
+      "model": "claude-haiku-4-5-20251001",
+      "service": "LLM",
+      "unit": "per_1m_tokens",
+      "input_rate": null,
+      "output_rate": null,
+      "currency": "USD",
+      "effective_date": "2026-08-25",
+      "verified_at": null,
+      "source_note": "Production pricing was not verified during the bounded post-freeze run.",
+      "active": false
+    },
+    {
+      "pricing_rule_id": "elevenlabs-scribe-v2-realtime-unverified",
+      "pricing_version": "2026-08-25-unverified",
+      "provider": "elevenlabs-scribe-realtime",
+      "model": "scribe_v2_realtime",
+      "service": "STT",
+      "unit": "per_audio_minute",
+      "input_rate": null,
+      "output_rate": null,
+      "currency": "USD",
+      "effective_date": "2026-08-25",
+      "verified_at": null,
+      "source_note": "Production pricing was not verified during the bounded post-freeze run.",
+      "active": false
+    },
+    {
+      "pricing_rule_id": "elevenlabs-flash-v2-5-unverified",
+      "pricing_version": "2026-08-25-unverified",
+      "provider": "elevenlabs-text-to-speech-stream",
+      "model": "eleven_flash_v2_5",
+      "service": "TTS",
+      "unit": "per_1k_characters",
+      "input_rate": null,
+      "output_rate": null,
+      "currency": "USD",
+      "effective_date": "2026-08-25",
+      "verified_at": null,
+      "source_note": "Production pricing was not verified during the bounded post-freeze run.",
+      "active": false
+    },
+    {
+      "pricing_rule_id": "humanflow-local-sqlite-zero-direct-cost",
+      "pricing_version": "2026-08-25-v1",
+      "provider": "local-sqlite",
+      "model": "humanflow-appointments-v1",
+      "service": "TOOL",
+      "unit": "per_request",
+      "input_rate": "0",
+      "output_rate": "0",
+      "currency": "EUR",
+      "effective_date": "2026-08-25",
+      "verified_at": "2026-08-25",
+      "source_note": "Local SQLite has zero direct external provider monetary cost.",
+      "active": true
+    }
+  ]
+}
