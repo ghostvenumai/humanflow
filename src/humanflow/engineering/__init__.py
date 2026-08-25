@@ -6,6 +6,15 @@ from .evidence import (
     EvidenceKind,
     EvidenceScope,
 )
+from .failures import (
+    DiagnosticPackageWriter,
+    FailureCircuitBreaker,
+    FailureFingerprint,
+    HarnessFailureState,
+    IterationObservation,
+    normalize_failure_error,
+)
+from .metrics import HarnessMetricsStore, TaskRunMetrics
 from .registry import (
     ActorRole,
     EngineeringTaskRecord,
@@ -25,6 +34,7 @@ from .verification import (
     VerificationStatus,
     evaluate_merge_gate,
 )
+from .tournament import VerifiedTournamentCoordinator
 from .worktrees import WorktreeLease, WorktreeManager
 
 __all__ = [
@@ -33,11 +43,17 @@ __all__ = [
     "CandidateIntegrityGate",
     "CommandEvidence",
     "ConservativeTaskScheduler",
+    "DiagnosticPackageWriter",
     "EngineeringEvidenceRef",
     "EngineeringTaskRecord",
     "EvidenceKind",
     "EvidenceScope",
+    "FailureCircuitBreaker",
+    "FailureFingerprint",
+    "HarnessFailureState",
+    "HarnessMetricsStore",
     "IntegrityReport",
+    "IterationObservation",
     "MergeGateEvidence",
     "ReviewAssignment",
     "ReviewResult",
@@ -48,9 +64,12 @@ __all__ = [
     "TaskRegistry",
     "TaskRisk",
     "TaskStatus",
+    "TaskRunMetrics",
+    "VerifiedTournamentCoordinator",
     "VerificationStatus",
     "WorktreeLease",
     "WorktreeManager",
     "evaluate_merge_gate",
+    "normalize_failure_error",
     "tasks_conflict",
 ]
