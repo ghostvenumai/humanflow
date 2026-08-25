@@ -829,6 +829,25 @@ def test_unavailable_eleventh_hour_offers_seeded_fifteenth_hour_without_prebooki
         assert "buche" not in reply.casefold()
         assert "gebucht" not in reply.casefold()
 
+        confirmation = tracker.apply_user_turn("Super.", source_turn="turn-2")
+        _, booked = await coordinator.execute(
+            transcript="Super.",
+            delta=confirmation,
+            tracker=tracker,
+            correlation_id="turn-2",
+            source_turn="turn-2",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        rows = provider.list_appointments({})["appointments"]
+        assert booked is not None and booked.tool_name == "create_appointment"
+        assert booked.value["result_status"] == "BOOKED"
+        assert len(rows) == 1
+        assert rows[0]["start_datetime"] == "2026-09-10T15:00:00+02:00"
+        assert provider.call_counts == {
+            "search_availability": 1,
+            "create_appointment": 1,
+        }
+
     asyncio.run(scenario())
 
 

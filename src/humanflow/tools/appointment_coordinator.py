@@ -349,11 +349,23 @@ class AppointmentTransactionCoordinator:
             and isinstance(slot.get("start_datetime"), str)
             and _slot_matches_exact_date(slot, exact_date)
         ]
-        if value.get("result_status") != "AVAILABLE" or len(slots) != 1:
+        alternatives = [
+            slot
+            for slot in value.get("alternative_slots", ())
+            if isinstance(slot, Mapping)
+            and isinstance(slot.get("start_datetime"), str)
+            and _slot_matches_exact_date(slot, exact_date)
+        ]
+        offered_slots = (
+            alternatives if value.get("result_status") == "UNAVAILABLE" else slots
+        )
+        if value.get("result_status") not in {"AVAILABLE", "UNAVAILABLE"} or len(
+            offered_slots
+        ) != 1:
             self._pending_creates.pop(local_appointment_id, None)
             return
         appointment = tracker.appointments[local_appointment_id]
-        start_datetime = slots[0]["start_datetime"]
+        start_datetime = offered_slots[0]["start_datetime"]
         appointment_type = _appointment_type(appointment)
         if appointment_type is None:
             return
