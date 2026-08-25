@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "id": "healthy",
+      "baseline": [0.995, 0.996, 0.997],
+      "current": [0.996, 0.995, 0.997],
+      "sample_size": 220,
+      "target": 0.99,
+      "expected": null
+    },
+    {
+      "id": "relative_date_regression",
+      "baseline": [0.995, 0.996, 0.994],
+      "current": [0.94, 0.92, 0.91],
+      "sample_size": 220,
+      "target": 0.99,
+      "expected": "REGRESSION"
+    },
+    {
+      "id": "noisy_low_sample",
+      "baseline": [0.995, 0.996, 0.994],
+      "current": [0.5],
+      "sample_size": 2,
+      "target": 0.99,
+      "expected": null
+    },
+    {
+      "id": "gradual_drift",
+      "baseline": [0.970, 0.971, 0.969],
+      "current": [0.960, 0.950, 0.940],
+      "sample_size": 180,
+      "target": 0.99,
+      "expected": "DRIFT"
+    }
+  ]
+}

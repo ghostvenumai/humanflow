@@ -14,7 +14,24 @@ from .failures import (
     IterationObservation,
     normalize_failure_error,
 )
+from .discovery import (
+    DetectorType,
+    DiscoveryPolicy,
+    FailureSignal,
+    ImprovementDiscoveryEngine,
+    MetricDirection,
+    MetricSeries,
+    ProblemCandidate,
+    ProblemSeverity,
+)
 from .metrics import HarnessMetricsStore, TaskRunMetrics
+from .proposals import TaskProposalPolicy, register_proposal
+from .release import (
+    PostReleaseStatus,
+    ReleaseCandidateBundle,
+    ReleaseMeasurement,
+    evaluate_post_release,
+)
 from .registry import (
     ActorRole,
     EngineeringTaskRecord,
@@ -24,6 +41,7 @@ from .registry import (
     TaskStatus,
 )
 from .reviewer import ReviewAssignment, ReviewResult, ReviewVerdict
+from .routing import AgentRoutingDecision, EvidenceInformedAgentRouter
 from .scheduler import ConservativeTaskScheduler, ScheduleDecision, tasks_conflict
 from .verification import (
     CandidateIntegrityGate,
@@ -39,25 +57,38 @@ from .worktrees import WorktreeLease, WorktreeManager
 
 __all__ = [
     "ActorRole",
+    "AgentRoutingDecision",
     "AppendOnlyEvidenceStore",
     "CandidateIntegrityGate",
     "CommandEvidence",
     "ConservativeTaskScheduler",
+    "DetectorType",
     "DiagnosticPackageWriter",
+    "DiscoveryPolicy",
     "EngineeringEvidenceRef",
     "EngineeringTaskRecord",
     "EvidenceKind",
+    "EvidenceInformedAgentRouter",
     "EvidenceScope",
     "FailureCircuitBreaker",
     "FailureFingerprint",
+    "FailureSignal",
     "HarnessFailureState",
     "HarnessMetricsStore",
+    "ImprovementDiscoveryEngine",
     "IntegrityReport",
     "IterationObservation",
+    "MetricDirection",
+    "MetricSeries",
     "MergeGateEvidence",
     "ReviewAssignment",
     "ReviewResult",
     "ReviewVerdict",
+    "PostReleaseStatus",
+    "ProblemCandidate",
+    "ProblemSeverity",
+    "ReleaseCandidateBundle",
+    "ReleaseMeasurement",
     "ScheduleDecision",
     "SupervisorCommandRunner",
     "TaskPriority",
@@ -65,11 +96,14 @@ __all__ = [
     "TaskRisk",
     "TaskStatus",
     "TaskRunMetrics",
+    "TaskProposalPolicy",
     "VerifiedTournamentCoordinator",
     "VerificationStatus",
     "WorktreeLease",
     "WorktreeManager",
     "evaluate_merge_gate",
+    "evaluate_post_release",
     "normalize_failure_error",
+    "register_proposal",
     "tasks_conflict",
 ]
