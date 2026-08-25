@@ -341,6 +341,10 @@ class FinalTranscriptAdmissionGate:
             )
         episode.claimed_by_transcript_id = update.provenance.transcript_id
         episode.state = PcmSpeechEpisodeState.CONSUMED
+        if episode is self._active:
+            self._episodes.append(episode)
+            self._active = None
+            self._silence_duration_ms = 0.0
         return self._assessment(
             accepted=True,
             reason_code=FinalAdmissionReason.ACCEPTED,
@@ -392,7 +396,7 @@ class FinalTranscriptAdmissionGate:
             ]
             if not unconsumed:
                 return None, FinalAdmissionReason.EPISODE_ALREADY_CONSUMED
-            return max(
+            return min(
                 unconsumed, key=lambda episode: episode.speech_start_monotonic
             ), FinalAdmissionReason.ACCEPTED
         if all(final_ns < episode.speech_start_monotonic for episode in frame_candidates):

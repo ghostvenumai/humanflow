@@ -319,6 +319,31 @@ def test_unavailable_requested_time_is_not_booked_and_offers_nearest_slots(
     asyncio.run(scenario())
 
 
+def test_cancelled_appointment_id_cannot_replay_as_false_booked_success(
+    tmp_path: Path,
+) -> None:
+    provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+    request = {
+        "appointment_id": "stable-cancelled-id",
+        "appointment_type": "Orthopädie",
+        "start_datetime": "2026-09-03T10:30:00+02:00",
+    }
+
+    booked = provider.create_appointment(request)
+    cancelled = provider.cancel_appointment(
+        {"appointment_id": "stable-cancelled-id"}
+    )
+    replay = provider.create_appointment(request)
+    rows = provider.list_appointments({"include_cancelled": True})["appointments"]
+
+    assert booked["result_status"] == "BOOKED"
+    assert cancelled["result_status"] == "CANCELLED"
+    assert replay["success"] is False
+    assert replay["result_status"] == "BOOKING_CONFLICT"
+    assert len(rows) == 1
+    assert rows[0]["status"] == "CANCELLED"
+
+
 def test_booking_conflict_is_business_result_not_technical_failure() -> None:
     response = _authoritative_database_reply(
         {

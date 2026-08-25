@@ -273,6 +273,28 @@ class SQLiteAppointmentToolProvider:
             ).fetchone()
             if existing is not None:
                 value = dict(existing)
+                replay_matches = bool(
+                    value["status"] == "BOOKED"
+                    and value["appointment_type"].casefold() == appointment_type.casefold()
+                    and value["start_datetime"] == start_datetime
+                    and (
+                        _optional(arguments, "provider_name") is None
+                        or value["provider_name"].casefold()
+                        == _optional(arguments, "provider_name").casefold()
+                    )
+                    and (
+                        _optional(arguments, "location") is None
+                        or value["location"].casefold()
+                        == _optional(arguments, "location").casefold()
+                    )
+                    and (
+                        _optional(arguments, "resource_id") is None
+                        or value["resource_id"] == _optional(arguments, "resource_id")
+                    )
+                )
+                if not replay_matches:
+                    connection.rollback()
+                    return _conflict("create_appointment", appointment_id)
                 value.update(
                     success=True,
                     idempotent_replay=True,

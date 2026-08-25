@@ -690,6 +690,20 @@ class AppointmentStateTracker:
                     "multiple_appointment_actions_require_separation",
                     tuple(dict.fromkeys(options)) or distinct_purposes,
                 )
+            ordinal_reference = _ORDINAL_APPOINTMENT_REFERENCE.search(normalized)
+            if ordinal_reference is not None:
+                matching = tuple(
+                    dict.fromkeys(
+                        appointment_id
+                        for reference in references
+                        for appointment_id in self._matching_entity(reference)
+                        if self._appointments[appointment_id].active
+                    )
+                )
+                if matching:
+                    ordinal = ordinal_reference.group("ordinal")
+                    appointment_id = matching[0] if ordinal.startswith("erst") else matching[-1]
+                    return _Resolution(appointment_id, "explicit_ordinal_entity_reference")
             reference = references[-1]
             matching = self._matching_entity(reference)
             force_new = bool(_NEW_APPOINTMENT.search(normalized))

@@ -283,3 +283,25 @@ def test_first_and_last_references_select_only_the_ordered_object() -> None:
     assert tracker.appointments["appointment_1"].time.value == "14:00"
     assert tracker.appointments["appointment_2"].time is not None
     assert tracker.appointments["appointment_2"].time.value == "13:00"
+
+
+def test_ordinal_reference_filters_two_appointments_of_same_type() -> None:
+    tracker = _tracker()
+    tracker.apply_user_turn(
+        "Orthopädentermin nächste Woche Donnerstag um 10:30 Uhr.", source_turn="turn-1"
+    )
+    tracker.apply_user_turn(
+        "Noch ein Orthopädentermin übernächste Woche Donnerstag um 15 Uhr.",
+        source_turn="turn-2",
+    )
+
+    first = tracker.apply_user_turn(
+        "Den ersten Orthopädentermin um 14 Uhr.", source_turn="turn-3"
+    )
+
+    assert first.appointment_id == "appointment_1"
+    assert first.resolution_reason == "explicit_ordinal_entity_reference"
+    assert tracker.appointments["appointment_1"].time is not None
+    assert tracker.appointments["appointment_1"].time.value == "14:00"
+    assert tracker.appointments["appointment_2"].time is not None
+    assert tracker.appointments["appointment_2"].time.value == "15:00"

@@ -174,10 +174,11 @@ def _feed_episode(
     voiced_frames: int,
     fragmented: bool = False,
     start_sequence: int = 0,
+    start_ns: int = BASE_NS,
     release: bool = True,
 ) -> tuple[int, int, int]:
     sequence = start_sequence
-    captured_ns = BASE_NS
+    captured_ns = start_ns
     split = voiced_frames // 2 if fragmented else voiced_frames
     for index in range(voiced_frames):
         if fragmented and index == split:
@@ -340,6 +341,83 @@ def test_consumed_episode_cannot_authorize_second_final() -> None:
     assert first.accepted is True
     assert second.accepted is False
     assert second.reason_code == FinalAdmissionReason.EPISODE_ALREADY_CONSUMED.value
+
+
+def test_delayed_finals_claim_multiple_completed_pcm_episodes_in_fifo_order() -> None:
+    gate = FinalTranscriptAdmissionGate()
+    _, first_observed_end, first_last_sequence = _feed_episode(
+        gate, voiced_frames=6, start_sequence=0
+    )
+    _, second_observed_end, second_last_sequence = _feed_episode(
+        gate,
+        voiced_frames=6,
+        start_sequence=first_last_sequence + 1,
+        start_ns=first_observed_end + FRAME_NS,
+    )
+
+    first = gate.assess_final(
+        _update(
+            "Ja.",
+            transcript_id="ordered-final-1",
+            timestamp_ns=second_observed_end,
+            audio_frame_sequence=second_last_sequence,
+        ),
+        assistant_playback_active=False,
+        self_speech=_no_self_speech("Ja.", playback_active=False),
+    )
+    second = gate.assess_final(
+        _update(
+            "Nein.",
+            transcript_id="ordered-final-2",
+            timestamp_ns=second_observed_end + 1_000_000,
+            audio_frame_sequence=second_last_sequence,
+        ),
+        assistant_playback_active=False,
+        self_speech=_no_self_speech("Nein.", playback_active=False),
+    )
+
+    assert first.accepted is True
+    assert first.speech_episode_id == "pcm-speech-1"
+    assert second.accepted is True
+    assert second.speech_episode_id == "pcm-speech-2"
+
+
+def test_early_final_detaches_consumed_active_episode_before_continued_speech() -> None:
+    gate = FinalTranscriptAdmissionGate()
+    _, first_end, first_last_sequence = _feed_episode(
+        gate, voiced_frames=3, release=False
+    )
+    first = gate.assess_final(
+        _update(
+            "Ja.",
+            transcript_id="early-active-final",
+            timestamp_ns=first_end,
+            audio_frame_sequence=first_last_sequence,
+        ),
+        assistant_playback_active=False,
+        self_speech=_no_self_speech("Ja.", playback_active=False),
+    )
+    _, second_observed_end, second_last_sequence = _feed_episode(
+        gate,
+        voiced_frames=3,
+        start_sequence=first_last_sequence + 1,
+        start_ns=first_end,
+    )
+    second = gate.assess_final(
+        _update(
+            "Nein.",
+            transcript_id="continued-speech-final",
+            timestamp_ns=second_observed_end,
+            audio_frame_sequence=second_last_sequence,
+        ),
+        assistant_playback_active=False,
+        self_speech=_no_self_speech("Nein.", playback_active=False),
+    )
+
+    assert first.accepted is True
+    assert first.speech_episode_id == "pcm-speech-1"
+    assert second.accepted is True
+    assert second.speech_episode_id == "pcm-speech-2"
 
 
 @pytest.mark.parametrize(
