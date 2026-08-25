@@ -2,7 +2,7 @@
   "decision": "NO_CHANGE_REQUIRED",
   "decision_reason": "The reported browser volume drop is not reproduced by stationary noise. A detector-only suppression of speech-like input would endanger intentional barge-in; human browser correlation remains required.",
   "finding": "Quiet and stationary low-level fixtures cause no duck or hard cancel. Speech-like background and intentional speech are intentionally identical at the mono PCM boundary and therefore cannot be safely separated by an energy-only detector without risking real floor-taking.",
-  "generated_at_utc": "2026-08-25T12:17:27.104596Z",
+  "generated_at_utc": "2026-08-25T13:43:21.107299Z",
   "known_limitation": "Synthetic PCM does not establish audible browser volume pumping or classify unattributed real-world speech-like sound as background noise.",
   "measurement_scope": "LOCAL_SYNTHETIC_PCM_DETECTOR_ONLY",
   "scenarios": [

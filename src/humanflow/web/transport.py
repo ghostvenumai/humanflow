@@ -88,7 +88,8 @@ class BrowserAcknowledgedAudioOutput:
                 "response_id": response_id,
                 "speech_onset_ns": speech_onset_ns,
                 "playback_epoch": self._playback_epoch,
-                "target_gain": 0.08,
+                "target_gain": 0.55,
+                "duck_stage": "MILD_SOFT_YIELD",
             }
         )
         return True

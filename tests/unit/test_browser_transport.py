@@ -210,7 +210,8 @@ def test_soft_yield_and_epoch_invalidation_are_ordered_and_fail_closed() -> None
             "response_id": "response-browser",
             "speech_onset_ns": 100,
             "playback_epoch": 0,
-            "target_gain": 0.08,
+            "target_gain": 0.55,
+            "duck_stage": "MILD_SOFT_YIELD",
         }
         assert output.resume_playback(
             response_id="response-browser", speech_onset_ns=100

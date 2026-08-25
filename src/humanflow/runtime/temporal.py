@@ -114,7 +114,9 @@ class GermanTemporalResolver:
         explicit = self._resolve_explicit(utterance, reference)
         if explicit is not None:
             resolved, raw, rule, confidence = explicit
-            return self._result(resolved, raw, rule, confidence, existing_date)
+            result = self._result(resolved, raw, rule, confidence, existing_date)
+            _enforce_requested_weekday(utterance, result.resolved_iso_date)
+            return result
 
         lowered = utterance.casefold()
         relative_days = list(_RELATIVE_DAY.finditer(lowered))
@@ -183,7 +185,9 @@ class GermanTemporalResolver:
                 confidence = 0.96
 
         raw = _weekday_expression(utterance, weekday_match, window_start, window_end)
-        return self._result(resolved, raw, rule, confidence, existing_date)
+        result = self._result(resolved, raw, rule, confidence, existing_date)
+        _enforce_requested_weekday(utterance, result.resolved_iso_date)
+        return result
 
     def _as_local(self, value: datetime) -> datetime:
         if value.tzinfo is None:
@@ -259,6 +263,24 @@ def _nearest_week_count(window: str, weekday_position: int) -> tuple[int, str] |
     if count < 1:
         return None
     return count, raw
+
+
+def requested_weekday_matches_date(utterance: str, resolved_iso_date: str) -> bool:
+    """Check an explicitly spoken weekday against the authoritative ISO date."""
+
+    weekdays = list(_WEEKDAY_PATTERN.finditer(utterance.casefold()))
+    if not weekdays:
+        return True
+    try:
+        resolved = date.fromisoformat(resolved_iso_date)
+    except ValueError:
+        return False
+    return resolved.weekday() == _WEEKDAYS[weekdays[-1].group(1)]
+
+
+def _enforce_requested_weekday(utterance: str, resolved_iso_date: str) -> None:
+    if not requested_weekday_matches_date(utterance, resolved_iso_date):
+        raise ValueError("resolved date contradicts explicitly requested weekday")
 
 
 def _weekday_expression(

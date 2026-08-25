@@ -82,7 +82,8 @@ _SPOKEN_WEEKDAY = re.compile(
     re.IGNORECASE,
 )
 _UNVERIFIED_EXTERNAL_ACTION = re.compile(
-    r"\b(?:gebucht|eingetragen|storniert|abgesagt|gelöscht)\b",
+    r"\b(?:gebucht|eingetragen|storniert|abgesagt|gelöscht|"
+    r"ich\s+(?:buche|trage\b[^.!?]{0,40}\bein|verschiebe|sage\b[^.!?]{0,20}\bab))\b",
     re.IGNORECASE,
 )
 _AI_DISCLOSURE = re.compile(

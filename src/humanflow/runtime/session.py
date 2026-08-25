@@ -499,6 +499,8 @@ class RealtimeVoiceSession:
                 payload={
                     **payload,
                     "duck_requested_ns": duck_requested_ns,
+                    "duck_stage": "MILD_SOFT_YIELD",
+                    "target_gain": 0.55,
                     "speech_onset_to_duck_request_ms": max(
                         0.0,
                         (duck_requested_ns - speech_onset_ns) / 1_000_000.0,

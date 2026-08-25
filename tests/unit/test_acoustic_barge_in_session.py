@@ -279,6 +279,47 @@ def test_short_hesitation_recovers_after_hold_without_destroying_response() -> N
     asyncio.run(scenario())
 
 
+def test_cough_like_transient_uses_mild_duck_and_never_hard_cancels() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        output = SoftControlOutput()
+        session = RealtimeVoiceSession(
+            conversation_id="cough-transient",
+            sink=sink,
+            transcriber=NullTranscriber(),
+            reasoner=RecordingReasoner(),
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=1_500),
+            audio_output=output,
+            soft_yield_recovery_delay_ms=40,
+        )
+        await session.start()
+        await session.submit_transcript(_turn("Erkläre mir das kurz."))
+        await _wait_for_speaking(session)
+        base_ns = monotonic_ns() - 1_000_000_000
+        for sequence in range(8):
+            session.receive_audio(_pcm_frame(sequence, 6_000, base_ns))
+        for sequence in range(8, 18):
+            session.receive_audio(_pcm_frame(sequence, 0, base_ns))
+        await asyncio.sleep(0.06)
+
+        event_types = [event.event_type for event in sink.events]
+        duck = next(
+            event
+            for event in sink.events
+            if event.event_type is EventType.PLAYBACK_DUCK_REQUESTED
+        )
+        assert duck.payload["duck_stage"] == "MILD_SOFT_YIELD"
+        assert duck.payload["target_gain"] == 0.55
+        assert output.ducks and output.resumes
+        assert not output.invalidations
+        assert EventType.INTERRUPTION_CONFIRMED not in event_types
+        assert EventType.FALSE_INTERRUPTION_DETECTED not in event_types
+        assert session.response_active
+        await session.close()
+
+    asyncio.run(scenario())
+
+
 def test_correction_after_acoustic_cancel_becomes_exactly_one_new_user_turn() -> None:
     async def scenario() -> None:
         sink = InMemoryTelemetrySink()

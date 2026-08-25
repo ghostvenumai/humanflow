@@ -571,6 +571,267 @@ def test_conversation_desire_is_separate_until_database_tool_success(tmp_path: P
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize(
+    "confirmation",
+    (
+        "Ja.",
+        "Ja bitte.",
+        "Super.",
+        "Perfekt.",
+        "Ja, perfekt.",
+        "Ja, alles ist super.",
+        "Passt.",
+        "Machen wir.",
+        "Nehmen wir.",
+    ),
+)
+def test_unambiguous_offer_affirmation_books_exactly_once(
+    tmp_path: Path, confirmation: str
+) -> None:
+    async def scenario() -> None:
+        tracker = _tracker()
+        transcript = "Orthopädentermin diesen Donnerstag um 15:30 Uhr."
+        delta = tracker.apply_user_turn(transcript, source_turn="turn-1")
+        provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+        machine, _ = _machine()
+        coordinator = AppointmentTransactionCoordinator(
+            conversation_id=f"affirm-{confirmation}",
+            state_machine=machine,
+            provider=provider,
+        )
+
+        _, offered = await coordinator.execute(
+            transcript=transcript,
+            delta=delta,
+            tracker=tracker,
+            correlation_id="turn-1",
+            source_turn="turn-1",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        assert offered is not None and offered.tool_name == "search_availability"
+        assert offered.value["result_status"] == "AVAILABLE"
+        assert provider.list_appointments({})["appointments"] == []
+
+        confirmed = tracker.apply_user_turn(confirmation, source_turn="turn-2")
+        _, booked = await coordinator.execute(
+            transcript=confirmation,
+            delta=confirmed,
+            tracker=tracker,
+            correlation_id="turn-2",
+            source_turn="turn-2",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        repeated = tracker.apply_user_turn("Ja, perfekt.", source_turn="turn-3")
+        _, duplicate = await coordinator.execute(
+            transcript="Ja, perfekt.",
+            delta=repeated,
+            tracker=tracker,
+            correlation_id="turn-3",
+            source_turn="turn-3",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+
+        rows = provider.list_appointments({})["appointments"]
+        assert booked is not None and booked.tool_name == "create_appointment"
+        assert booked.value["result_status"] == "BOOKED"
+        assert duplicate is None
+        assert len(rows) == 1
+        assert rows[0]["start_datetime"] == "2026-08-27T15:30:00+02:00"
+        assert provider.call_counts == {
+            "search_availability": 1,
+            "create_appointment": 1,
+        }
+
+    asyncio.run(scenario())
+
+
+def test_single_search_offer_without_requested_time_super_books_once(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        tracker = _tracker()
+        transcript = "Orthopädentermin übernächste Woche Donnerstag."
+        delta = tracker.apply_user_turn(transcript, source_turn="turn-1")
+        provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+        machine, _ = _machine()
+        coordinator = AppointmentTransactionCoordinator(
+            conversation_id="single-offer-super",
+            state_machine=machine,
+            provider=provider,
+        )
+
+        _, offered = await coordinator.execute(
+            transcript=transcript,
+            delta=delta,
+            tracker=tracker,
+            correlation_id="turn-1",
+            source_turn="turn-1",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        assert offered is not None and offered.tool_name == "search_availability"
+        assert [
+            slot["start_datetime"] for slot in offered.value["slots"]
+        ] == ["2026-09-10T15:00:00+02:00"]
+
+        confirmation = tracker.apply_user_turn("Super.", source_turn="turn-2")
+        _, booked = await coordinator.execute(
+            transcript="Super.",
+            delta=confirmation,
+            tracker=tracker,
+            correlation_id="turn-2",
+            source_turn="turn-2",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+
+        rows = provider.list_appointments({})["appointments"]
+        assert booked is not None and booked.tool_name == "create_appointment"
+        assert booked.value["result_status"] == "BOOKED"
+        assert len(rows) == 1
+        assert rows[0]["start_datetime"] == "2026-09-10T15:00:00+02:00"
+        assert provider.call_counts == {
+            "search_availability": 1,
+            "create_appointment": 1,
+        }
+
+    asyncio.run(scenario())
+
+
+def test_negative_correction_after_offer_searches_new_slot_without_booking(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        tracker = _tracker()
+        first_text = "Orthopädentermin diesen Donnerstag um 15:30 Uhr."
+        first = tracker.apply_user_turn(first_text, source_turn="turn-1")
+        provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+        machine, _ = _machine()
+        coordinator = AppointmentTransactionCoordinator(
+            conversation_id="negative-correction",
+            state_machine=machine,
+            provider=provider,
+        )
+        await coordinator.execute(
+            transcript=first_text,
+            delta=first,
+            tracker=tracker,
+            correlation_id="turn-1",
+            source_turn="turn-1",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+
+        correction_text = "Nein, lieber 12 Uhr."
+        correction = tracker.apply_user_turn(correction_text, source_turn="turn-2")
+        _, searched = await coordinator.execute(
+            transcript=correction_text,
+            delta=correction,
+            tracker=tracker,
+            correlation_id="turn-2",
+            source_turn="turn-2",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+
+        assert searched is not None and searched.tool_name == "search_availability"
+        assert searched.value["result_status"] == "AVAILABLE"
+        assert provider.list_appointments({})["appointments"] == []
+        assert "create_appointment" not in provider.call_counts
+
+    asyncio.run(scenario())
+
+
+def test_unavailable_slot_never_prebooks_or_moves_requested_date(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        tracker = AppointmentStateTracker(
+            today=lambda: date(2026, 8, 25),
+            now=lambda: datetime(2026, 8, 25, 10, 0, tzinfo=UTC),
+        )
+        transcript = "Orthopädentermin Mittwoch in drei Wochen um 11 Uhr."
+        delta = tracker.apply_user_turn(transcript, source_turn="turn-1")
+        provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+        machine, _ = _machine()
+        coordinator = AppointmentTransactionCoordinator(
+            conversation_id="weekday-no-seed-contamination",
+            state_machine=machine,
+            provider=provider,
+        )
+
+        tool_delta, outcome = await coordinator.execute(
+            transcript=transcript,
+            delta=delta,
+            tracker=tracker,
+            correlation_id="turn-1",
+            source_turn="turn-1",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        context = coordinator.enrich_reasoning_context(
+            tracker.reasoning_context(tool_delta), outcome
+        )
+        reply = _authoritative_database_reply(json.loads(context or "{}"))
+
+        appointment = tracker.appointments["appointment_1"]
+        assert appointment.date is not None and appointment.date.value == "2026-09-09"
+        assert outcome is not None and outcome.tool_name == "search_availability"
+        assert outcome.value["result_status"] == "UNAVAILABLE"
+        assert outcome.value["slots"] == []
+        assert outcome.value["alternative_slots"] == []
+        assert provider.list_appointments({})["appointments"] == []
+        assert "create_appointment" not in provider.call_counts
+        assert reply is not None and "10. September" not in reply
+
+        guarded = _guard_transaction_fragment(
+            "Okay, ich buche dir den Termin am 10. September um 11 Uhr.",
+            json.loads(context or "{}"),
+        )
+        assert "ich buche" not in guarded.casefold()
+        assert "gebucht" not in guarded.casefold()
+        assert "10. september" not in guarded.casefold()
+
+    asyncio.run(scenario())
+
+
+def test_unavailable_eleventh_hour_offers_seeded_fifteenth_hour_without_prebooking(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        tracker = _tracker()
+        transcript = "Orthopädentermin übernächste Woche Donnerstag um 11 Uhr."
+        delta = tracker.apply_user_turn(transcript, source_turn="turn-1")
+        provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+        machine, _ = _machine()
+        coordinator = AppointmentTransactionCoordinator(
+            conversation_id="invalid-eleven",
+            state_machine=machine,
+            provider=provider,
+        )
+
+        tool_delta, outcome = await coordinator.execute(
+            transcript=transcript,
+            delta=delta,
+            tracker=tracker,
+            correlation_id="turn-1",
+            source_turn="turn-1",
+            parent_token=machine.issue_operation(kind="response"),
+        )
+        context = coordinator.enrich_reasoning_context(
+            tracker.reasoning_context(tool_delta), outcome
+        )
+        reply = _authoritative_database_reply(json.loads(context or "{}"))
+
+        assert outcome is not None and outcome.tool_name == "search_availability"
+        assert outcome.value["result_status"] == "UNAVAILABLE"
+        assert [
+            slot["start_datetime"] for slot in outcome.value["alternative_slots"]
+        ] == ["2026-09-10T15:00:00+02:00"]
+        assert provider.list_appointments({})["appointments"] == []
+        assert "create_appointment" not in provider.call_counts
+        assert reply is not None
+        assert "11 Uhr ist leider nicht frei" in reply
+        assert "15 Uhr" in reply
+        assert "buche" not in reply.casefold()
+        assert "gebucht" not in reply.casefold()
+
+    asyncio.run(scenario())
+
+
 def test_tool_failure_leaves_database_unchanged_and_forbids_false_success(
     tmp_path: Path,
 ) -> None:

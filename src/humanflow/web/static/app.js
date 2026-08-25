@@ -608,7 +608,7 @@ function duckPlayback(message) {
   const epoch = responsePlaybackEpochs.get(responseId) ?? message.playback_epoch ?? 0;
   if ((message.playback_epoch ?? epoch) < epoch || cancelledResponseIds.has(responseId)) return;
   softYieldResponseId = responseId;
-  const targetGain = Number.isFinite(message.target_gain) ? message.target_gain : 0.08;
+  const targetGain = Number.isFinite(message.target_gain) ? message.target_gain : 0.55;
   const modes = [...activeAudio.values()].filter((item) => item.responseId === responseId).map((item) => item.mode);
   if (modes.includes("speech")) window.speechSynthesis.pause();
   setPlaybackGain(targetGain, 0.010);

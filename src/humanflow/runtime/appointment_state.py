@@ -491,6 +491,7 @@ class AppointmentStateTracker:
                     "Termin storniert",
                     "Termin abgesagt",
                     "Termin gelöscht",
+                    "Ich buche den Termin",
                 ],
                 "required_local_action_noun": "Terminwunsch",
             },

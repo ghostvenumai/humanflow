@@ -6,7 +6,10 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from humanflow.runtime.appointment_state import AppointmentStateTracker
-from humanflow.runtime.temporal import GermanTemporalResolver
+from humanflow.runtime.temporal import (
+    GermanTemporalResolver,
+    requested_weekday_matches_date,
+)
 
 
 BERLIN = ZoneInfo("Europe/Berlin")
@@ -140,3 +143,36 @@ def test_authoritative_appointment_date_stores_full_temporal_provenance() -> Non
     assert context is not None
     assert '"resolved_iso_date": "2026-09-03"' in context
     assert "never calculate relative dates in the LLM" in context
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    (
+        ("Mittwoch in zwei Wochen", "2026-09-02"),
+        ("Mittwoch in drei Wochen", "2026-09-09"),
+    ),
+)
+def test_spoken_weekday_is_invariant_for_relative_week_resolution(
+    utterance: str, expected: str
+) -> None:
+    reference = datetime(2026, 8, 25, 10, 0, tzinfo=BERLIN)
+
+    result = GermanTemporalResolver().resolve(
+        utterance,
+        current_local_datetime=reference,
+    )
+
+    assert result is not None
+    assert result.resolved_iso_date == expected
+    assert datetime.fromisoformat(result.resolved_iso_date).strftime("%A") == "Wednesday"
+    assert requested_weekday_matches_date(utterance, result.resolved_iso_date)
+
+
+def test_explicit_weekday_date_contradiction_is_rejected() -> None:
+    with pytest.raises(
+        ValueError, match="resolved date contradicts explicitly requested weekday"
+    ):
+        GermanTemporalResolver().resolve(
+            "Mittwoch, 10. September 2026",
+            current_local_datetime=datetime(2026, 8, 25, 10, 0, tzinfo=BERLIN),
+        )

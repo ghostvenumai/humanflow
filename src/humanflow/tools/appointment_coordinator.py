@@ -19,6 +19,7 @@ from humanflow.runtime.appointment_state import (
     AppointmentStateDelta,
     AppointmentStateTracker,
 )
+from humanflow.runtime.temporal import requested_weekday_matches_date
 from humanflow.telemetry.events import EventType
 
 from .executor import ResilientToolExecutor
@@ -38,7 +39,13 @@ _BOOKED_LIST_INTENT = re.compile(
     re.IGNORECASE,
 )
 _BOOKING_CONFIRMATION = re.compile(
-    r"\b(?:ja|okay|ok|passt|bestätige|buchen|buch(?:e)?|nimm)\b",
+    r"^(?:ja(?:[\s,]+(?:bitte(?:\s+buchen)?|perfekt|super|alles\s+ist\s+super|machen\s+wir|"
+    r"nehmen\s+wir))?|super|perfekt|passt|machen\s+wir|nehmen\s+wir|okay|ok|"
+    r"bitte\s+buchen|buch(?:e)?(?:n\s+wir)?)$",
+    re.IGNORECASE,
+)
+_BOOKING_CORRECTION = re.compile(
+    r"\b(?:nein|nicht|lieber|stattdessen|warte|moment|doch\s+nicht)\b",
     re.IGNORECASE,
 )
 
@@ -88,7 +95,6 @@ class AppointmentTransactionCoordinator:
         self._timezone = ZoneInfo(timezone)
         self._today = today or (lambda: datetime.now(self._timezone).date())
         self._persisted_ids: dict[str, str] = {}
-        self._known_available_slots: dict[str, set[str]] = {}
         self._pending_creates: dict[str, dict[str, Any]] = {}
 
     async def execute(
@@ -212,6 +218,15 @@ class AppointmentTransactionCoordinator:
         delta: AppointmentStateDelta,
         tracker: AppointmentStateTracker,
     ) -> tuple[str, dict[str, Any], str | None] | None:
+        candidate_id = delta.appointment_id or tracker.active_focus_appointment_id
+        candidate = (
+            tracker.appointments.get(candidate_id) if candidate_id is not None else None
+        )
+        candidate_date = _slot(candidate, "date") if candidate is not None else None
+        if candidate_date and not requested_weekday_matches_date(
+            transcript, candidate_date
+        ):
+            raise RuntimeError("temporal_weekday_date_invariant_violated")
         if _AVAILABILITY_INTENT.search(transcript):
             return self._availability_plan(delta=delta, tracker=tracker)
         if (
@@ -259,18 +274,6 @@ class AppointmentTransactionCoordinator:
                     delta.appointment_id,
                 )
         if persisted_id is None and date_value and time_value and appointment_type:
-            start_datetime = self._local_datetime(date_value, time_value)
-            create_arguments = {
-                "appointment_id": self._database_appointment_id(delta.appointment_id),
-                "appointment_type": appointment_type,
-                "provider_name": _slot(appointment, "provider"),
-                "location": _slot(appointment, "location"),
-                "start_datetime": start_datetime,
-            }
-            if start_datetime in self._known_available_slots.get(
-                delta.appointment_id, set()
-            ):
-                return "create_appointment", create_arguments, delta.appointment_id
             return (
                 "search_availability",
                 {
@@ -338,36 +341,21 @@ class AppointmentTransactionCoordinator:
             return
         if local_appointment_id in self._persisted_ids:
             return
-        requested_time = arguments.get("preferred_time")
-        if requested_time and value.get("result_status") == "UNAVAILABLE":
-            offered = list(value.get("alternative_slots", ()))
-        elif requested_time:
-            offered = []
-        else:
-            offered = list(value.get("slots", ()))
-        known = self._known_available_slots.setdefault(local_appointment_id, set())
-        for slot in offered:
-            if isinstance(slot, Mapping) and isinstance(
-                slot.get("start_datetime"), str
-            ):
-                known.add(slot["start_datetime"])
-        if value.get("result_status") != "AVAILABLE" or not arguments.get(
-            "preferred_time"
-        ):
+        exact_date = _requested_exact_date(arguments)
+        slots = [
+            slot
+            for slot in value.get("slots", ())
+            if isinstance(slot, Mapping)
+            and isinstance(slot.get("start_datetime"), str)
+            and _slot_matches_exact_date(slot, exact_date)
+        ]
+        if value.get("result_status") != "AVAILABLE" or len(slots) != 1:
             self._pending_creates.pop(local_appointment_id, None)
             return
         appointment = tracker.appointments[local_appointment_id]
-        start_datetime = next(
-            (
-                slot["start_datetime"]
-                for slot in value.get("slots", ())
-                if isinstance(slot, Mapping)
-                and isinstance(slot.get("start_datetime"), str)
-            ),
-            None,
-        )
+        start_datetime = slots[0]["start_datetime"]
         appointment_type = _appointment_type(appointment)
-        if start_datetime is None or appointment_type is None:
+        if appointment_type is None:
             return
         self._pending_creates[local_appointment_id] = {
             "appointment_id": self._database_appointment_id(local_appointment_id),
@@ -453,5 +441,23 @@ def _appointment_type(appointment: AppointmentState) -> str | None:
 
 
 def _confirms_booking(transcript: str) -> bool:
-    normalized = " ".join(transcript.casefold().split())
-    return "nein" not in normalized and _BOOKING_CONFIRMATION.search(normalized) is not None
+    normalized = " ".join(transcript.casefold().strip().rstrip(".!?").split())
+    return (
+        _BOOKING_CORRECTION.search(normalized) is None
+        and _BOOKING_CONFIRMATION.fullmatch(normalized) is not None
+    )
+
+
+def _slot_matches_exact_date(slot: Mapping[str, Any], requested_date: object) -> bool:
+    if not isinstance(requested_date, str):
+        return True
+    return str(slot["start_datetime"])[:10] == requested_date
+
+
+def _requested_exact_date(arguments: Mapping[str, Any]) -> object:
+    explicit = arguments.get("date")
+    if isinstance(explicit, str):
+        return explicit
+    start = arguments.get("start_date")
+    end = arguments.get("end_date")
+    return start if isinstance(start, str) and start == end else None
