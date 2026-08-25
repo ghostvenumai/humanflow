@@ -28,19 +28,29 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _series(raw: dict[str, object]) -> MetricSeries:
+    baseline = tuple(float(value) for value in raw["baseline"])
+    current = tuple(float(value) for value in raw["current"])
+    sample_size = int(raw["sample_size"])
     return MetricSeries(
         metric_name="relative_date_success",
         affected_component="temporal",
         direction=MetricDirection.HIGHER_IS_BETTER,
         target=float(raw["target"]),
-        baseline_values=tuple(float(value) for value in raw["baseline"]),
-        current_values=tuple(float(value) for value in raw["current"]),
-        sample_size=int(raw["sample_size"]),
+        baseline_values=baseline,
+        current_values=current,
+        baseline_sample_counts=_split_count(max(sample_size, len(baseline)), len(baseline)),
+        current_sample_counts=_split_count(sample_size, len(current)),
+        sample_size=sample_size,
         first_seen="2026-08-20T00:00:00Z",
         last_seen="2026-08-25T00:00:00Z",
         evidence_refs=(f"fixture:{raw['id']}",),
         reproduction_hint="run protected relative-date corpus",
     )
+
+
+def _split_count(total: int, buckets: int) -> tuple[int, ...]:
+    quotient, remainder = divmod(total, buckets)
+    return tuple(quotient + (index < remainder) for index in range(buckets))
 
 
 def test_metric_discovery_ignores_healthy_noise_and_detects_real_regression() -> None:
@@ -97,6 +107,8 @@ def test_sudden_degradation_is_anomaly_but_sudden_improvement_is_not() -> None:
             200,
             (100, 101, 99),
             current,
+            (34, 33, 33),
+            (34, 33, 33),
             100,
             "2026-08-20T00:00:00Z",
             "2026-08-25T00:00:00Z",
@@ -109,6 +121,25 @@ def test_sudden_degradation_is_anomaly_but_sudden_improvement_is_not() -> None:
 
     assert degraded[0].detector_type.value == "ANOMALY"
     assert improved == ()
+
+
+def test_metric_discovery_rejects_unsubstantiated_declared_sample_size() -> None:
+    with pytest.raises(ValueError, match="evidenced current sample counts"):
+        MetricSeries(
+            "relative_date_success",
+            "temporal",
+            MetricDirection.HIGHER_IS_BETTER,
+            0.99,
+            (1.0,),
+            (0.0,),
+            (1,),
+            (1,),
+            100,
+            "2026-08-20T00:00:00Z",
+            "2026-08-25T00:00:00Z",
+            ("fixture:unsubstantiated",),
+            "run protected corpus",
+        )
 
 
 def test_repeated_uncovered_failure_becomes_one_coverage_gap_candidate() -> None:

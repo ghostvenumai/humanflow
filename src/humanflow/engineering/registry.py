@@ -64,6 +64,31 @@ _ALLOWED_TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = {
     TaskStatus.MEASURED: frozenset(),
 }
 _VERIFIER_ONLY = frozenset({TaskStatus.PASSED, TaskStatus.FAILED, TaskStatus.MERGE_CANDIDATE})
+_TASK_KEYS = frozenset(
+    {
+        "task_id",
+        "title",
+        "source",
+        "priority",
+        "risk",
+        "status",
+        "passes",
+        "problem_fingerprint",
+        "dependencies",
+        "allowed_paths",
+        "protected_paths",
+        "verification",
+        "target_metrics",
+        "evidence_refs",
+        "human_approval_required",
+        "human_approved",
+        "created_at_utc",
+        "updated_at_utc",
+    }
+)
+_REQUIRED_TASK_KEYS = frozenset(
+    {"task_id", "title", "source", "priority", "risk", "status", "passes"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +211,15 @@ class TaskRegistry:
         raw_tasks = payload.get("features")
         if not isinstance(raw_tasks, list):
             raise ValueError("features must be a list")
+        for item in raw_tasks:
+            if not isinstance(item, Mapping):
+                raise ValueError("every feature must be an object")
+            missing = _REQUIRED_TASK_KEYS.difference(item)
+            unknown = set(item).difference(_TASK_KEYS)
+            if missing:
+                raise ValueError(f"feature is missing required fields: {sorted(missing)}")
+            if unknown:
+                raise ValueError(f"feature has unknown fields: {sorted(unknown)}")
         return cls(path, tuple(EngineeringTaskRecord.from_dict(item) for item in raw_tasks))
 
     @property
@@ -240,6 +274,13 @@ class TaskRegistry:
             raise PermissionError("initial release policy requires human authority")
         if target is TaskStatus.RUNNING and actor is not ActorRole.COORDINATOR:
             raise PermissionError("only the coordinator may dispatch a task")
+        if target is TaskStatus.MERGED and actor not in {
+            ActorRole.COORDINATOR,
+            ActorRole.HUMAN,
+        }:
+            raise PermissionError("merged requires coordinator or human authority")
+        if target is TaskStatus.MERGED and not evidence_refs:
+            raise PermissionError("merged requires immutable Git merge evidence")
         if (
             target is TaskStatus.READY
             and current.human_approval_required

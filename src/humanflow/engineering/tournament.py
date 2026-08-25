@@ -16,11 +16,24 @@ class VerifiedTournamentCoordinator:
     ) -> dict[str, Any]:
         if len(candidates) < 2:
             return TournamentEvaluator().evaluate(candidates)
-        disqualified = {
-            candidate.agent: ["independent_verification_not_passed"]
-            for candidate in candidates
-            if verification_status.get(candidate.agent) != "VERIFIED_PASS"
-        }
+        baselines = {candidate.baseline_commit for candidate in candidates}
+        if len(baselines) != 1:
+            raise ValueError("tournament candidates must share an identical baseline")
+        reference_hashes = candidates[0].evaluation.get("protected_hashes")
+        disqualified: dict[str, list[str]] = {}
+        for candidate in candidates:
+            reasons: list[str] = []
+            if verification_status.get(candidate.agent) != "VERIFIED_PASS":
+                reasons.append("independent_verification_not_passed")
+            if candidate.evaluation.get("protected_hashes") != reference_hashes:
+                reasons.append("protected_artifact_modified")
+            if candidate.evaluation.get("commands_passed") is not True:
+                reasons.append("critical_regression")
+            runtime_quality = candidate.evaluation.get("runtime_quality")
+            if not isinstance(runtime_quality, Mapping) or "score" not in runtime_quality:
+                reasons.append("invalid_quality_evidence")
+            if reasons:
+                disqualified[candidate.agent] = reasons
         eligible = tuple(
             candidate for candidate in candidates if candidate.agent not in disqualified
         )

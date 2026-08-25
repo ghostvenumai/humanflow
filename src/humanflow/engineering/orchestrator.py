@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from hashlib import sha256
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -14,6 +15,7 @@ from .verification import (
     CommandEvidence,
     MergeGateEvidence,
     SupervisorCommandRunner,
+    FrozenBuildIntegrityGuard,
     evaluate_merge_gate,
 )
 from .worktrees import WorktreeLease, WorktreeManager
@@ -61,6 +63,8 @@ class EngineeringHarness:
         registry: TaskRegistry,
         protected_commands: tuple[tuple[str, tuple[str, ...]], ...],
         hidden_acceptance_commands: tuple[tuple[str, tuple[str, ...]], ...],
+        frozen_commit: str,
+        freeze_tag: str,
         command_runner: SupervisorCommandRunner | None = None,
     ) -> None:
         self.repository = repository.resolve()
@@ -68,6 +72,9 @@ class EngineeringHarness:
         self.registry = registry
         self.protected_commands = protected_commands
         self.hidden_acceptance_commands = hidden_acceptance_commands
+        self.freeze_guard = FrozenBuildIntegrityGuard(
+            frozen_commit=frozen_commit, freeze_tag=freeze_tag
+        )
         self.command_runner = command_runner or SupervisorCommandRunner()
 
     def run_task(
@@ -86,6 +93,7 @@ class EngineeringHarness:
         if not self.protected_commands or not self.hidden_acceptance_commands:
             raise RuntimeError("protected and hidden acceptance commands must be configured")
         baseline = _git(self.repository, "rev-parse", "HEAD")
+        self.freeze_guard.verify(self.repository, descendant_commit=baseline)
         self.registry.transition(task_id, TaskStatus.RUNNING, actor=ActorRole.COORDINATOR)
         self.registry.save()
         lease = self.worktree_manager.create(
@@ -94,6 +102,7 @@ class EngineeringHarness:
         commands: list[CommandEvidence] = []
         review_result: ReviewResult | None = None
         candidate_commit: str | None = None
+        review_lease: WorktreeLease | None = None
         try:
             worker_result = worker.run(task_id=task_id, lease=lease)
             candidate_commit = _git(lease.path, "rev-parse", "HEAD")
@@ -103,6 +112,7 @@ class EngineeringHarness:
                 raise RuntimeError("worker result does not identify worktree HEAD")
             if _git(lease.path, "status", "--porcelain"):
                 raise RuntimeError("worker left an uncommitted working tree")
+            self.freeze_guard.verify(self.repository, descendant_commit=candidate_commit)
             self.registry.transition(
                 task_id,
                 TaskStatus.VERIFICATION,
@@ -137,9 +147,20 @@ class EngineeringHarness:
                 baseline,
                 candidate_commit,
             )
-            review_result = reviewer.review(assignment=assignment, worktree=lease.path)
+            review_worker_id = f"review-{sha256(reviewer_session_id.encode()).hexdigest()[:12]}"
+            review_lease = self.worktree_manager.create(
+                task_id=task_id,
+                worker_id=review_worker_id,
+                baseline_commit=candidate_commit,
+            )
+            review_result = reviewer.review(assignment=assignment, worktree=review_lease.path)
             if review_result.assignment != assignment:
                 raise RuntimeError("review result does not match independent assignment")
+            if _git(review_lease.path, "rev-parse", "HEAD") != candidate_commit:
+                raise RuntimeError("INTEGRITY_FAILURE: reviewer changed candidate HEAD")
+            if _git(review_lease.path, "status", "--porcelain"):
+                raise RuntimeError("INTEGRITY_FAILURE: reviewer modified read-only worktree")
+            self.freeze_guard.verify(self.repository, descendant_commit=candidate_commit)
             latest_main = _git(self.repository, "rev-parse", "HEAD")
             latest_main_revalidated = latest_main == baseline and _is_ancestor(
                 self.repository, latest_main, candidate_commit
@@ -157,6 +178,7 @@ class EngineeringHarness:
             )
             gate = evaluate_merge_gate(evidence)
             if gate["status"] == "VERIFIED_PASS":
+                self.freeze_guard.verify(self.repository, descendant_commit=candidate_commit)
                 self.registry.transition(
                     task_id,
                     TaskStatus.PASSED,
@@ -194,6 +216,12 @@ class EngineeringHarness:
                 self.registry.save()
             raise
         finally:
+            if (
+                review_lease is not None
+                and review_lease.path.exists()
+                and not _git(review_lease.path, "status", "--porcelain")
+            ):
+                self.worktree_manager.cleanup(review_lease)
             if lease.path.exists() and not _git(lease.path, "status", "--porcelain"):
                 self.worktree_manager.cleanup(lease)
 

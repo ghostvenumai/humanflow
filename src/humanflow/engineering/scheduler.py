@@ -77,11 +77,18 @@ def tasks_conflict(left: EngineeringTaskRecord, right: EngineeringTaskRecord) ->
 
 
 def path_matches(path: str, rule: str) -> bool:
-    normalized_path = PurePosixPath(path)
-    normalized_rule = rule.rstrip("/")
+    normalized_path = PurePosixPath(path).as_posix().strip("/")
+    normalized_rule = PurePosixPath(rule).as_posix().strip("/")
+    if not normalized_path or not normalized_rule:
+        return False
+    if normalized_rule.endswith("/**"):
+        recursive_root = normalized_rule[:-3].rstrip("/")
+        return normalized_path == recursive_root or normalized_path.startswith(recursive_root + "/")
     if not any(character in normalized_rule for character in "*?["):
-        return path == normalized_rule or path.startswith(normalized_rule + "/")
-    return normalized_path.match(normalized_rule)
+        return normalized_path == normalized_rule or normalized_path.startswith(
+            normalized_rule + "/"
+        )
+    return PurePosixPath(normalized_path).match(normalized_rule)
 
 
 def _path_rules_may_overlap(left: str, right: str) -> bool:

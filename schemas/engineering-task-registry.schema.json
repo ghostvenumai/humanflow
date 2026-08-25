@@ -4,11 +4,33 @@
   "properties": {
     "features": {
       "items": {
-        "additionalProperties": true,
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "enum": ["passed", "merge_candidate", "merged", "released", "measured"]
+                }
+              }
+            },
+            "then": {"properties": {"passes": {"const": true}}},
+            "else": {"properties": {"passes": {"const": false}}}
+          }
+        ],
         "properties": {
+          "allowed_paths": {"items": {"type": "string"}, "type": "array"},
+          "created_at_utc": {"type": "string"},
+          "dependencies": {"items": {"type": "string"}, "type": "array"},
+          "evidence_refs": {"items": {"type": "string"}, "type": "array"},
+          "human_approval_required": {"type": "boolean"},
+          "human_approved": {"type": "boolean"},
           "passes": {"type": "boolean"},
           "priority": {"enum": ["P0", "P1", "P2", "P3"]},
+          "problem_fingerprint": {"type": ["string", "null"]},
+          "protected_paths": {"items": {"type": "string"}, "type": "array"},
           "risk": {"enum": ["low", "medium", "high", "critical"]},
+          "source": {"minLength": 1, "type": "string"},
           "status": {
             "enum": [
               "proposed", "triaged", "ready", "running", "verification",
@@ -16,10 +38,23 @@
               "released", "measured"
             ]
           },
+          "target_metrics": {
+            "additionalProperties": {"type": "string"},
+            "type": "object"
+          },
           "task_id": {"minLength": 1, "type": "string"},
-          "title": {"minLength": 1, "type": "string"}
+          "title": {"minLength": 1, "type": "string"},
+          "updated_at_utc": {"type": "string"},
+          "verification": {
+            "items": {
+              "items": {"minLength": 1, "type": "string"},
+              "minItems": 1,
+              "type": "array"
+            },
+            "type": "array"
+          }
         },
-        "required": ["task_id", "title", "priority", "risk", "status", "passes"],
+        "required": ["task_id", "title", "source", "priority", "risk", "status", "passes"],
         "type": "object"
       },
       "type": "array"

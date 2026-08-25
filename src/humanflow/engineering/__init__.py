@@ -49,10 +49,16 @@ from .registry import (
 )
 from .reviewer import ReviewAssignment, ReviewResult, ReviewVerdict
 from .routing import AgentRoutingDecision, EvidenceInformedAgentRouter
-from .scheduler import ConservativeTaskScheduler, ScheduleDecision, tasks_conflict
+from .scheduler import (
+    ConservativeTaskScheduler,
+    ScheduleDecision,
+    path_matches,
+    tasks_conflict,
+)
 from .verification import (
     CandidateIntegrityGate,
     CommandEvidence,
+    FrozenBuildIntegrityGuard,
     IntegrityReport,
     MergeGateEvidence,
     SupervisorCommandRunner,
@@ -81,6 +87,7 @@ __all__ = [
     "FailureCircuitBreaker",
     "FailureFingerprint",
     "FailureSignal",
+    "FrozenBuildIntegrityGuard",
     "HarnessFailureState",
     "HarnessRunResult",
     "HarnessMetricsStore",
@@ -116,6 +123,7 @@ __all__ = [
     "evaluate_merge_gate",
     "evaluate_post_release",
     "normalize_failure_error",
+    "path_matches",
     "register_proposal",
     "tasks_conflict",
 ]

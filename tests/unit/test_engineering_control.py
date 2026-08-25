@@ -171,3 +171,28 @@ def test_verified_tournament_rejects_unverified_candidate_and_can_have_no_winner
     assert one_verified["disqualified"]["claude"] == ["independent_verification_not_passed"]
     assert none_verified["status"] == "NO_WINNER"
     assert none_verified["winner"] is None
+
+
+def test_tournament_never_selects_verified_candidate_with_failed_commands() -> None:
+    good_evaluation = {
+        "protected_hashes": {"golden": "same"},
+        "commands_passed": True,
+        "runtime_quality": {"score": 1.0},
+    }
+    failed_evaluation = {
+        **good_evaluation,
+        "commands_passed": False,
+    }
+    candidates = (
+        CandidateSubmission("bad", "base", "a", failed_evaluation, 5),
+        CandidateSubmission("unverified", "base", "b", good_evaluation, 5),
+    )
+
+    result = VerifiedTournamentCoordinator().evaluate(
+        candidates,
+        verification_status={"bad": "VERIFIED_PASS", "unverified": "MERGE_REJECTED"},
+    )
+
+    assert result["status"] == "NO_WINNER"
+    assert result["winner"] is None
+    assert "critical_regression" in result["disqualified"]["bad"]

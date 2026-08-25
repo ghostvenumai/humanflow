@@ -44,7 +44,9 @@ def _repo(tmp_path: Path) -> tuple[Path, str]:
     (repo / "src" / "value.py").write_text("VALUE = 1\n")
     _git(repo, "add", ".")
     _git(repo, "commit", "-m", "baseline")
-    return repo, _git(repo, "rev-parse", "HEAD")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "tag", "everlast-72h-build", baseline)
+    return repo, baseline
 
 
 @dataclass
@@ -62,6 +64,13 @@ class PassingReviewer:
     def review(self, *, assignment: ReviewAssignment, worktree: Path) -> ReviewResult:
         assert worktree.is_dir()
         return ReviewResult(assignment, ReviewVerdict.PASS, (), ("review-1",))
+
+
+@dataclass
+class MutatingReviewer:
+    def review(self, *, assignment: ReviewAssignment, worktree: Path) -> ReviewResult:
+        (worktree / "src" / "reviewer-write.py").write_text("UNSAFE = True\n")
+        return ReviewResult(assignment, ReviewVerdict.PASS, (), ("review-unsafe",))
 
 
 def _ready_registry(path: Path) -> TaskRegistry:
@@ -95,6 +104,8 @@ def test_harness_prepares_independently_verified_merge_candidate_without_merging
         registry=registry,
         protected_commands=(("protected", ("python3", "-c", "assert True")),),
         hidden_acceptance_commands=(("hidden", ("python3", "-c", "assert True")),),
+        frozen_commit=baseline,
+        freeze_tag="everlast-72h-build",
     )
 
     result = harness.run_task(
@@ -117,7 +128,7 @@ def test_harness_prepares_independently_verified_merge_candidate_without_merging
 def test_harness_fails_closed_when_hidden_acceptance_is_not_configured(
     tmp_path: Path,
 ) -> None:
-    repo, _ = _repo(tmp_path)
+    repo, baseline = _repo(tmp_path)
     registry = _ready_registry(tmp_path / "feature_list.json")
     harness = EngineeringHarness(
         repository=repo,
@@ -125,9 +136,69 @@ def test_harness_fails_closed_when_hidden_acceptance_is_not_configured(
         registry=registry,
         protected_commands=(("protected", ("python3", "-c", "assert True")),),
         hidden_acceptance_commands=(),
+        frozen_commit=baseline,
+        freeze_tag="everlast-72h-build",
     )
 
     with pytest.raises(RuntimeError, match="hidden acceptance"):
+        harness.run_task(
+            "HF-1",
+            worker_id="local-worker",
+            worker_session_id="worker-session",
+            reviewer_session_id="reviewer-session",
+            worker=LocalWorker(),
+            reviewer=PassingReviewer(),
+        )
+
+    assert registry.get("HF-1").status is TaskStatus.READY
+
+
+def test_mutating_reviewer_is_rejected_and_cannot_create_merge_candidate(
+    tmp_path: Path,
+) -> None:
+    repo, baseline = _repo(tmp_path)
+    registry = _ready_registry(tmp_path / "feature_list.json")
+    harness = EngineeringHarness(
+        repository=repo,
+        worktree_manager=WorktreeManager(repository=repo, worktree_root=tmp_path / "worktrees"),
+        registry=registry,
+        protected_commands=(("protected", ("python3", "-c", "assert True")),),
+        hidden_acceptance_commands=(("hidden", ("python3", "-c", "assert True")),),
+        frozen_commit=baseline,
+        freeze_tag="everlast-72h-build",
+    )
+
+    with pytest.raises(RuntimeError, match="reviewer modified"):
+        harness.run_task(
+            "HF-1",
+            worker_id="local-worker",
+            worker_session_id="worker-session",
+            reviewer_session_id="mutating-reviewer-session",
+            worker=LocalWorker(),
+            reviewer=MutatingReviewer(),
+        )
+
+    assert registry.get("HF-1").status is TaskStatus.BLOCKED
+
+
+def test_harness_rejects_changed_freeze_tag_before_dispatch(tmp_path: Path) -> None:
+    repo, baseline = _repo(tmp_path)
+    (repo / "src" / "second.py").write_text("VALUE = 2\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "second")
+    _git(repo, "tag", "-f", "everlast-72h-build", "HEAD")
+    registry = _ready_registry(tmp_path / "feature_list.json")
+    harness = EngineeringHarness(
+        repository=repo,
+        worktree_manager=WorktreeManager(repository=repo, worktree_root=tmp_path / "worktrees"),
+        registry=registry,
+        protected_commands=(("protected", ("python3", "-c", "assert True")),),
+        hidden_acceptance_commands=(("hidden", ("python3", "-c", "assert True")),),
+        frozen_commit=baseline,
+        freeze_tag="everlast-72h-build",
+    )
+
+    with pytest.raises(RuntimeError, match="FROZEN_BUILD_INTEGRITY_FAILURE"):
         harness.run_task(
             "HF-1",
             worker_id="local-worker",

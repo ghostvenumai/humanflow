@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from humanflow.engineering import (
     ActorRole,
@@ -93,6 +94,23 @@ def test_task_registry_persists_atomically_and_deduplicates_problem_evidence(
     assert not list(tmp_path.glob("*.tmp"))
 
 
+def test_registry_json_schema_matches_runtime_contract(tmp_path: Path) -> None:
+    path = tmp_path / "feature_list.json"
+    registry = TaskRegistry(path)
+    registry.add(_task())
+    registry.save()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    schema_path = Path(__file__).parents[2] / "schemas" / "engineering-task-registry.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+    Draft202012Validator(schema).validate(payload)
+
+    payload["features"][0]["unknown"] = True
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="unknown fields"):
+        TaskRegistry.load(path)
+
+
 def test_worker_cannot_self_verify_and_high_risk_ready_requires_human_approval(
     tmp_path: Path,
 ) -> None:
@@ -138,9 +156,24 @@ def test_initial_release_transition_requires_human_authority(tmp_path: Path) -> 
         (TaskStatus.VERIFICATION, ActorRole.WORKER),
         (TaskStatus.PASSED, ActorRole.VERIFIER),
         (TaskStatus.MERGE_CANDIDATE, ActorRole.VERIFIER),
-        (TaskStatus.MERGED, ActorRole.COORDINATOR),
     ):
         registry.transition("HF-241", target, actor=actor)
+
+    with pytest.raises(PermissionError, match="coordinator or human"):
+        registry.transition(
+            "HF-241",
+            TaskStatus.MERGED,
+            actor=ActorRole.WORKER,
+            evidence_refs=("git-merge:unsafe",),
+        )
+    with pytest.raises(PermissionError, match="Git merge evidence"):
+        registry.transition("HF-241", TaskStatus.MERGED, actor=ActorRole.COORDINATOR)
+    registry.transition(
+        "HF-241",
+        TaskStatus.MERGED,
+        actor=ActorRole.COORDINATOR,
+        evidence_refs=("git-merge:abc123",),
+    )
 
     with pytest.raises(PermissionError, match="human"):
         registry.transition("HF-241", TaskStatus.RELEASED, actor=ActorRole.COORDINATOR)

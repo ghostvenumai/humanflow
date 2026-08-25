@@ -38,6 +38,8 @@ class MetricSeries:
     target: float
     baseline_values: tuple[float, ...]
     current_values: tuple[float, ...]
+    baseline_sample_counts: tuple[int, ...]
+    current_sample_counts: tuple[int, ...]
     sample_size: int
     first_seen: str
     last_seen: str
@@ -49,6 +51,14 @@ class MetricSeries:
             raise ValueError("metric identity must not be empty")
         if not self.baseline_values or not self.current_values or self.sample_size < 1:
             raise ValueError("metric evidence requires baseline, current and sample size")
+        if len(self.baseline_values) != len(self.baseline_sample_counts) or len(
+            self.current_values
+        ) != len(self.current_sample_counts):
+            raise ValueError("every aggregate metric value requires an evidence sample count")
+        if any(count < 1 for count in (*self.baseline_sample_counts, *self.current_sample_counts)):
+            raise ValueError("metric sample counts must be positive")
+        if sum(self.current_sample_counts) != self.sample_size:
+            raise ValueError("sample_size must equal the evidenced current sample counts")
         if not self.evidence_refs:
             raise ValueError("metric evidence_refs must not be empty")
 

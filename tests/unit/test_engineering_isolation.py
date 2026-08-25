@@ -21,6 +21,7 @@ from humanflow.engineering import (
     TaskStatus,
     WorktreeManager,
     evaluate_merge_gate,
+    path_matches,
     tasks_conflict,
 )
 
@@ -162,6 +163,14 @@ def test_engineering_acceptance_fixtures_are_supervisor_protected(
 
     assert report.passed is False
     assert "PROTECTED_PATH_MODIFIED:eval/engineering/scenarios.json" in report.findings
+
+
+def test_recursive_path_rules_cover_arbitrarily_deep_paths() -> None:
+    assert path_matches("tests/golden/direct.json", "tests/golden/**")
+    assert path_matches("tests/golden/nested/deep.json", "tests/golden/**")
+    assert path_matches("tests/golden/a/b/c/deep.json", "tests/golden/**")
+    assert path_matches("src/humanflow/runtime/deep/file.py", "src/humanflow/**")
+    assert not path_matches("tests/goldenish/deep.json", "tests/golden/**")
 
 
 def test_reviewer_is_independent_and_hidden_command_returns_only_evidence(

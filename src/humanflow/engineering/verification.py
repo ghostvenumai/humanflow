@@ -15,6 +15,25 @@ from .reviewer import ReviewResult, ReviewVerdict
 from .scheduler import path_matches
 
 
+class FrozenBuildIntegrityGuard:
+    """Fail when the immutable tag or its ancestry changes at any harness boundary."""
+
+    def __init__(self, *, frozen_commit: str, freeze_tag: str) -> None:
+        if not frozen_commit.strip() or not freeze_tag.strip():
+            raise ValueError("frozen commit and tag are required")
+        self.frozen_commit = frozen_commit
+        self.freeze_tag = freeze_tag
+
+    def verify(self, repository: Path, *, descendant_commit: str) -> None:
+        expected = _git(repository, "rev-parse", f"{self.frozen_commit}^{{commit}}")
+        actual = _git(repository, "rev-parse", f"{self.freeze_tag}^{{commit}}")
+        descendant = _git(repository, "rev-parse", f"{descendant_commit}^{{commit}}")
+        if actual != expected:
+            raise RuntimeError("FROZEN_BUILD_INTEGRITY_FAILURE: tag target changed")
+        if not _is_ancestor(repository, expected, descendant):
+            raise RuntimeError("FROZEN_BUILD_INTEGRITY_FAILURE: frozen commit is not an ancestor")
+
+
 class VerificationStatus(StrEnum):
     VERIFIED_PASS = "VERIFIED_PASS"
     MERGE_REJECTED = "MERGE_REJECTED"
@@ -175,3 +194,15 @@ def _git(repository: Path, *arguments: str) -> str:
         text=True,
     )
     return completed.stdout.strip()
+
+
+def _is_ancestor(repository: Path, ancestor: str, descendant: str) -> bool:
+    return (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+            cwd=repository,
+            check=False,
+            capture_output=True,
+        ).returncode
+        == 0
+    )
