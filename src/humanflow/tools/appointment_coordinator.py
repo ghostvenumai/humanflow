@@ -46,7 +46,8 @@ _CONTEXTUAL_BOOKED_LIST_VARIANT = re.compile(
     re.IGNORECASE,
 )
 _BOOKING_CORRECTION = re.compile(
-    r"\b(?:nein|nicht|lieber|stattdessen|warte|moment|doch\s+nicht)\b",
+    r"\b(?:nein|nicht|lieber|stattdessen|warte|moment|doch\s+nicht|"
+    r"aber|später|früher)\b",
     re.IGNORECASE,
 )
 _OPEN_AVAILABILITY_FOLLOWUP = re.compile(
@@ -208,6 +209,7 @@ class AppointmentTransactionCoordinator:
         self._timezone = ZoneInfo(timezone)
         self._today = today or (lambda: datetime.now(self._timezone).date())
         self._persisted_ids: dict[str, str] = {}
+        self._committed_start_datetimes: dict[str, str] = {}
         self._pending_offers: dict[str, PendingAvailabilityOffer] = {}
         self._last_tool_results: dict[str, AppointmentTransactionOutcome] = {}
         self._last_availability_queries: dict[str, Mapping[str, Any]] = {}
@@ -253,12 +255,23 @@ class AppointmentTransactionCoordinator:
             success=success,
             failure_reason=result.failure_reason,
         )
-        if not self._state_machine.accept_result(
-            parent_token, correlation_id=correlation_id
-        ):
+        if not self._state_machine.accept_result(parent_token, correlation_id=correlation_id):
             if tool_name == "create_appointment" and local_appointment_id is not None:
-                self._finish_pending_offer(
-                    local_appointment_id, PendingOfferStatus.INVALIDATED
+                self._finish_pending_offer(local_appointment_id, PendingOfferStatus.INVALIDATED)
+            if (
+                local_appointment_id is not None
+                and local_appointment_id in self._persisted_ids
+                and tool_name in {"reschedule_appointment", "cancel_appointment"}
+            ):
+                delta = tracker.record_tool_result(
+                    local_appointment_id,
+                    action="reschedule" if tool_name == "reschedule_appointment" else "cancel",
+                    success=False,
+                    source_turn=f"tool:{source_turn}",
+                    committed_start_datetime=self._committed_start_datetimes.get(
+                        local_appointment_id
+                    ),
+                    preserve_committed_booking_on_failure=True,
                 )
             return delta, outcome
         semantic_success = success
@@ -277,27 +290,27 @@ class AppointmentTransactionCoordinator:
         elif tool_name == "create_appointment" and local_appointment_id is not None:
             if success:
                 self._finish_pending_offer(local_appointment_id, PendingOfferStatus.BOOKED)
-                self._persisted_ids[local_appointment_id] = str(
-                    value["appointment_id"]
-                )
+                self._persisted_ids[local_appointment_id] = str(value["appointment_id"])
+                committed_start = _committed_start_datetime(tool_name, value)
+                if committed_start is not None:
+                    self._committed_start_datetimes[local_appointment_id] = committed_start
             elif value.get("result_status") == "BOOKING_CONFLICT":
-                self._finish_pending_offer(
-                    local_appointment_id, PendingOfferStatus.INVALIDATED
-                )
+                self._finish_pending_offer(local_appointment_id, PendingOfferStatus.INVALIDATED)
             else:
                 self._transition_pending_offer(
                     local_appointment_id,
                     from_status=PendingOfferStatus.COMMITTING,
                     to_status=PendingOfferStatus.OFFERED,
                 )
+        elif tool_name == "list_appointments" and success:
+            self._hydrate_listed_appointments(value=value, tracker=tracker, source_turn=source_turn)
         if local_appointment_id is not None:
             self._last_tool_results[local_appointment_id] = outcome
         should_record_action_state = (
             local_appointment_id is not None
             and tool_name != "list_appointments"
             and not (
-                tool_name == "search_availability"
-                and local_appointment_id in self._persisted_ids
+                tool_name == "search_availability" and local_appointment_id in self._persisted_ids
             )
         )
         if should_record_action_state:
@@ -313,13 +326,64 @@ class AppointmentTransactionCoordinator:
                 success=semantic_success,
                 source_turn=f"tool:{source_turn}",
                 committed_start_datetime=_committed_start_datetime(tool_name, value),
+                preserve_committed_booking_on_failure=bool(
+                    not semantic_success
+                    and tool_name in {"reschedule_appointment", "cancel_appointment"}
+                    and local_appointment_id in self._persisted_ids
+                ),
             )
+            if semantic_success and tool_name == "reschedule_appointment":
+                committed_start = _committed_start_datetime(tool_name, value)
+                if committed_start is not None:
+                    self._committed_start_datetimes[local_appointment_id] = committed_start
         self._record_domain_event(
             outcome=outcome,
             correlation_id=correlation_id,
             appointment_id=value.get("appointment_id"),
         )
         return delta, outcome
+
+    def _hydrate_listed_appointments(
+        self,
+        *,
+        value: Mapping[str, Any],
+        tracker: AppointmentStateTracker,
+        source_turn: str,
+    ) -> None:
+        rows = value.get("appointments")
+        if not isinstance(rows, list):
+            return
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            database_id = row.get("appointment_id")
+            appointment_type = row.get("appointment_type")
+            start_datetime = row.get("start_datetime")
+            if not all(
+                isinstance(item, str) and item.strip()
+                for item in (database_id, appointment_type, start_datetime)
+            ):
+                continue
+            known_local_id = next(
+                (
+                    local_id
+                    for local_id, persisted_id in self._persisted_ids.items()
+                    if persisted_id == database_id
+                ),
+                None,
+            )
+            local_id = known_local_id or tracker.restore_committed_appointment(
+                database_appointment_id=database_id,
+                appointment_type=appointment_type,
+                start_datetime=start_datetime,
+                provider_name=(
+                    row.get("provider_name") if isinstance(row.get("provider_name"), str) else None
+                ),
+                location=(row.get("location") if isinstance(row.get("location"), str) else None),
+                source_turn=f"tool:{source_turn}",
+            )
+            self._persisted_ids[local_id] = database_id
+            self._committed_start_datetimes[local_id] = start_datetime
 
     def enrich_reasoning_context(
         self,
@@ -336,13 +400,9 @@ class AppointmentTransactionCoordinator:
             payload = {}
         resolved_id = payload.get("resolved_appointment_id_this_turn")
         pending_offer = (
-            self._pending_offers.get(resolved_id)
-            if isinstance(resolved_id, str)
-            else None
+            self._pending_offers.get(resolved_id) if isinstance(resolved_id, str) else None
         )
-        payload["pending_offer"] = (
-            pending_offer.to_dict() if pending_offer is not None else None
-        )
+        payload["pending_offer"] = pending_offer.to_dict() if pending_offer is not None else None
         payload["database_tool_result"] = outcome.to_dict()
         payload["database_state_is_authoritative"] = True
         payload["external_action_performed"] = bool(
@@ -371,18 +431,12 @@ class AppointmentTransactionCoordinator:
         tracker: AppointmentStateTracker,
     ) -> tuple[str, dict[str, Any], str | None] | None:
         candidate_id = delta.appointment_id or tracker.active_focus_appointment_id
-        candidate = (
-            tracker.appointments.get(candidate_id) if candidate_id is not None else None
-        )
+        candidate = tracker.appointments.get(candidate_id) if candidate_id is not None else None
         candidate_date = _slot(candidate, "date") if candidate is not None else None
-        if candidate_date and not requested_weekday_matches_date(
-            transcript, candidate_date
-        ):
+        if candidate_date and not requested_weekday_matches_date(transcript, candidate_date):
             raise RuntimeError("temporal_weekday_date_invariant_violated")
         focused_id = tracker.active_focus_appointment_id
-        focused = (
-            tracker.appointments.get(focused_id) if focused_id is not None else None
-        )
+        focused = tracker.appointments.get(focused_id) if focused_id is not None else None
         focused_status = _slot(focused, "status") if focused is not None else None
         has_slot_correction = bool({"date", "time"}.intersection(delta.updated_slots))
         rejected_pending_offer = bool(
@@ -390,11 +444,18 @@ class AppointmentTransactionCoordinator:
             and focused_id in self._pending_offers
             and _rejects_pending_offer(transcript)
         )
-        if focused_id is not None and focused_id in self._pending_offers and (
-            has_slot_correction
-            or rejected_pending_offer
-            or focused_status
-            in {AppointmentActionState.CANCELLED.value, AppointmentActionState.TOOL_PENDING.value}
+        if (
+            focused_id is not None
+            and focused_id in self._pending_offers
+            and (
+                has_slot_correction
+                or rejected_pending_offer
+                or focused_status
+                in {
+                    AppointmentActionState.CANCELLED.value,
+                    AppointmentActionState.TOOL_PENDING.value,
+                }
+            )
         ):
             terminal_status = (
                 PendingOfferStatus.REJECTED
@@ -404,9 +465,8 @@ class AppointmentTransactionCoordinator:
             self._finish_pending_offer(focused_id, terminal_status)
             if rejected_pending_offer and not has_slot_correction:
                 return None
-        if (
-            delta.resolution_reason == "multi_appointment_overview"
-            or _is_booked_list_intent(transcript, tracker=tracker)
+        if delta.resolution_reason == "multi_appointment_overview" or _is_booked_list_intent(
+            transcript, tracker=tracker
         ):
             self._invalidate_all_pending_offers()
             return "list_appointments", {"include_cancelled": False}, None
@@ -427,13 +487,9 @@ class AppointmentTransactionCoordinator:
         ):
             offer = self._pending_offers[focused_id]
             if not offer.is_valid_for(focused_id):
-                self._finish_pending_offer(
-                    focused_id, PendingOfferStatus.INVALIDATED
-                )
+                self._finish_pending_offer(focused_id, PendingOfferStatus.INVALIDATED)
                 return None
-            self._pending_offers[focused_id] = replace(
-                offer, status=PendingOfferStatus.CONFIRMED
-            )
+            self._pending_offers[focused_id] = replace(offer, status=PendingOfferStatus.CONFIRMED)
             return (
                 "create_appointment",
                 offer.create_arguments(),
@@ -502,9 +558,7 @@ class AppointmentTransactionCoordinator:
         tracker: AppointmentStateTracker,
     ) -> tuple[str, dict[str, Any], str | None]:
         local_id = delta.appointment_id or tracker.active_focus_appointment_id
-        appointment = (
-            tracker.appointments.get(local_id) if local_id is not None else None
-        )
+        appointment = tracker.appointments.get(local_id) if local_id is not None else None
         date_value = _slot(appointment, "date") if appointment is not None else None
         start_date = date_value or self._today().isoformat()
         broaden_to_next_slot = bool(
@@ -529,9 +583,7 @@ class AppointmentTransactionCoordinator:
                 "provider_name": _slot(appointment, "provider"),
                 "location": _slot(appointment, "location"),
                 "preferred_time": (
-                    _slot(appointment, "time")
-                    if "time" in delta.updated_slots
-                    else None
+                    _slot(appointment, "time") if "time" in delta.updated_slots else None
                 ),
             }
             arguments.update({name: value for name, value in optional.items() if value})
@@ -564,19 +616,16 @@ class AppointmentTransactionCoordinator:
             and isinstance(slot.get("start_datetime"), str)
             and _slot_matches_exact_date(slot, exact_date)
         ]
-        offered_slots = (
-            alternatives if value.get("result_status") == "UNAVAILABLE" else slots
-        )
-        if value.get("result_status") not in {"AVAILABLE", "UNAVAILABLE"} or len(
-            offered_slots
-        ) != 1:
+        offered_slots = alternatives if value.get("result_status") == "UNAVAILABLE" else slots
+        if (
+            value.get("result_status") not in {"AVAILABLE", "UNAVAILABLE"}
+            or len(offered_slots) != 1
+        ):
             self._pending_offers.pop(local_appointment_id, None)
             return None
         appointment = tracker.appointments[local_appointment_id]
         offered = offered_slots[0]
-        appointment_type = offered.get("appointment_type") or _appointment_type(
-            appointment
-        )
+        appointment_type = offered.get("appointment_type") or _appointment_type(appointment)
         required = {
             "start_datetime": offered.get("start_datetime"),
             "appointment_type": appointment_type,
@@ -633,9 +682,7 @@ class AppointmentTransactionCoordinator:
 
     def _invalidate_all_pending_offers(self) -> None:
         for local_appointment_id in tuple(self._pending_offers):
-            self._finish_pending_offer(
-                local_appointment_id, PendingOfferStatus.INVALIDATED
-            )
+            self._finish_pending_offer(local_appointment_id, PendingOfferStatus.INVALIDATED)
 
     def _database_appointment_id(self, local_appointment_id: str) -> str:
         stable = uuid5(
@@ -679,7 +726,9 @@ class AppointmentTransactionCoordinator:
         self._state_machine.record(
             event_type,
             correlation_id=correlation_id,
-            reason_code=("transaction_committed" if outcome.success else "transaction_not_committed"),
+            reason_code=(
+                "transaction_committed" if outcome.success else "transaction_not_committed"
+            ),
             payload={
                 "tool_name": outcome.tool_name,
                 "appointment_id": appointment_id,
@@ -716,9 +765,7 @@ def _confirms_booking(transcript: str) -> bool:
     normalized = " ".join(transcript.casefold().split())
     if _BOOKING_CORRECTION.search(normalized) is not None:
         return False
-    tokens = tuple(
-        token for token in _CONFIRMATION_TOKEN.sub(" ", normalized).split() if token
-    )
+    tokens = tuple(token for token in _CONFIRMATION_TOKEN.sub(" ", normalized).split() if token)
     return bool(
         tokens
         and len(tokens) <= 8
@@ -734,10 +781,7 @@ def _is_booked_list_intent(
 ) -> bool:
     return bool(
         _BOOKED_LIST_INTENT.search(transcript)
-        or (
-            tracker.appointments
-            and _CONTEXTUAL_BOOKED_LIST_VARIANT.search(transcript)
-        )
+        or (tracker.appointments and _CONTEXTUAL_BOOKED_LIST_VARIANT.search(transcript))
     )
 
 
@@ -771,9 +815,7 @@ def _was_last_search_unavailable(
     )
 
 
-def _committed_start_datetime(
-    tool_name: str, value: Mapping[str, Any]
-) -> str | None:
+def _committed_start_datetime(tool_name: str, value: Mapping[str, Any]) -> str | None:
     if tool_name == "create_appointment":
         start = value.get("start_datetime")
         return start if isinstance(start, str) else None
@@ -781,5 +823,9 @@ def _committed_start_datetime(
         new_slot = value.get("new_slot")
         if isinstance(new_slot, Mapping):
             start = new_slot.get("start_datetime")
+            return start if isinstance(start, str) else None
+        current_slot = value.get("current_slot")
+        if isinstance(current_slot, Mapping):
+            start = current_slot.get("start_datetime")
             return start if isinstance(start, str) else None
     return None

@@ -18,9 +18,7 @@ _CLOCK_PATTERN = re.compile(
     r"(?:(?P<separator>[:.])(?P<minute>[0-5]\d))?\s*(?P<uhr>uhr)\b",
     re.IGNORECASE,
 )
-_COLON_CLOCK_PATTERN = re.compile(
-    r"\b(?P<hour>[01]?\d|2[0-3]):(?P<minute>[0-5]\d)\b"
-)
+_COLON_CLOCK_PATTERN = re.compile(r"\b(?P<hour>[01]?\d|2[0-3]):(?P<minute>[0-5]\d)\b")
 _APPOINTMENT_WORD = re.compile(
     r"\b(\w*termin\w*|sprechstunde|behandlung|verabredung)\b", re.IGNORECASE
 )
@@ -59,6 +57,10 @@ _CANCEL_REQUEST = re.compile(
 )
 _BOOKING_CONFIRMATION = re.compile(
     r"\b(?:ja|okay|ok|passt|bestätige|buchen|buch(?:e)?|nimm)\b",
+    re.IGNORECASE,
+)
+_TRANSACTION_ACTION = re.compile(
+    r"\b(?:buch\w*|verschieb\w*|änder\w*|stornier\w*|sag\w*\s+ab)\b",
     re.IGNORECASE,
 )
 
@@ -222,6 +224,7 @@ class AppointmentStateTracker:
         temporal_resolver: GermanTemporalResolver | None = None,
     ) -> None:
         self._appointments: dict[str, AppointmentState] = {}
+        self._database_appointment_ids: dict[str, str] = {}
         self.active_focus_appointment_id: str | None = None
         self._next_id = 1
         self._turn_index = 0
@@ -235,9 +238,7 @@ class AppointmentStateTracker:
             )
         else:
             self._current_local_datetime = lambda: datetime.now(self._timezone)
-        self._temporal_resolver = temporal_resolver or GermanTemporalResolver(
-            timezone=timezone
-        )
+        self._temporal_resolver = temporal_resolver or GermanTemporalResolver(timezone=timezone)
         self._now = now or (lambda: datetime.now(UTC))
 
     @property
@@ -270,9 +271,7 @@ class AppointmentStateTracker:
         references = _extract_entity_references(text)
         explicitly_about_appointment = bool(_APPOINTMENT_WORD.search(normalized))
         existing_state = (
-            self.focused_appointment.to_dict()
-            if self.focused_appointment is not None
-            else None
+            self.focused_appointment.to_dict() if self.focused_appointment is not None else None
         )
         temporal_clarification = self._temporal_resolver.clarification_candidate(
             text,
@@ -286,9 +285,7 @@ class AppointmentStateTracker:
         )
         parsed_time = _extract_time(text)
         has_slot_delta = (
-            parsed_date is not None
-            or parsed_time is not None
-            or temporal_clarification is not None
+            parsed_date is not None or parsed_time is not None or temporal_clarification is not None
         )
 
         resolution = self._resolve(
@@ -416,9 +413,7 @@ class AppointmentStateTracker:
             created=created,
             clarification_required=temporal_clarification is not None,
             temporal_clarification=(
-                temporal_clarification.to_dict()
-                if temporal_clarification is not None
-                else None
+                temporal_clarification.to_dict() if temporal_clarification is not None else None
             ),
             resolution_reason=(
                 "ambiguous_temporal_expression"
@@ -435,6 +430,7 @@ class AppointmentStateTracker:
         success: bool,
         source_turn: str,
         committed_start_datetime: str | None = None,
+        preserve_committed_booking_on_failure: bool = False,
     ) -> AppointmentStateDelta:
         """The only path allowed to claim an external booking/cancellation result."""
 
@@ -443,7 +439,9 @@ class AppointmentStateTracker:
         normalized_action = action.casefold().strip()
         if normalized_action not in {"search", "book", "reschedule", "cancel"}:
             raise ValueError("tool action must be search, book, reschedule or cancel")
-        if not success:
+        if not success and preserve_committed_booking_on_failure:
+            status = AppointmentActionState.BOOKED
+        elif not success:
             status = AppointmentActionState.FAILED
         elif normalized_action == "search":
             status = AppointmentActionState.AVAILABLE
@@ -454,17 +452,16 @@ class AppointmentStateTracker:
         elif normalized_action == "cancel":
             status = AppointmentActionState.CANCELLED
         appointment.external_action_confirmed = bool(
-            success and normalized_action in {"book", "reschedule", "cancel"}
+            (success and normalized_action in {"book", "reschedule", "cancel"})
+            or preserve_committed_booking_on_failure
         )
         updated_slots: list[str] = []
         if (
-            success
+            (success or preserve_committed_booking_on_failure)
             and normalized_action in {"book", "reschedule"}
             and committed_start_datetime is not None
         ):
-            committed = datetime.fromisoformat(committed_start_datetime).astimezone(
-                self._timezone
-            )
+            committed = datetime.fromisoformat(committed_start_datetime).astimezone(self._timezone)
             temporal = TemporalResolution(
                 raw_expression=committed_start_datetime,
                 resolved_iso_date=committed.date().isoformat(),
@@ -509,8 +506,68 @@ class AppointmentStateTracker:
             appointment_id=appointment_id,
             updated_slots=tuple(updated_slots),
             resolution_reason="explicit_tool_result",
-            external_action_performed=True,
+            external_action_performed=bool(
+                success and normalized_action in {"book", "reschedule", "cancel"}
+            ),
         )
+
+    def restore_committed_appointment(
+        self,
+        *,
+        database_appointment_id: str,
+        appointment_type: str,
+        start_datetime: str,
+        provider_name: str | None,
+        location: str | None,
+        source_turn: str,
+    ) -> str:
+        """Hydrate one SQLite booking without inventing a new transaction."""
+
+        existing = self._database_appointment_ids.get(database_appointment_id)
+        if existing is not None:
+            return existing
+        committed = datetime.fromisoformat(start_datetime).astimezone(self._timezone)
+        timestamp = self._timestamp()
+        appointment_id = f"appointment_{self._next_id}"
+        self._next_id += 1
+        appointment = AppointmentState(
+            appointment_id=appointment_id,
+            source_turn=source_turn,
+            updated_at=timestamp,
+            confidence=1.0,
+            external_action_confirmed=True,
+        )
+        self._appointments[appointment_id] = appointment
+        temporal = TemporalResolution(
+            raw_expression=start_datetime,
+            resolved_iso_date=committed.date().isoformat(),
+            timezone=self._timezone.key,
+            resolution_rule="SQLITE_COMMITTED_APPOINTMENT_RESTORED",
+            confidence=1.0,
+        )
+        values: tuple[tuple[str, str | None, TemporalResolution | None], ...] = (
+            ("purpose", appointment_type, None),
+            ("date", committed.date().isoformat(), temporal),
+            ("time", committed.strftime("%H:%M"), None),
+            ("provider", provider_name, None),
+            ("location", location, None),
+            ("status", AppointmentActionState.BOOKED.value, None),
+        )
+        for slot_name, value, resolution in values:
+            if value is None:
+                continue
+            self._set_slot(
+                appointment,
+                slot_name,
+                value=value,
+                raw_value=start_datetime if slot_name in {"date", "time"} else value,
+                confidence=1.0,
+                source_turn=source_turn,
+                timestamp=timestamp,
+                temporal_resolution=resolution,
+            )
+        self._database_appointment_ids[database_appointment_id] = appointment_id
+        return appointment_id
 
     def reasoning_context(self, delta: AppointmentStateDelta) -> str | None:
         if not self._appointments and not delta.clarification_required:
@@ -524,9 +581,7 @@ class AppointmentStateTracker:
             for appointment_id, appointment in self._appointments.items()
         }
         resolved_state = (
-            compact.get(delta.appointment_id, {})
-            if delta.appointment_id is not None
-            else {}
+            compact.get(delta.appointment_id, {}) if delta.appointment_id is not None else {}
         )
         known_slots = tuple(
             name
@@ -618,6 +673,19 @@ class AppointmentStateTracker:
             return _Resolution(None, "multi_appointment_overview", options)
 
         if references:
+            distinct_purposes = tuple(dict.fromkeys(reference.purpose for reference in references))
+            action_mentions = tuple(_TRANSACTION_ACTION.finditer(normalized))
+            if len(distinct_purposes) > 1 and len(action_mentions) > 1:
+                options = tuple(
+                    appointment_id
+                    for reference in references
+                    for appointment_id in self._matching_entity(reference)
+                )
+                return _Resolution(
+                    None,
+                    "multiple_appointment_actions_require_separation",
+                    tuple(dict.fromkeys(options)) or distinct_purposes,
+                )
             reference = references[-1]
             matching = self._matching_entity(reference)
             force_new = bool(_NEW_APPOINTMENT.search(normalized))
@@ -696,8 +764,7 @@ class AppointmentStateTracker:
                 appointment.provider.value.casefold() if appointment.provider else "",
             }
             if reference.purpose.casefold() in values or (
-                reference.specialty is not None
-                and reference.specialty.casefold() in values
+                reference.specialty is not None and reference.specialty.casefold() in values
             ):
                 matches.append(appointment_id)
         return matches
@@ -720,8 +787,7 @@ class AppointmentStateTracker:
         if appointment.date is not None and appointment.time is not None:
             return AppointmentActionState.READY_TO_BOOK
         if any(
-            slot is not None
-            for slot in (appointment.purpose, appointment.date, appointment.time)
+            slot is not None for slot in (appointment.purpose, appointment.date, appointment.time)
         ):
             return AppointmentActionState.COLLECTING_DETAILS
         return AppointmentActionState.PROPOSED
@@ -751,9 +817,7 @@ class AppointmentStateTracker:
                 confidence=confidence,
                 raw_value=raw_value,
                 raw_expression=(
-                    temporal_resolution.raw_expression
-                    if temporal_resolution is not None
-                    else None
+                    temporal_resolution.raw_expression if temporal_resolution is not None else None
                 ),
                 resolved_iso_date=(
                     temporal_resolution.resolved_iso_date
@@ -761,14 +825,10 @@ class AppointmentStateTracker:
                     else None
                 ),
                 timezone=(
-                    temporal_resolution.timezone
-                    if temporal_resolution is not None
-                    else None
+                    temporal_resolution.timezone if temporal_resolution is not None else None
                 ),
                 resolution_rule=(
-                    temporal_resolution.resolution_rule
-                    if temporal_resolution is not None
-                    else None
+                    temporal_resolution.resolution_rule if temporal_resolution is not None else None
                 ),
             ),
         )
@@ -787,19 +847,14 @@ class AppointmentStateTracker:
         resolution_reason: str,
         external_action_performed: bool = False,
     ) -> AppointmentStateDelta:
-        state = (
-            self._appointments[appointment_id].to_dict()
-            if appointment_id is not None
-            else {}
-        )
+        state = self._appointments[appointment_id].to_dict() if appointment_id is not None else {}
         return AppointmentStateDelta(
             source_turn=source_turn,
             appointment_id=appointment_id,
             updated_slots=updated_slots,
             state=state,
             appointments={
-                key: appointment.to_dict()
-                for key, appointment in self._appointments.items()
+                key: appointment.to_dict() for key, appointment in self._appointments.items()
             },
             active_focus_appointment_id=self.active_focus_appointment_id,
             created=created,
@@ -828,9 +883,7 @@ def _extract_entity_references(text: str) -> tuple[_EntityReference, ...]:
     references: list[_EntityReference] = []
     for pattern, purpose, specialty in patterns:
         for match in re.finditer(pattern, lowered, re.IGNORECASE):
-            references.append(
-                _EntityReference(purpose, specialty, match.group(0), match.start())
-            )
+            references.append(_EntityReference(purpose, specialty, match.group(0), match.start()))
     return tuple(sorted(references, key=lambda item: item.position))
 
 
@@ -882,9 +935,5 @@ def _temporal_provenance(raw_date: object) -> dict[str, object] | None:
     if not isinstance(raw_date, dict):
         return None
     names = ("raw_expression", "resolved_iso_date", "timezone", "resolution_rule")
-    payload = {
-        name: raw_date.get(name)
-        for name in names
-        if raw_date.get(name) is not None
-    }
+    payload = {name: raw_date.get(name) for name in names if raw_date.get(name) is not None}
     return payload or None
