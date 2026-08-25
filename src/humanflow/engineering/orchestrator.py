@@ -48,6 +48,8 @@ class HarnessRunResult:
     baseline_commit: str
     candidate_commit: str | None
     worktree_branch: str | None
+    changed_paths: tuple[str, ...]
+    protected_hashes_sha256: str
     integrity_findings: tuple[str, ...]
     commands: tuple[CommandEvidence, ...]
     review: ReviewResult | None
@@ -177,6 +179,11 @@ class EngineeringHarness:
                 latest_main_revalidated=latest_main_revalidated,
             )
             gate = evaluate_merge_gate(evidence)
+            protected_hashes = _protected_tree_sha256(
+                self.repository,
+                candidate_commit,
+                (*CandidateIntegrityGate.DEFAULT_PROTECTED_PATHS, *task.protected_paths),
+            )
             if gate["status"] == "VERIFIED_PASS":
                 self.freeze_guard.verify(self.repository, descendant_commit=candidate_commit)
                 self.registry.transition(
@@ -199,15 +206,17 @@ class EngineeringHarness:
                 )
             self.registry.save()
             return HarnessRunResult(
-                task_id,
-                str(gate["status"]),
-                baseline,
-                candidate_commit,
-                lease.branch,
-                integrity.findings,
-                tuple(commands),
-                review_result,
-                tuple(str(reason) for reason in gate["reasons"]),
+                task_id=task_id,
+                status=str(gate["status"]),
+                baseline_commit=baseline,
+                candidate_commit=candidate_commit,
+                worktree_branch=lease.branch,
+                changed_paths=integrity.changed_paths,
+                protected_hashes_sha256=protected_hashes,
+                integrity_findings=integrity.findings,
+                commands=tuple(commands),
+                review=review_result,
+                reasons=tuple(str(reason) for reason in gate["reasons"]),
             )
         except Exception:
             current = self.registry.get(task_id)
@@ -246,3 +255,25 @@ def _is_ancestor(repository: Path, ancestor: str, descendant: str) -> bool:
         ).returncode
         == 0
     )
+
+
+def _protected_tree_sha256(
+    repository: Path,
+    candidate_commit: str,
+    protected_rules: tuple[str, ...],
+) -> str:
+    from .scheduler import path_matches
+
+    entries = _git(
+        repository,
+        "ls-tree",
+        "-r",
+        "--full-tree",
+        candidate_commit,
+    ).splitlines()
+    protected_entries = []
+    for entry in entries:
+        _, _, path = entry.partition("\t")
+        if path and any(path_matches(path, rule) for rule in protected_rules):
+            protected_entries.append(entry)
+    return sha256("\n".join(sorted(protected_entries)).encode()).hexdigest()

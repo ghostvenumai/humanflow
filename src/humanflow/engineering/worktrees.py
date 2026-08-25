@@ -6,6 +6,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 
 
 _SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -24,6 +25,7 @@ class WorktreeManager:
     def __init__(self, *, repository: Path, worktree_root: Path) -> None:
         self.repository = repository.resolve()
         self.worktree_root = worktree_root.resolve()
+        self._git_admin_lock = Lock()
         if self.worktree_root == self.repository or self.repository in self.worktree_root.parents:
             raise ValueError("worktree_root must not be inside the source repository")
 
@@ -38,10 +40,11 @@ class WorktreeManager:
         if path.exists():
             raise FileExistsError(path)
         branch = f"agent/{slug}"
-        if self._branch_exists(branch):
-            raise ValueError(f"worker branch already exists: {branch}")
-        self.worktree_root.mkdir(parents=True, exist_ok=True)
-        self._git("worktree", "add", "-b", branch, str(path), resolved_baseline)
+        with self._git_admin_lock:
+            if self._branch_exists(branch):
+                raise ValueError(f"worker branch already exists: {branch}")
+            self.worktree_root.mkdir(parents=True, exist_ok=True)
+            self._git("worktree", "add", "-b", branch, str(path), resolved_baseline)
         return WorktreeLease(task_id, worker_id, path, branch, resolved_baseline)
 
     def inspect(self, lease: WorktreeLease) -> dict[str, object]:
@@ -65,7 +68,8 @@ class WorktreeManager:
             raise RuntimeError("managed worktree branch identity changed")
         if self._git_at(lease.path, "status", "--porcelain"):
             raise RuntimeError("refusing to remove dirty worker worktree")
-        self._git("worktree", "remove", str(lease.path))
+        with self._git_admin_lock:
+            self._git("worktree", "remove", str(lease.path))
 
     def _validate_lease_path(self, lease: WorktreeLease) -> None:
         path = lease.path.resolve()

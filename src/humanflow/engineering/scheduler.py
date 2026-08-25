@@ -25,10 +25,11 @@ class ConservativeTaskScheduler:
         tasks: tuple[EngineeringTaskRecord, ...],
         *,
         running: tuple[EngineeringTaskRecord, ...] = (),
+        known_tasks: tuple[EngineeringTaskRecord, ...] = (),
     ) -> ScheduleDecision:
         scheduled: list[EngineeringTaskRecord] = []
         deferred: dict[str, str] = {}
-        by_id = {task.task_id: task for task in (*tasks, *running)}
+        by_id = {task.task_id: task for task in (*known_tasks, *tasks, *running)}
         capacity = max(0, self.maximum_parallel_workers - len(running))
         ordered = sorted(tasks, key=lambda task: (task.priority.value, task.task_id))
         for task in ordered:

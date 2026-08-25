@@ -45,6 +45,11 @@ Mutation-oriented commands fail closed while
 This is intentional. The existing manual development workflow remains the
 fallback. Enabling external agent execution requires an operator-owned runner,
 an explicit budget/authorization decision and a supervisor-only hidden command.
+The underlying supervisor is operational with injected authorized worker and
+reviewer runners: it connects the conflict-aware scheduler, bounded retries,
+circuit breaker, metrics, independent verification and release-candidate
+evidence. The shipped CLI deliberately does not invent an operator runner or
+hidden test corpus.
 
 ## Evidence flow
 

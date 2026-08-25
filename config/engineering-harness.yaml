@@ -1,6 +1,7 @@
 schema_version: 1
 external_agent_execution: false
 maximum_parallel_workers: 2
+maximum_task_iterations: 4
 repeated_failure_threshold: 3
 maximum_retries_after_circuit: 1
 production_deployment: manual_only

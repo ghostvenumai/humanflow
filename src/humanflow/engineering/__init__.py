@@ -55,6 +55,12 @@ from .scheduler import (
     path_matches,
     tasks_conflict,
 )
+from .supervisor import (
+    EngineeringSupervisor,
+    SupervisorBatchOutcome,
+    SupervisorTaskOutcome,
+    TaskExecution,
+)
 from .verification import (
     CandidateIntegrityGate,
     CommandEvidence,
@@ -80,6 +86,7 @@ __all__ = [
     "DiscoveryPolicy",
     "EngineeringEvidenceRef",
     "EngineeringHarness",
+    "EngineeringSupervisor",
     "EngineeringTaskRecord",
     "EvidenceKind",
     "EvidenceInformedAgentRouter",
@@ -108,12 +115,15 @@ __all__ = [
     "ReleaseMeasurement",
     "ScheduleDecision",
     "SupervisorCommandRunner",
+    "SupervisorBatchOutcome",
+    "SupervisorTaskOutcome",
     "TaskPriority",
     "TaskRegistry",
     "TaskRisk",
     "TaskStatus",
     "TaskRunMetrics",
     "TaskProposalPolicy",
+    "TaskExecution",
     "VerifiedTournamentCoordinator",
     "VerificationStatus",
     "WorktreeLease",

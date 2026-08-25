@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
+from threading import RLock
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -198,6 +199,7 @@ class TaskRegistry:
     def __init__(self, path: Path, tasks: tuple[EngineeringTaskRecord, ...] = ()) -> None:
         self.path = path
         self._tasks = {task.task_id: task for task in tasks}
+        self._lock = RLock()
         if len(self._tasks) != len(tasks):
             raise ValueError("task IDs must be unique")
 
@@ -224,13 +226,15 @@ class TaskRegistry:
 
     @property
     def tasks(self) -> tuple[EngineeringTaskRecord, ...]:
-        return tuple(self._tasks.values())
+        with self._lock:
+            return tuple(self._tasks.values())
 
     def get(self, task_id: str) -> EngineeringTaskRecord:
-        try:
-            return self._tasks[task_id]
-        except KeyError as error:
-            raise KeyError(f"unknown task: {task_id}") from error
+        with self._lock:
+            try:
+                return self._tasks[task_id]
+            except KeyError as error:
+                raise KeyError(f"unknown task: {task_id}") from error
 
     def add(self, task: EngineeringTaskRecord) -> EngineeringTaskRecord:
         if task.task_id in self._tasks:
@@ -264,6 +268,19 @@ class TaskRegistry:
         *,
         actor: ActorRole,
         evidence_refs: tuple[str, ...] = (),
+    ) -> EngineeringTaskRecord:
+        with self._lock:
+            return self._transition_unlocked(
+                task_id, target, actor=actor, evidence_refs=evidence_refs
+            )
+
+    def _transition_unlocked(
+        self,
+        task_id: str,
+        target: TaskStatus,
+        *,
+        actor: ActorRole,
+        evidence_refs: tuple[str, ...],
     ) -> EngineeringTaskRecord:
         current = self.get(task_id)
         if target not in _ALLOWED_TRANSITIONS[current.status]:
@@ -305,25 +322,26 @@ class TaskRegistry:
         return updated
 
     def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": self.SCHEMA_VERSION,
-            "features": [task.to_dict() for task in self.tasks],
-        }
-        encoded = json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
-        descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent
-        )
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                handle.write(encoded)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary_name, self.path)
-        finally:
-            temporary = Path(temporary_name)
-            if temporary.exists():
-                temporary.unlink()
+        with self._lock:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "schema_version": self.SCHEMA_VERSION,
+                "features": [task.to_dict() for task in self.tasks],
+            }
+            encoded = json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{self.path.name}.", suffix=".tmp", dir=self.path.parent
+            )
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary_name, self.path)
+            finally:
+                temporary = Path(temporary_name)
+                if temporary.exists():
+                    temporary.unlink()
 
 
 def _validate_relative_path(value: str) -> None:

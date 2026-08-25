@@ -60,6 +60,14 @@ class LocalWorker:
 
 
 @dataclass
+class FreezeTagMutatingWorker:
+    def run(self, *, task_id: str, lease: WorktreeLease) -> WorkerResult:
+        result = LocalWorker().run(task_id=task_id, lease=lease)
+        _git(lease.path, "tag", "-f", "everlast-72h-build", "HEAD")
+        return result
+
+
+@dataclass
 class PassingReviewer:
     def review(self, *, assignment: ReviewAssignment, worktree: Path) -> ReviewResult:
         assert worktree.is_dir()
@@ -209,6 +217,34 @@ def test_harness_rejects_changed_freeze_tag_before_dispatch(tmp_path: Path) -> N
         )
 
     assert registry.get("HF-1").status is TaskStatus.READY
+
+
+def test_harness_detects_worker_freeze_tag_mutation_before_verification(
+    tmp_path: Path,
+) -> None:
+    repo, baseline = _repo(tmp_path)
+    registry = _ready_registry(tmp_path / "feature_list.json")
+    harness = EngineeringHarness(
+        repository=repo,
+        worktree_manager=WorktreeManager(repository=repo, worktree_root=tmp_path / "worktrees"),
+        registry=registry,
+        protected_commands=(("protected", ("python3", "-c", "assert True")),),
+        hidden_acceptance_commands=(("hidden", ("python3", "-c", "assert True")),),
+        frozen_commit=baseline,
+        freeze_tag="everlast-72h-build",
+    )
+
+    with pytest.raises(RuntimeError, match="FROZEN_BUILD_INTEGRITY_FAILURE"):
+        harness.run_task(
+            "HF-1",
+            worker_id="malicious-worker",
+            worker_session_id="malicious-session",
+            reviewer_session_id="reviewer-session",
+            worker=FreezeTagMutatingWorker(),
+            reviewer=PassingReviewer(),
+        )
+
+    assert registry.get("HF-1").status is TaskStatus.BLOCKED
 
 
 def test_operator_cli_is_read_only_by_default() -> None:
