@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import subprocess
 import tempfile
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -269,6 +271,8 @@ class TaskRegistry:
         actor: ActorRole,
         evidence_refs: tuple[str, ...] = (),
     ) -> EngineeringTaskRecord:
+        if target is TaskStatus.MERGED:
+            raise PermissionError("merged requires record_verified_merge")
         with self._lock:
             return self._transition_unlocked(
                 task_id, target, actor=actor, evidence_refs=evidence_refs
@@ -291,13 +295,6 @@ class TaskRegistry:
             raise PermissionError("initial release policy requires human authority")
         if target is TaskStatus.RUNNING and actor is not ActorRole.COORDINATOR:
             raise PermissionError("only the coordinator may dispatch a task")
-        if target is TaskStatus.MERGED and actor not in {
-            ActorRole.COORDINATOR,
-            ActorRole.HUMAN,
-        }:
-            raise PermissionError("merged requires coordinator or human authority")
-        if target is TaskStatus.MERGED and not evidence_refs:
-            raise PermissionError("merged requires immutable Git merge evidence")
         if (
             target is TaskStatus.READY
             and current.human_approval_required
@@ -320,6 +317,38 @@ class TaskRegistry:
         )
         self._tasks[task_id] = updated
         return updated
+
+    def record_verified_merge(
+        self,
+        task_id: str,
+        *,
+        repository: Path,
+        candidate_commit: str,
+        actor: ActorRole,
+        evidence_refs: tuple[str, ...],
+    ) -> EngineeringTaskRecord:
+        if actor not in {ActorRole.COORDINATOR, ActorRole.HUMAN}:
+            raise PermissionError("merged requires coordinator or human authority")
+        if not evidence_refs:
+            raise PermissionError("merged requires verifier evidence")
+        if re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", candidate_commit) is None:
+            raise PermissionError("candidate commit must be a full hexadecimal object ID")
+        repository = repository.resolve()
+        candidate = _git(repository, "rev-parse", f"{candidate_commit}^{{commit}}")
+        latest_main = _git(repository, "rev-parse", "HEAD^{commit}")
+        if not _is_ancestor(repository, candidate, latest_main):
+            raise PermissionError("candidate commit is not contained in latest main")
+        with self._lock:
+            return self._transition_unlocked(
+                task_id,
+                TaskStatus.MERGED,
+                actor=actor,
+                evidence_refs=tuple(
+                    dict.fromkeys(
+                        (*evidence_refs, f"git-candidate:{candidate}", f"git-merge:{latest_main}")
+                    )
+                ),
+            )
 
     def save(self) -> None:
         with self._lock:
@@ -352,3 +381,25 @@ def _validate_relative_path(value: str) -> None:
 
 def _timestamp() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _git(repository: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _is_ancestor(repository: Path, ancestor: str, descendant: str) -> bool:
+    return (
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+            cwd=repository,
+            check=False,
+            capture_output=True,
+        ).returncode
+        == 0
+    )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,16 @@ from humanflow.engineering import (
     TaskRisk,
     TaskStatus,
 )
+
+
+def _git(repo: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
 
 def _task(
@@ -159,21 +170,46 @@ def test_initial_release_transition_requires_human_authority(tmp_path: Path) -> 
     ):
         registry.transition("HF-241", target, actor=actor)
 
-    with pytest.raises(PermissionError, match="coordinator or human"):
+    with pytest.raises(PermissionError, match="record_verified_merge"):
         registry.transition(
             "HF-241",
             TaskStatus.MERGED,
             actor=ActorRole.WORKER,
             evidence_refs=("git-merge:unsafe",),
         )
-    with pytest.raises(PermissionError, match="Git merge evidence"):
-        registry.transition("HF-241", TaskStatus.MERGED, actor=ActorRole.COORDINATOR)
-    registry.transition(
+    with pytest.raises(PermissionError, match="record_verified_merge"):
+        registry.transition(
+            "HF-241",
+            TaskStatus.MERGED,
+            actor=ActorRole.COORDINATOR,
+            evidence_refs=("not-a-git-object",),
+        )
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.email", "test@example.invalid")
+    _git(repo, "config", "user.name", "HumanFlow Test")
+    (repo / "candidate.txt").write_text("verified\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "verified candidate")
+    candidate = _git(repo, "rev-parse", "HEAD")
+    with pytest.raises(PermissionError, match="full hexadecimal"):
+        registry.record_verified_merge(
+            "HF-241",
+            repository=repo,
+            candidate_commit="not-a-git-object",
+            actor=ActorRole.COORDINATOR,
+            evidence_refs=("release-candidate:HF-241",),
+        )
+    merged = registry.record_verified_merge(
         "HF-241",
-        TaskStatus.MERGED,
+        repository=repo,
+        candidate_commit=candidate,
         actor=ActorRole.COORDINATOR,
-        evidence_refs=("git-merge:abc123",),
+        evidence_refs=("release-candidate:HF-241",),
     )
+    assert f"git-candidate:{candidate}" in merged.evidence_refs
 
     with pytest.raises(PermissionError, match="human"):
         registry.transition("HF-241", TaskStatus.RELEASED, actor=ActorRole.COORDINATOR)
