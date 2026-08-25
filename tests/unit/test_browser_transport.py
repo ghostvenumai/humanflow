@@ -346,7 +346,8 @@ def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
     assert "if (browserSttDiagnosticMode) startBrowserStt();" in source
     assert "browser_speech_recognition_production_status" in source
     assert "ASSISTANT / Claude" in source
-    assert "SUPPRESSED / Self-Echo" in source
+    assert "SUPPRESSED / ${event.payload.rejection_reason}" in source
+    assert "Self-Echo or Invalid" not in source
     assert "Provenienz-Debugging" in markup
     assert "debug-history-roles" in markup
     assert "provider-reasoning" in markup

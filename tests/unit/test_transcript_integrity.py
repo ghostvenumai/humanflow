@@ -289,7 +289,7 @@ def test_streaming_transcript_without_authoritative_pcm_binding_is_rejected() ->
 
         with pytest.raises(
             TranscriptRejected,
-            match="streaming_stt_source_binding_not_authoritative",
+            match="SESSION_MISMATCH",
         ):
             await session.accept_user_transcript(
                 _streaming_update(
@@ -327,7 +327,7 @@ def test_duplicate_streaming_final_writes_user_history_at_most_once() -> None:
 
         await session.accept_user_transcript(update)
         await session.wait_for_response()
-        with pytest.raises(TranscriptRejected, match="duplicate_final_transcript"):
+        with pytest.raises(TranscriptRejected, match="DUPLICATE_FINAL"):
             await session.accept_user_transcript(update)
 
         assert reasoner.transcripts == ["Was ist fünfundzwanzig mal siebzehn?"]
@@ -374,6 +374,47 @@ def test_streaming_final_requires_and_records_authoritative_pcm_episode() -> Non
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("text", ("Ja.", "Nein.", "Okay.", "Stopp.", "mhm"))
+def test_valid_short_streaming_finals_reach_user_history_path(text: str) -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        reasoner = RecordingReasoner()
+        session = RealtimeVoiceSession(
+            conversation_id=f"short-final-{text}",
+            sink=sink,
+            transcriber=NullInputTranscriber(),  # type: ignore[arg-type]
+            reasoner=reasoner,
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=5),
+            audio_output=TimedPcmOutput(quantum_ms=1),
+        )
+        await session.start()
+        final_ns, final_sequence = _feed_pcm_episode(
+            session, voiced_frames=3, silence_frames=10
+        )
+
+        await session.accept_user_transcript(
+            _streaming_update(
+                text,
+                transcript_id=f"valid-short-{text}",
+                timestamp_ns=final_ns,
+                audio_frame_sequence=final_sequence,
+            )
+        )
+        await session.wait_for_response()
+
+        assert reasoner.transcripts == [text]
+        accepted = next(
+            event
+            for event in sink.events
+            if event.event_type is EventType.FINAL_ADMISSION_ACCEPTED
+        )
+        assert accepted.reason_code == "ACCEPTED"
+        assert accepted.payload["voiced_duration_ms"] == 60.0
+        await session.close()
+
+    asyncio.run(scenario())
+
+
 def test_phantom_final_without_pcm_is_suppressed_and_session_keeps_listening() -> None:
     async def scenario() -> None:
         sink = InMemoryTelemetrySink()
@@ -390,7 +431,7 @@ def test_phantom_final_without_pcm_is_suppressed_and_session_keeps_listening() -
 
         with pytest.raises(
             TranscriptRejected,
-            match="final_without_authoritative_pcm_speech_episode",
+            match="NO_PCM_EPISODE",
         ):
             await session.accept_user_transcript(
                 _streaming_update(
@@ -410,7 +451,7 @@ def test_phantom_final_without_pcm_is_suppressed_and_session_keeps_listening() -
             for event in sink.events
             if event.event_type is EventType.FINAL_ADMISSION_REJECTED
         )
-        assert rejected.reason_code == "final_without_authoritative_pcm_speech_episode"
+        assert rejected.reason_code == "NO_PCM_EPISODE"
         assert rejected.payload["speech_episode_id"] is None
 
         final_ns, final_sequence = _feed_pcm_episode(session)
@@ -451,7 +492,7 @@ def test_short_noise_episode_cannot_authorize_unrelated_final() -> None:
 
         with pytest.raises(
             TranscriptRejected,
-            match="pcm_speech_episode_below_minimum_evidence",
+            match="INSUFFICIENT_ACOUSTIC_EVIDENCE",
         ):
             await session.accept_user_transcript(
                 _streaming_update(
@@ -491,7 +532,7 @@ def test_stale_streaming_stt_session_cannot_write_user_history() -> None:
         )
         await session.start()
 
-        with pytest.raises(TranscriptRejected, match="stale_stt_session"):
+        with pytest.raises(TranscriptRejected, match="SESSION_MISMATCH"):
             await session.accept_user_transcript(
                 _streaming_update(
                     "Ein verspätetes Ergebnis.",
@@ -529,7 +570,7 @@ def test_repeated_assistant_fragment_during_playback_cannot_poison_history() -> 
         )
         await _wait_speaking(session)
 
-        with pytest.raises(TranscriptRejected, match="probable_assistant_self_speech"):
+        with pytest.raises(TranscriptRejected, match="SELF_SPEECH_MATCH"):
             await session.accept_user_transcript(
                 _streaming_update(
                     "ich bin human flow ein ki assistent und helfe dir gern",
@@ -576,7 +617,7 @@ def test_weak_pcm_plus_active_assistant_similarity_rejects_final() -> None:
             silence_frames=10,
         )
 
-        with pytest.raises(TranscriptRejected, match="probable_assistant_self_speech"):
+        with pytest.raises(TranscriptRejected, match="SELF_SPEECH_MATCH"):
             await session.accept_user_transcript(
                 _streaming_update(
                     "Ich bin HumanFlow, ein KI-Assistent und helfe dir gern.",
@@ -675,7 +716,7 @@ def test_legitimate_repetition_after_guard_window_reaches_history_path() -> None
             self_speech_guard=guard,
         )
         await session.start()
-        final_ns, final_sequence = _feed_pcm_episode(session)
+        final_ns, final_sequence = _feed_pcm_episode(session, voiced_frames=30)
         await session.accept_user_transcript(
             _streaming_update(
                 ASSISTANT_SENTENCE,
@@ -769,7 +810,7 @@ def test_exact_human_self_transcription_failures_never_write_user_history(
         await _wait_speaking(session)
         await session.wait_for_response()
 
-        with pytest.raises(TranscriptRejected, match="probable_assistant_self_speech"):
+        with pytest.raises(TranscriptRejected, match="SELF_SPEECH_MATCH"):
             await session.accept_user_transcript(
                 _streaming_update(
                     self_transcript,

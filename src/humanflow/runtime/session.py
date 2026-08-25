@@ -43,6 +43,7 @@ from .acoustic_barge_in import (
 from .appointment_state import AppointmentState, AppointmentStateDelta, AppointmentStateTracker
 from .final_admission import (
     FinalAdmissionAssessment,
+    FinalAdmissionReason,
     FinalTranscriptAdmissionGate,
     PcmSpeechEpisodeEvent,
     PcmSpeechEpisodeEventType,
@@ -314,7 +315,7 @@ class RealtimeVoiceSession:
         if provenance.origin is TranscriptOrigin.STREAMING_STT_PROVIDER:
             rejection_reason: str | None = None
             if provenance.recognition_input_binding != "EXACT_GETUSERMEDIA_PCM16":
-                rejection_reason = "streaming_stt_source_binding_not_authoritative"
+                rejection_reason = FinalAdmissionReason.SESSION_MISMATCH.value
             expected_source_binding = getattr(
                 self._transcriber, "audio_source_binding", None
             )
@@ -325,8 +326,14 @@ class RealtimeVoiceSession:
                 and (provenance.audio_capture_id, provenance.stream_id)
                 != expected_source_binding
             ):
-                rejection_reason = "streaming_stt_pcm_source_mismatch"
+                rejection_reason = FinalAdmissionReason.STREAM_ID_MISMATCH.value
             if rejection_reason is not None:
+                if update.is_final:
+                    self._record_pre_admission_rejection(
+                        update=update,
+                        reason_code=rejection_reason,
+                        correlation_id=correlation_id,
+                    )
                 self._record_transcript_provenance(
                     update=update,
                     correlation_id=correlation_id,
@@ -353,7 +360,13 @@ class RealtimeVoiceSession:
             and isinstance(expected_stt_session_id, str)
             and provenance.stt_session_id != expected_stt_session_id
         ):
-            reason = "stale_stt_session"
+            reason = FinalAdmissionReason.SESSION_MISMATCH.value
+            if update.is_final:
+                self._record_pre_admission_rejection(
+                    update=update,
+                    reason_code=reason,
+                    correlation_id=correlation_id,
+                )
             self._record_transcript_provenance(
                 update=update,
                 correlation_id=correlation_id,
@@ -373,7 +386,12 @@ class RealtimeVoiceSession:
             raise TranscriptRejected(reason)
 
         if update.is_final and provenance.transcript_id in self._seen_final_transcript_ids:
-            reason = "duplicate_final_transcript"
+            reason = FinalAdmissionReason.DUPLICATE_FINAL.value
+            self._record_pre_admission_rejection(
+                update=update,
+                reason_code=reason,
+                correlation_id=correlation_id,
+            )
             self._record_transcript_provenance(
                 update=update,
                 correlation_id=correlation_id,
@@ -455,7 +473,9 @@ class RealtimeVoiceSession:
                     },
                 )
                 raise TranscriptRejected(reason)
-        if assessment.suppress:
+        if assessment.suppress and not (
+            final_admission is not None and final_admission.accepted
+        ):
             reason = assessment.rejection_reason or "probable_assistant_self_speech"
             self._record_transcript_provenance(
                 update=update,
@@ -506,7 +526,11 @@ class RealtimeVoiceSession:
                 update=update,
                 assessment=assessment,
                 correlation_id=correlation_id,
-                reason_code="candidate_below_conservative_suppression_threshold",
+                reason_code=(
+                    "independent_pcm_evidence_overrode_self_speech_candidate"
+                    if assessment.suppress
+                    else "candidate_below_conservative_suppression_threshold"
+                ),
             )
         return decision
 
@@ -2398,6 +2422,34 @@ class RealtimeVoiceSession:
                 "audio_frame_sequence": update.provenance.audio_frame_sequence,
                 **assessment.to_dict(),
             },
+        )
+
+    def _record_pre_admission_rejection(
+        self,
+        *,
+        update: TranscriptUpdate,
+        reason_code: str,
+        correlation_id: str,
+    ) -> None:
+        try:
+            reason = FinalAdmissionReason(reason_code)
+        except ValueError:
+            reason = FinalAdmissionReason.UNKNOWN
+        assessment = FinalAdmissionAssessment.rejected_without_episode(
+            reason_code=reason,
+            final_received_monotonic=update.provenance.timestamp_ns,
+            final_frame_sequence=update.provenance.audio_frame_sequence,
+            assistant_playback_active=self.state
+            in {
+                ConversationState.SPEAKING,
+                ConversationState.POSSIBLE_INTERRUPTION,
+                ConversationState.OVERLAP,
+            },
+        )
+        self._record_final_admission(
+            update=update,
+            assessment=assessment,
+            correlation_id=correlation_id,
         )
 
     def _record_self_speech_event(

@@ -735,7 +735,7 @@ function addEvent(event) {
         appendDebug(ui["debug-user-accepted"], `${transcriptId} · ${text}`);
       } else if (event.payload.rejection_reason) {
         appendDebug(ui["debug-suppressed"], `${event.payload.rejection_reason} · ${text}`);
-        addConversation("suppressed", text, "SUPPRESSED / Self-Echo or Invalid");
+        addConversation("suppressed", text, `SUPPRESSED / ${event.payload.rejection_reason}`);
       }
     }
   }
@@ -843,9 +843,7 @@ ui.connect.addEventListener("click", async () => {
           partialTranscriptItem?.remove();
           partialTranscriptItem = null;
           appendDebug(ui["debug-suppressed"], `${payload.rejection_reason} · ${payload.raw_text}`);
-          if (payload.rejection_reason === "probable_assistant_self_speech") {
-            addConversation("suppressed", payload.raw_text, "SUPPRESSED / Self-Echo");
-          }
+          addConversation("suppressed", payload.raw_text, `SUPPRESSED / ${payload.rejection_reason || "UNKNOWN"}`);
         }
       }
       else if (payload.type === "input_probe_transcript") {
