@@ -1043,7 +1043,22 @@ class RealtimeVoiceSession:
         if observer is None:
             return None
         try:
-            return getattr(observer, method_name)(**arguments)
+            result = getattr(observer, method_name)(**arguments)
+            if result is True:
+                self.state_machine.record(
+                    EventType.COST_EVENT_RECORDED,
+                    correlation_id=str(uuid4()),
+                    reason_code="queued_for_nonblocking_cost_persistence",
+                    payload={
+                        "cost_operation": method_name,
+                        "operation_id": arguments.get("operation_id"),
+                        "provider": arguments.get("provider"),
+                        "model": arguments.get("model"),
+                        "persistence_status": "QUEUED_BEST_EFFORT",
+                        "conversation_dependency": "NONE",
+                    },
+                )
+            return result
         except Exception as error:
             self._record_cost_failure(method_name, error)
             return None

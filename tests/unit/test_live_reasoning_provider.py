@@ -160,6 +160,24 @@ def test_demo_factory_can_only_build_declared_real_reasoner() -> None:
     assert appointment_tools.info.provider == "local-sqlite"
     assert appointment_tools.info.mode is ProviderMode.REAL
     assert appointment_tools.availability == "CONFIGURED"
+    assert runtime.cost_database_path is not None
+    assert runtime.pricing_catalog_path is not None
+    assert runtime.cost_budget_policy.enabled is False
+
+
+def test_demo_cost_budget_hooks_require_explicit_positive_configuration() -> None:
+    runtime = load_demo_runtime_config(
+        {
+            "ANTHROPIC_API_KEY": "reasoning-test-key",
+            "ELEVENLABS_API_KEY": "tts-test-key",
+            "ELEVENLABS_VOICE_ID": "voice-test-id",
+            "HUMANFLOW_SESSION_COST_WARNING_EUR": "0.25",
+            "HUMANFLOW_SESSION_COST_HARD_LIMIT_EUR": "1.00",
+        }
+    )
+
+    assert str(runtime.cost_budget_policy.warning_eur) == "0.25"
+    assert str(runtime.cost_budget_policy.hard_limit_eur) == "1.00"
 
 
 def test_demo_accepts_dedicated_scribe_key_without_exposing_it() -> None:

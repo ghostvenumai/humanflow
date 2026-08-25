@@ -14,7 +14,7 @@
       "executable": "/home/serverserver/.local/bin/claude",
       "external_execution_authorized": false,
       "installed": true,
-      "version": "2.1.229 (Claude Code)"
+      "version": "2.1.243 (Claude Code)"
     }
   ],
   "authentication_secrets_probed": false,
@@ -144,6 +144,21 @@
       "tier": "FRONTIER"
     }
   ],
+  "economics": {
+    "policy": "MINIMIZE_COST_SUBJECT_TO_QUALITY_LATENCY_AND_TASK_SUCCESS_GATES",
+    "production_pricing_verified": false,
+    "routing_policy_changed": false,
+    "telemetry_inputs": [
+      "estimated_input_cost",
+      "estimated_output_cost",
+      "historical_cost_per_successful_task",
+      "latency",
+      "quality",
+      "complexity",
+      "failure_history"
+    ],
+    "tournament": "READY_NOT_EXECUTED"
+  },
   "external_agent_calls_made": 0,
   "external_spend_usd": 0.0,
   "fixture": {
@@ -151,7 +166,7 @@
     "sha256": "0119b1538cc616b8038ed9f226a374596e12f74d32021fab96f855225cefeb5f",
     "tasks": 5
   },
-  "generated_at_utc": "2026-08-24T16:12:16.630040Z",
+  "generated_at_utc": "2026-08-25T12:05:04.017415Z",
   "schema_version": 1,
   "summary": {
     "accuracy": 1.0,

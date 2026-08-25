@@ -10,6 +10,7 @@ from humanflow.audio.ledger import LedgerEntrySnapshot, LedgerState
 from humanflow.cost import (
     AsyncCostRecorder,
     CostLedger,
+    CostBudgetPolicy,
     CostSource,
     PricingCatalog,
     PricingRule,
@@ -176,6 +177,103 @@ def test_primary_failure_and_fallback_are_separate_without_duplicate_billing(
         assert rows[0]["estimated_cost_micros"] is None
         assert rows[1]["estimated_cost_micros"] is None
         assert rows[1]["fallback"] == 1
+
+    asyncio.run(scenario())
+
+
+def test_stt_llm_usage_and_retry_metadata_are_attributed_once(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        ledger = CostLedger(tmp_path / "costs.sqlite3")
+        observer = RuntimeCostObserver(
+            session_id="session-1",
+            conversation_id="conversation-1",
+            recorder=AsyncCostRecorder(ledger),
+            pricing=PricingCatalog([]),
+        )
+        observer.record_stt(
+            operation_id="stt-turn-1",
+            turn_id="turn-1",
+            provider="elevenlabs-scribe-realtime",
+            model="scribe_v2_realtime",
+            audio_seconds=Decimal("3.2"),
+            partial_count=14,
+            provider_session_id="provider-session-safe-id",
+        )
+        observer.record_llm(
+            operation_id="llm-turn-1",
+            turn_id="turn-1",
+            response_id="response-1",
+            provider="anthropic-messages-api",
+            model="claude-test",
+            input_tokens=120,
+            output_tokens=30,
+            latency_ms=250.0,
+            success=True,
+            retry=True,
+        )
+        await observer.close()
+
+        rows = ledger.rows(session_id="session-1")
+        stt = next(row for row in rows if row["service_type"] == "STT")
+        llm = next(row for row in rows if row["service_type"] == "LLM")
+        assert stt["audio_input_seconds"] == "3.2"
+        assert '"partial_transcript_count": 14' in stt["metadata_json"]
+        assert llm["tokens_input"] == 120
+        assert llm["tokens_output"] == 30
+        assert llm["retry"] == 1
+
+    asyncio.run(scenario())
+
+
+def test_budget_warning_observes_estimated_cost_without_stopping_generation(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        events: list[tuple[str, dict[str, object]]] = []
+        eur_catalog = PricingCatalog(
+            [
+                PricingRule(
+                    pricing_rule_id="test-tts-eur",
+                    pricing_version="v1",
+                    provider="elevenlabs-text-to-speech-stream",
+                    model="eleven_flash_v2_5",
+                    service=ServiceType.TTS,
+                    unit="per_1k_characters",
+                    output_rate=Decimal("1"),
+                    currency="EUR",
+                    effective_date="2026-08-25",
+                    verified_at="deterministic-test-fixture",
+                    source_note="TEST ONLY",
+                    active=True,
+                )
+            ]
+        )
+        ledger = CostLedger(tmp_path / "costs.sqlite3")
+        observer = RuntimeCostObserver(
+            session_id="session-1",
+            conversation_id="conversation-1",
+            recorder=AsyncCostRecorder(ledger),
+            pricing=eur_catalog,
+            budget_policy=CostBudgetPolicy(warning_eur=Decimal("0.05")),
+            on_budget_event=lambda kind, payload: events.append((kind, payload)),
+        )
+        assert observer.record_tts(
+            operation_id="tts-1",
+            turn_id="turn-1",
+            response_id="response-1",
+            provider="elevenlabs-text-to-speech-stream",
+            model="eleven_flash_v2_5",
+            characters=100,
+            audio_seconds=Decimal("1"),
+            reported_billable_characters=100,
+            fallback=False,
+            cancelled=False,
+            latency_ms=80.0,
+        )
+        await observer.close()
+        assert events[0][0] == "COST_BUDGET_WARNING"
+        assert events[0][1]["conversation_action"] == "OBSERVE_ONLY"
+        assert len(ledger.rows()) == 1
 
     asyncio.run(scenario())
 

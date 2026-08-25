@@ -1,6 +1,7 @@
 """Economic observability that is strictly subordinate to conversation correctness."""
 
 from .aggregation import aggregate_cost_rows, format_adaptive_money
+from .budget import CostBudgetPolicy
 from .ledger import AsyncCostRecorder, CostLedger, CostLedgerWriteError
 from .models import (
     CostEvent,
@@ -17,6 +18,7 @@ from .reporting import build_cost_summary_report, write_cost_summary_report
 __all__ = [
     "AsyncCostRecorder",
     "CostEvent",
+    "CostBudgetPolicy",
     "CostLedger",
     "CostLedgerWriteError",
     "CostSource",

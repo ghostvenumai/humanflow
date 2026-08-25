@@ -306,6 +306,7 @@ def test_demo_app_exposes_static_assets_and_websocket_route() -> None:
         "/api/timeline",
         "/api/voice-quality",
         "/api/live-barge-in",
+        "/api/costs",
         "/ws",
         "/static",
     }.issubset(paths)
@@ -652,4 +653,12 @@ def test_dashboard_evidence_summary_links_real_reports() -> None:
     assert summary["torture"] == {"failed": 0, "passed": 20, "total": 20}
     assert summary["quality_loop"]["decision"] == "KEEP"
     assert summary["tournament"]["external_agent_calls_made"] == 0
+    assert summary["scopes"] == {
+        "72H_CORE": "FROZEN",
+        "POST_FREEZE_APPLICATION": "HUMAN_VALIDATION_PENDING",
+        "REAL_BROWSER_AUDIO": "REAL_BROWSER_AUDIO_VALIDATED",
+        "PRODUCTION_TELEPHONY": "NOT_ESTABLISHED",
+        "APPOINTMENT_BACKEND": "LOCAL_DEMO_SQLITE",
+        "COSTS": "ACTUAL_USAGE_AND_ESTIMATED_COST_WHERE_VERIFIED",
+    }
     assert all(len(artifact["sha256"]) == 64 for artifact in summary["artifacts"].values())

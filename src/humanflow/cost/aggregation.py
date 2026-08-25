@@ -30,10 +30,13 @@ def aggregate_cost_rows(
     monetary_provider_rows = [
         row
         for row in selected
-        if row["service_type"] != "TOOL" or row["provider"] != "local-sqlite"
+        if (row["service_type"] != "TOOL" or row["provider"] != "local-sqlite")
+        and row["operation"] != "played_audio_allocation"
     ]
     estimate_complete = bool(monetary_provider_rows) and not any(
-        row["cost_source"] in unavailable_sources for row in monetary_provider_rows
+        row["cost_source"] in unavailable_sources
+        or row["estimated_cost_micros"] is None
+        for row in monetary_provider_rows
     )
     estimated_micros_known = sum(
         int(row["estimated_cost_micros"] or 0) for row in selected
@@ -79,7 +82,13 @@ def aggregate_cost_rows(
         else None
     )
     provider_breakdown = [
-        _group_summary(provider, model, service, group)
+        _group_summary(
+            provider,
+            model,
+            service,
+            group,
+            known_estimated_total_micros=estimated_micros_known,
+        )
         for (provider, model, service), group in sorted(provider_groups.items())
     ]
     return {
@@ -142,6 +151,36 @@ def aggregate_cost_rows(
             if tool_rows and all(row["provider"] == "local-sqlite" for row in tool_rows)
             else None,
             "evidence": CostSource.LOCAL_TOOL_COST.value if tool_rows else "NO_DATA",
+            "by_operation": {
+                operation: {
+                    "call_count": len(group),
+                    "success_count": sum(row["tool_success"] == 1 for row in group),
+                    "failure_count": sum(row["tool_success"] == 0 for row in group),
+                    "direct_external_cost": "0"
+                    if all(row["provider"] == "local-sqlite" for row in group)
+                    else None,
+                }
+                for operation, group in _group_by(tool_rows, "operation").items()
+            },
+        },
+        "turns": {
+            turn_id: {
+                "event_count": len(group),
+                "services": sorted({row["service_type"] for row in group}),
+                "estimated_cost_known": str(
+                    micros_to_decimal(
+                        sum(int(row["estimated_cost_micros"] or 0) for row in group)
+                    )
+                ),
+                "tool_success": all(
+                    row["tool_success"] != 0
+                    for row in group
+                    if row["service_type"] == "TOOL"
+                ),
+            }
+            for turn_id, group in _group_by(
+                [row for row in selected if row["turn_id"]], "turn_id"
+            ).items()
         },
         "played_audio_economics": {
             "generated_audio_seconds": str(generated_audio_seconds),
@@ -164,7 +203,12 @@ def _group_summary(
     model: str,
     service: str,
     rows: list[dict[str, Any]],
+    *,
+    known_estimated_total_micros: int,
 ) -> dict[str, Any]:
+    group_estimated_micros = sum(
+        int(row["estimated_cost_micros"] or 0) for row in rows
+    )
     return {
         "provider": provider,
         "model": model,
@@ -175,8 +219,15 @@ def _group_summary(
             micros_to_decimal(sum(int(row["actual_cost_micros"] or 0) for row in rows))
         ),
         "estimated_cost_known": str(
-            micros_to_decimal(
-                sum(int(row["estimated_cost_micros"] or 0) for row in rows)
+            micros_to_decimal(group_estimated_micros)
+        ),
+        "estimated_cost_percentage_known": (
+            None
+            if known_estimated_total_micros <= 0
+            else str(
+                Decimal(group_estimated_micros)
+                / Decimal(known_estimated_total_micros)
+                * Decimal("100")
             )
         ),
         "evidence": sorted({row["cost_source"] for row in rows}),
@@ -204,6 +255,15 @@ def _single_currency(rows: list[dict[str, Any]], *, actual: bool) -> str | None:
     field = "actual_cost_micros" if actual else "estimated_cost_micros"
     currencies = {row["currency"] for row in rows if row[field] is not None}
     return next(iter(currencies)) if len(currencies) == 1 else None
+
+
+def _group_by(
+    rows: list[dict[str, Any]], field: str
+) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        groups[str(row[field])].append(row)
+    return dict(sorted(groups.items()))
 
 
 def format_adaptive_money(value: Decimal | None, currency: str | None) -> str:

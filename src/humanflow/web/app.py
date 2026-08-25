@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from humanflow.audio.models import AudioFrame
 from humanflow.cost import (
     AsyncCostRecorder,
+    CostBudgetPolicy,
     CostLedger,
     PricingCatalog,
     RuntimeCostObserver,
@@ -114,6 +115,9 @@ class DemoRuntimeConfig:
     appointment_tool_timeout_ms: float = 4_000.0
     cost_database_path: Path | None = None
     pricing_catalog_path: Path | None = None
+    cost_budget_policy: CostBudgetPolicy = dataclass_field(
+        default_factory=CostBudgetPolicy
+    )
 
     @property
     def ready(self) -> bool:
@@ -341,6 +345,14 @@ def load_demo_runtime_config(
     appointment_failure_tool = (
         values.get("HUMANFLOW_DEMO_TOOL_FAILURE", "").strip() or None
     )
+    cost_budget_policy = CostBudgetPolicy(
+        warning_eur=_optional_decimal_environment(
+            values, "HUMANFLOW_SESSION_COST_WARNING_EUR"
+        ),
+        hard_limit_eur=_optional_decimal_environment(
+            values, "HUMANFLOW_SESSION_COST_HARD_LIMIT_EUR"
+        ),
+    )
     appointment_tools_status = ProviderStatus(
         ProviderInfo(
             role="appointment-tools",
@@ -528,7 +540,23 @@ def load_demo_runtime_config(
             values.get("HUMANFLOW_COST_DB", str(appointment_database_path))
         ),
         pricing_catalog_path=PROJECT_ROOT / "pricing" / "provider_pricing.json",
+        cost_budget_policy=cost_budget_policy,
     )
+
+
+def _optional_decimal_environment(
+    values: Mapping[str, str], name: str
+) -> Decimal | None:
+    raw = values.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        value = Decimal(raw)
+    except Exception as error:
+        raise ValueError(f"{name} must be a decimal number") from error
+    if value <= 0:
+        raise ValueError(f"{name} must be positive")
+    return value
 
 
 def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
@@ -712,6 +740,8 @@ def create_app(runtime_config: DemoRuntimeConfig | None = None) -> FastAPI:
                 conversation_id=conversation_id,
                 recorder=AsyncCostRecorder(cost_ledger, on_failure=cost_failure),
                 pricing=cost_pricing,
+                budget_policy=runtime.cost_budget_policy,
+                on_budget_event=cost_failure,
             )
         session = RealtimeVoiceSession(
             conversation_id=conversation_id,
@@ -971,6 +1001,12 @@ def build_evidence_summary(root: Path) -> dict[str, Any]:
         )
     )
     replay = json.loads((reports / "timeline-replay.json").read_text(encoding="utf-8"))
+    manual_validation_path = root / "sprint" / "manual-validation.json"
+    manual_validation = (
+        json.loads(manual_validation_path.read_text(encoding="utf-8"))
+        if manual_validation_path.is_file()
+        else {}
+    )
     report_names = (
         "scorecard.json",
         "torture-run.json",
@@ -978,6 +1014,7 @@ def build_evidence_summary(root: Path) -> dict[str, Any]:
         "development-router.json",
         "tournament-readiness.json",
         "browser-demo-benchmark.json",
+        "cost-summary.json",
     )
     return {
         "sprint": {
@@ -994,6 +1031,18 @@ def build_evidence_summary(root: Path) -> dict[str, Any]:
             "external_agent_calls_made": tournament["external_agent_calls_made"],
         },
         "timeline": replay["replay"],
+        "scopes": {
+            "72H_CORE": "FROZEN",
+            "POST_FREEZE_APPLICATION": "HUMAN_VALIDATION_PENDING",
+            "REAL_BROWSER_AUDIO": (
+                "REAL_BROWSER_AUDIO_VALIDATED"
+                if manual_validation.get("approved") is True
+                else "REAL_BROWSER_SESSION_NOT_YET_VALIDATED"
+            ),
+            "PRODUCTION_TELEPHONY": "NOT_ESTABLISHED",
+            "APPOINTMENT_BACKEND": "LOCAL_DEMO_SQLITE",
+            "COSTS": "ACTUAL_USAGE_AND_ESTIMATED_COST_WHERE_VERIFIED",
+        },
         "artifacts": {
             name: {
                 "sha256": hashlib.sha256((reports / name).read_bytes()).hexdigest(),

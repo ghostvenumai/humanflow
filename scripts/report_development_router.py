@@ -47,6 +47,21 @@ def main() -> None:
         "external_agent_calls_made": 0,
         "external_spend_usd": 0.0,
         "authentication_secrets_probed": False,
+        "economics": {
+            "policy": "MINIMIZE_COST_SUBJECT_TO_QUALITY_LATENCY_AND_TASK_SUCCESS_GATES",
+            "telemetry_inputs": [
+                "estimated_input_cost",
+                "estimated_output_cost",
+                "historical_cost_per_successful_task",
+                "latency",
+                "quality",
+                "complexity",
+                "failure_history",
+            ],
+            "routing_policy_changed": False,
+            "production_pricing_verified": False,
+            "tournament": "READY_NOT_EXECUTED",
+        },
     }
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")

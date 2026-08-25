@@ -1,0 +1,88 @@
+{
+  "evidence_rules": {
+    "estimates": "ESTIMATED_COST only with active verified pricing rule",
+    "local_sqlite": "LOCAL_TOOL_COST with zero direct external provider cost",
+    "money": "PROVIDER_REPORTED_COST only for provider monetary billing data",
+    "provider_usage": "ACTUAL_USAGE when returned or exactly observed",
+    "unheard_audio": "estimated allocation; generated provider usage is never reduced"
+  },
+  "generated_at": "2026-08-25T12:05:04.233220Z",
+  "known_limitations": [
+    "Production Anthropic and ElevenLabs pricing is unverified and inactive.",
+    "Heard/unheard monetary allocation is estimated from Played Audio Ledger samples.",
+    "Browser Web Speech does not expose provider billing metadata."
+  ],
+  "pricing_catalog": {
+    "active_rule_count": 1,
+    "production_provider_pricing_verified": false,
+    "rules": [
+      {
+        "active": false,
+        "currency": "USD",
+        "effective_date": "2026-08-25",
+        "input_rate": null,
+        "model": "claude-haiku-4-5-20251001",
+        "output_rate": null,
+        "pricing_rule_id": "anthropic-claude-haiku-4-5-unverified",
+        "pricing_version": "2026-08-25-unverified",
+        "provider": "anthropic-messages-api",
+        "service": "LLM",
+        "source_note": "Production pricing was not verified during the bounded post-freeze run.",
+        "unit": "per_1m_tokens",
+        "verified_at": null
+      },
+      {
+        "active": false,
+        "currency": "USD",
+        "effective_date": "2026-08-25",
+        "input_rate": null,
+        "model": "scribe_v2_realtime",
+        "output_rate": null,
+        "pricing_rule_id": "elevenlabs-scribe-v2-realtime-unverified",
+        "pricing_version": "2026-08-25-unverified",
+        "provider": "elevenlabs-scribe-realtime",
+        "service": "STT",
+        "source_note": "Production pricing was not verified during the bounded post-freeze run.",
+        "unit": "per_audio_minute",
+        "verified_at": null
+      },
+      {
+        "active": false,
+        "currency": "USD",
+        "effective_date": "2026-08-25",
+        "input_rate": null,
+        "model": "eleven_flash_v2_5",
+        "output_rate": null,
+        "pricing_rule_id": "elevenlabs-flash-v2-5-unverified",
+        "pricing_version": "2026-08-25-unverified",
+        "provider": "elevenlabs-text-to-speech-stream",
+        "service": "TTS",
+        "source_note": "Production pricing was not verified during the bounded post-freeze run.",
+        "unit": "per_1k_characters",
+        "verified_at": null
+      },
+      {
+        "active": true,
+        "currency": "EUR",
+        "effective_date": "2026-08-25",
+        "input_rate": "0",
+        "model": "humanflow-appointments-v1",
+        "output_rate": "0",
+        "pricing_rule_id": "humanflow-local-sqlite-zero-direct-cost",
+        "pricing_version": "2026-08-25-v1",
+        "provider": "local-sqlite",
+        "service": "TOOL",
+        "source_note": "Local SQLite has zero direct external provider monetary cost.",
+        "unit": "per_request",
+        "verified_at": "2026-08-25"
+      }
+    ]
+  },
+  "schema_version": 1,
+  "scope": {
+    "sample_count": 0,
+    "session_id": null,
+    "voice_scope": "NO_SESSION_DATA"
+  },
+  "session": null
+}

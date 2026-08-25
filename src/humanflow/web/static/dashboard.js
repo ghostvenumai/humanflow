@@ -8,6 +8,19 @@ const format = (value) => value == null ? "—" : (typeof value === "number" ? N
 const release = document.getElementById("release-status");
 release.textContent = `${scorecard.summary.engineering_evidence_status} · Produktion: ${scorecard.summary.production_release_claim}`;
 
+const evidenceScopes = document.getElementById("evidence-scopes");
+Object.entries(evidence.scopes).forEach(([name, value]) => {
+  const card = document.createElement("article");
+  card.className = "gate";
+  const title = document.createElement("h3");
+  title.textContent = name.replaceAll("_", " ");
+  const detail = document.createElement("div");
+  detail.className = "metric";
+  detail.textContent = value;
+  card.append(title, detail);
+  evidenceScopes.append(card);
+});
+
 const gates = document.getElementById("gates");
 Object.entries(scorecard.gates).forEach(([name, gate]) => {
   const metric = scorecard.metrics[name];
@@ -108,6 +121,68 @@ async function refreshLiveBargeIn() {
 
 await refreshLiveBargeIn();
 window.setInterval(() => refreshLiveBargeIn().catch(() => {}), 1000);
+
+function money(cost) {
+  if (!cost || cost.value == null) return "Kosten nicht verfügbar";
+  const value = Number(cost.value);
+  const currency = cost.currency || "";
+  const digits = Math.abs(value) >= 1 ? 2 : (Math.abs(value) >= 0.01 ? 4 : 6);
+  return `${currency} ${value.toFixed(digits)}`.trim();
+}
+
+async function refreshEconomics() {
+  const payload = await fetch("/api/costs").then((response) => response.json());
+  const panel = document.getElementById("session-economics");
+  const providers = document.getElementById("provider-economics");
+  panel.replaceChildren();
+  providers.replaceChildren();
+  if (!payload.summary) {
+    document.getElementById("economics-scope").textContent = `${payload.status} · LOCAL DEMO SQLITE`;
+    return;
+  }
+  const summary = payload.summary;
+  const values = [
+    ["Dauer", summary.active_duration_seconds == null ? "—" : `${format(Number(summary.active_duration_seconds))} s`],
+    ["Turns", summary.turn_count],
+    ["STT", summary.services.STT?.audio_input_seconds ?? "0 s"],
+    ["LLM", `${summary.services.LLM?.input_tokens || 0} in / ${summary.services.LLM?.output_tokens || 0} out`],
+    ["TTS erzeugt", `${summary.played_audio_economics.generated_audio_seconds} s`],
+    ["TTS ungehört", `${summary.played_audio_economics.unheard_audio_seconds} s`],
+    ["Tools", `${summary.tools.successful_actions}/${summary.tools.call_count} erfolgreich`],
+    ["Provider gemeldet", money(summary.provider_reported_cost)],
+    ["Geschätzt", money(summary.estimated_cost)],
+    ["Kosten/Turn", money(summary.cost_per_turn)],
+    ["Kosten/Minute", money(summary.cost_per_conversation_minute)],
+    ["Barge-in-Waste", summary.played_audio_economics.wasted_cost_estimate]
+  ];
+  values.forEach(([name, value]) => {
+    const card = document.createElement("article");
+    card.className = "gate";
+    const title = document.createElement("h3");
+    title.textContent = name;
+    const detail = document.createElement("div");
+    detail.className = "metric";
+    detail.textContent = value;
+    card.append(title, detail);
+    panel.append(card);
+  });
+  const heading = document.createElement("h3");
+  heading.textContent = "Provider-Aufschlüsselung";
+  const list = document.createElement("ul");
+  summary.providers.forEach((provider) => {
+    const item = document.createElement("li");
+    const percentage = provider.estimated_cost_percentage_known == null
+      ? "Anteil nicht verfügbar"
+      : `${format(Number(provider.estimated_cost_percentage_known))} % des bekannten Schätzwerts`;
+    item.textContent = `${provider.provider} · ${provider.model} · ${provider.service} · n=${provider.event_count} · ${percentage} · ${provider.evidence.join(" + ")}`;
+    list.append(item);
+  });
+  providers.append(heading, list);
+  document.getElementById("economics-scope").textContent = `REAL_BROWSER_SESSION · ${summary.evidence_labels.join(" + ")} · PRODUCTION TELEPHONY NOT ESTABLISHED`;
+}
+
+await refreshEconomics();
+window.setInterval(() => refreshEconomics().catch(() => {}), 3000);
 }
 
 main().catch((error) => {

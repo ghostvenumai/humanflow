@@ -10,6 +10,7 @@ from typing import Any, Callable, Iterable
 from humanflow.audio.ledger import LedgerEntrySnapshot
 
 from .ledger import AsyncCostRecorder
+from .budget import CostBudgetPolicy
 from .models import CostEvent, CostSource, ServiceType, UsageSource
 from .pricing import PricingCatalog
 
@@ -21,7 +22,13 @@ class RuntimeCostObserver:
     recorder: AsyncCostRecorder
     pricing: PricingCatalog
     clock_ns: Callable[[], int] = monotonic_ns
+    budget_policy: CostBudgetPolicy = field(default_factory=CostBudgetPolicy)
+    on_budget_event: Callable[[str, dict[str, Any]], None] = field(
+        default=lambda _kind, _payload: None
+    )
     _response_tts_events: dict[str, list[CostEvent]] = field(default_factory=dict)
+    _estimated_total_micros: int = 0
+    _budget_events_emitted: set[str] = field(default_factory=set)
 
     def record_stt(
         self,
@@ -142,6 +149,7 @@ class RuntimeCostObserver:
             )
         )
         self._response_tts_events.setdefault(response_id, []).append(event)
+        self._observe_budget(event)
         return self.recorder.record_nowait(event)
 
     def record_primary_tts_failure(
@@ -281,7 +289,31 @@ class RuntimeCostObserver:
         )
 
     def _record(self, event: CostEvent) -> bool:
-        return self.recorder.record_nowait(self.pricing.price(event))
+        priced = self.pricing.price(event)
+        self._observe_budget(priced)
+        return self.recorder.record_nowait(priced)
+
+    def _observe_budget(self, event: CostEvent) -> None:
+        if event.estimated_cost_micros is None or event.currency != "EUR":
+            return
+        self._estimated_total_micros += event.estimated_cost_micros
+        decision = self.budget_policy.evaluate(
+            estimated_eur=Decimal(self._estimated_total_micros) / Decimal("1000000"),
+            estimate_complete=True,
+        )
+        if decision is None or decision in self._budget_events_emitted:
+            return
+        self._budget_events_emitted.add(decision)
+        self.on_budget_event(
+            "COST_BUDGET_WARNING",
+            {
+                "severity": decision,
+                "estimated_session_cost_eur": str(
+                    Decimal(self._estimated_total_micros) / Decimal("1000000")
+                ),
+                "conversation_action": "OBSERVE_ONLY",
+            },
+        )
 
     async def close(self) -> None:
         await self.recorder.flush()

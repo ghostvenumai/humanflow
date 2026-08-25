@@ -11,6 +11,7 @@ import pytest
 from humanflow.cost import (
     AsyncCostRecorder,
     CostEvent,
+    CostBudgetPolicy,
     CostLedger,
     CostSource,
     PricingCatalog,
@@ -18,8 +19,10 @@ from humanflow.cost import (
     ServiceType,
     UsageSource,
     aggregate_cost_rows,
+    build_cost_summary_report,
     decimal_to_micros,
     micros_to_decimal,
+    write_cost_summary_report,
 )
 
 
@@ -187,6 +190,28 @@ def test_pricing_rules_and_summary_persist_separately_from_raw_events(
         "cost_events_provider_idx",
         "cost_events_service_idx",
     } <= indexes
+    assert ledger.latest_session_id() is None
+    assert ledger.load_session_summary("session-1") == {"total": "0"}
+
+
+def test_cost_report_export_has_pricing_provenance_and_known_limitations(
+    tmp_path: Path,
+) -> None:
+    ledger = CostLedger(tmp_path / "costs.sqlite3")
+    catalog = PricingCatalog.load(
+        Path(__file__).resolve().parents[2] / "pricing" / "provider_pricing.json"
+    )
+    ledger.append(_event(tokens_input=10, tokens_output=2))
+    report = build_cost_summary_report(ledger, catalog)
+    output = tmp_path / "cost-summary.json"
+    write_cost_summary_report(output, report)
+
+    assert report["scope"]["session_id"] == "session-1"
+    assert report["scope"]["sample_count"] == 1
+    assert report["pricing_catalog"]["production_provider_pricing_verified"] is False
+    assert report["session"]["estimated_cost"]["value"] is None
+    assert "unverified" in report["known_limitations"][0].lower()
+    assert output.read_text(encoding="utf-8").endswith("\n")
 
 
 def test_session_aggregation_keeps_actual_estimated_and_local_tool_cost_separate(
@@ -227,13 +252,48 @@ def test_session_aggregation_keeps_actual_estimated_and_local_tool_cost_separate
     assert summary["provider_reported_cost"]["value"] == "0"
     assert summary["cost_per_conversation_minute"]["value"] == "0.0023505"
     assert summary["cost_per_turn"]["value"] == "0.004701"
-    assert summary["tools"] == {
-        "call_count": 1,
-        "successful_actions": 1,
-        "failed_actions": 0,
-        "direct_external_cost": "0",
-        "evidence": "LOCAL_TOOL_COST",
-    }
+    assert summary["tools"]["call_count"] == 1
+    assert summary["tools"]["successful_actions"] == 1
+    assert summary["tools"]["failed_actions"] == 0
+    assert summary["tools"]["direct_external_cost"] == "0"
+    assert summary["tools"]["evidence"] == "LOCAL_TOOL_COST"
+    assert summary["tools"]["by_operation"]["provider-operation"]["call_count"] == 1
+    assert summary["turns"]["turn-1"]["event_count"] == 2
+
+
+def test_cost_budget_hooks_are_disabled_by_default_and_require_complete_estimate() -> None:
+    disabled = CostBudgetPolicy()
+    configured = CostBudgetPolicy(
+        warning_eur=Decimal("0.01"), hard_limit_eur=Decimal("0.02")
+    )
+
+    assert disabled.enabled is False
+    assert configured.evaluate(
+        estimated_eur=Decimal("0.05"), estimate_complete=False
+    ) is None
+    assert configured.evaluate(
+        estimated_eur=Decimal("0.015"), estimate_complete=True
+    ) == "WARNING_THRESHOLD_REACHED"
+    assert configured.evaluate(
+        estimated_eur=Decimal("0.02"), estimate_complete=True
+    ) == "HARD_LIMIT_REACHED"
+
+
+def test_provider_reported_money_is_not_mislabeled_as_estimated(tmp_path: Path) -> None:
+    ledger = CostLedger(tmp_path / "costs.sqlite3")
+    actual = replace(
+        _event(),
+        cost_source=CostSource.PROVIDER_REPORTED_COST,
+        actual_cost_micros=1234,
+        currency="EUR",
+    )
+    ledger.append(actual)
+    summary = aggregate_cost_rows(ledger.rows(), session_id="session-1")
+
+    assert summary["provider_reported_cost"]["value"] == "0.001234"
+    assert summary["provider_reported_cost"]["sample_count"] == 1
+    assert summary["estimated_cost"]["value"] is None
+    assert summary["estimated_cost"]["complete"] is False
 
 
 def test_async_recorder_isolates_writer_failure_from_caller() -> None:
@@ -252,5 +312,22 @@ def test_async_recorder_isolates_writer_failure_from_caller() -> None:
         await recorder.close()
         assert failures[0][0] == "COST_LEDGER_WRITE_FAILED"
         assert failures[0][1]["reason"] == "OperationalError"
+
+    asyncio.run(scenario())
+
+
+def test_async_recorder_emits_duplicate_cost_anomaly(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        anomalies: list[str] = []
+        ledger = CostLedger(tmp_path / "costs.sqlite3")
+        recorder = AsyncCostRecorder(
+            ledger, on_failure=lambda kind, _: anomalies.append(kind)
+        )
+        event = _event()
+        recorder.record_nowait(event)
+        recorder.record_nowait(replace(event, cost_event_id="duplicate-delivery"))
+        await recorder.close()
+        assert anomalies == ["COST_ANOMALY_DETECTED"]
+        assert len(ledger.rows()) == 1
 
     asyncio.run(scenario())
