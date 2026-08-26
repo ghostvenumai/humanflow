@@ -7,11 +7,11 @@ Freeze tag: `everlast-72h-build` (dereferences to the immutable baseline)
 ## Independent audit
 
 One independent read-only adversarial audit reproduced eight concrete harness
-issues. The fixes were independently rechecked: seven were fixed immediately;
-the remaining partial merge-evidence finding was then closed by requiring
-`record_verified_merge()` to validate a full Git object ID, containment in
-current main and verifier evidence. The auditor made no repository changes and
-made no provider calls.
+issues. All eight fixes were independently rechecked. The final merge-evidence
+finding was confirmed closed on 2026-08-26: direct `MERGED` transitions and
+invalid object IDs are rejected, while `record_verified_merge()` accepts only a
+full Git object ID contained in current main plus verifier evidence. The auditor
+made no repository changes and made no provider calls.
 
 ## V3 definition-of-done evidence
 
