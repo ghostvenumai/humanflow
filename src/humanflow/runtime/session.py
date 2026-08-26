@@ -111,6 +111,7 @@ class RealtimeVoiceSession:
         cost_observer: RuntimeCostObserver | None = None,
         soft_yield_recovery_delay_ms: float = 420.0,
         final_admission_reconciliation_ms: float = 60.0,
+        tts_first_audio_timeout_ms: float = 6_000.0,
         input_queue_size: int = 256,
         clock_ns: Callable[[], int] = monotonic_ns,
     ) -> None:
@@ -120,6 +121,8 @@ class RealtimeVoiceSession:
             raise ValueError("soft yield recovery delay must be non-negative")
         if not 0 <= final_admission_reconciliation_ms <= 250:
             raise ValueError("final admission reconciliation must be in [0, 250] ms")
+        if tts_first_audio_timeout_ms <= 0:
+            raise ValueError("tts first audio timeout must be positive")
         self.state_machine = ConversationStateMachine(
             conversation_id=conversation_id,
             sink=sink,
@@ -158,6 +161,7 @@ class RealtimeVoiceSession:
         self._stt_partials_since_commit = 0
         self._soft_yield_recovery_delay_ms = soft_yield_recovery_delay_ms
         self._final_admission_reconciliation_ms = final_admission_reconciliation_ms
+        self._tts_first_audio_timeout_s = tts_first_audio_timeout_ms / 1000.0
         self._input_queue: asyncio.Queue[AudioFrame | None] = asyncio.Queue(input_queue_size)
         self._clock_ns = clock_ns
         self._input_task: asyncio.Task[None] | None = None
@@ -1493,6 +1497,18 @@ class RealtimeVoiceSession:
                     "stt_provider": transcript_provider.to_dict(),
                 },
             )
+            if self.response_active and self.state is ConversationState.THINKING:
+                # A new complete user turn arrived while the active response is still
+                # pre-playback (THINKING, no audible output yet, e.g. a stalled TTS
+                # request). Deterministically cancel that generation and let this turn
+                # take over, instead of dropping it on _begin_response's
+                # `response_active` / `state is LISTENING` guard. This invalidates the
+                # previous response epoch, so any late audio from it stays inaudible.
+                await self.interrupt(
+                    correlation_id=correlation_id,
+                    reason_code="pre_playback_turn_takeover",
+                )
+                await self.wait_for_response()
             await self._begin_response(
                 update.text,
                 correlation_id=correlation_id,
@@ -1751,7 +1767,29 @@ class RealtimeVoiceSession:
                     fallback_recorded = False
                     actual_speech_provider = speech_provider.to_dict()
                     try:
-                        async for chunk in stream:
+                        stream_iterator = stream.__aiter__()
+                        while True:
+                            # Bound the pre-playback window: a synthesizer that never
+                            # yields a first audio chunk (stalled provider) must not
+                            # strand the response in THINKING. A timeout is converted
+                            # into the existing provider-failure recovery path.
+                            if first_audio:
+                                try:
+                                    chunk = await asyncio.wait_for(
+                                        stream_iterator.__anext__(),
+                                        timeout=self._tts_first_audio_timeout_s,
+                                    )
+                                except TimeoutError as first_audio_timeout:
+                                    raise RuntimeError(
+                                        "tts_first_audio_timeout"
+                                    ) from first_audio_timeout
+                                except StopAsyncIteration:
+                                    break
+                            else:
+                                try:
+                                    chunk = await stream_iterator.__anext__()
+                                except StopAsyncIteration:
+                                    break
                             self._raise_completed_playback_failure(playback_tasks)
                             if self._cancel_event.is_set() or not self.state_machine.accept_result(
                                 token, correlation_id=correlation_id
@@ -2026,6 +2064,33 @@ class RealtimeVoiceSession:
                         reason_code="barge_in_output_stopped",
                         correlation_id=correlation_id,
                     )
+            elif self.state is ConversationState.THINKING:
+                # The generation task ended while the FSM is still in THINKING, with
+                # no explicit cancellation and no exception recovery: e.g. a response
+                # that produced no speakable segment, or a stale-generation break
+                # before first audio. Never leave the session stranded in THINKING
+                # with no active response, or _begin_response refuses every
+                # subsequent user turn on its `state is LISTENING` guard.
+                self.ledger.cancel_unplayed(
+                    response_id=response_id, cancelled_ns=self._clock_ns()
+                )
+                self.state_machine.record(
+                    EventType.RECOVERY_STARTED,
+                    correlation_id=correlation_id,
+                    reason_code="response_ended_in_thinking_without_audio",
+                    payload={"response_id": response_id},
+                )
+                self.state_machine.transition(
+                    ConversationState.LISTENING,
+                    reason_code="response_ended_without_audio",
+                    correlation_id=correlation_id,
+                )
+                self.state_machine.record(
+                    EventType.RECOVERY_COMPLETED,
+                    correlation_id=correlation_id,
+                    reason_code="listening_restored_after_silent_response",
+                    payload={"response_id": response_id},
+                )
             self.ledger.assert_invariants()
             if self._cost_observer is not None:
                 self._observe_cost(

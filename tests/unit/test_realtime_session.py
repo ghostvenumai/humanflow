@@ -499,3 +499,122 @@ def test_response_schedules_lookahead_audio_before_prior_segment_finishes() -> N
         await session.close()
 
     asyncio.run(scenario())
+
+
+class _StallThenSpeakSynthesizer:
+    """First response stalls before first audio; later responses speak normally.
+
+    Reproduces the real failure where a synthesizer records TTS_REQUEST_STARTED but
+    never yields a first audio chunk in the pre-playback window. Barge-in still
+    exits cleanly because the stall respects ``cancel_event``.
+    """
+
+    def __init__(self) -> None:
+        self._delegate = ToneSpeechSynthesizer(chunk_duration_ms=10)
+        self._stalled = False
+
+    @property
+    def provider_info(self):
+        return self._delegate.provider_info
+
+    async def stream_speech(self, request, *, cancel_event):
+        if not self._stalled:
+            self._stalled = True
+            if not cancel_event.is_set():
+                await cancel_event.wait()  # stall: never yields first audio
+            return
+            yield  # pragma: no cover
+        async for chunk in self._delegate.stream_speech(
+            request, cancel_event=cancel_event
+        ):
+            yield chunk
+
+
+def test_stalled_tts_first_audio_recovers_and_serves_next_turn() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        session = RealtimeVoiceSession(
+            conversation_id="tts-first-audio-stall",
+            sink=sink,
+            transcriber=CountingTranscriber(),
+            reasoner=WordReasoner(),
+            synthesizer=_StallThenSpeakSynthesizer(),
+            audio_output=TimedPcmOutput(quantum_ms=1),
+            tts_first_audio_timeout_ms=120.0,
+        )
+        await session.start()
+        await session.submit_transcript(_complete())
+        assert session.state is ConversationState.THINKING
+
+        # The stalled pre-playback window must not strand the session in THINKING:
+        # it recovers to LISTENING within a bounded time (fails before the fix).
+        await asyncio.wait_for(session.wait_for_response(), timeout=2.0)
+        assert session.state is ConversationState.LISTENING
+        assert not session.response_active
+        names = [event.event_type.name for event in sink.events]
+        assert "TTS_REQUEST_STARTED" in names
+        assert "FIRST_AUDIO_CHUNK" not in names
+        assert "RECOVERY_COMPLETED" in names
+
+        # A subsequent legitimate user turn is accepted and produces audio, proving
+        # the response owner was released rather than orphaned.
+        await session.submit_transcript(_complete("Und am Donnerstag?"))
+        await _wait_for_state(session, ConversationState.SPEAKING)
+        await session.wait_for_response()
+        assert session.state is ConversationState.LISTENING
+        await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_new_turn_during_pre_playback_stall_is_served_not_lost() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        reasoner = WordReasoner()
+        session = RealtimeVoiceSession(
+            conversation_id="pre-playback-takeover",
+            sink=sink,
+            transcriber=CountingTranscriber(),
+            reasoner=reasoner,
+            synthesizer=_StallThenSpeakSynthesizer(),
+            audio_output=TimedPcmOutput(quantum_ms=1),
+            # Default-scale timeout on purpose: the takeover, not the timeout, must
+            # serve Turn B. The test never waits for this to elapse.
+            tts_first_audio_timeout_ms=6_000.0,
+        )
+        await session.start()
+        await session.submit_transcript(_complete("Termin fuer einen Orthopaeden"))
+        # Turn A is stalled pre-playback: TTS requested, no first audio, THINKING.
+        for _ in range(200):
+            if any(e.event_type is EventType.TTS_REQUEST_STARTED for e in sink.events):
+                break
+            await asyncio.sleep(0.002)
+        assert session.state is ConversationState.THINKING
+        assert session.response_active
+
+        # A legitimate new user turn arrives DURING the stall, before any timeout.
+        decision = await session.submit_transcript(_complete("Und am Donnerstag frueher?"))
+        assert decision.decision is TurnDecisionType.COMPLETE
+
+        # Turn B must take over and be served now (not lost, not waiting 6 s).
+        await _wait_for_state(session, ConversationState.SPEAKING)
+        await session.wait_for_response()
+        assert session.state is ConversationState.LISTENING
+
+        # Turn B actually reached the reasoner (was not silently discarded).
+        assert "Und am Donnerstag frueher?" in reasoner.transcripts
+
+        # Turn A was cancelled and never became audible: exactly one first-audio
+        # event exists (Turn B's), and the takeover cancelled the stalled epoch.
+        first_audio_events = [
+            e for e in sink.events if e.event_type is EventType.FIRST_AUDIO_CHUNK
+        ]
+        assert len(first_audio_events) == 1
+        assert any(
+            e.event_type is EventType.AUDIO_CANCEL_SIGNAL for e in sink.events
+        )
+        # No stranded generation; the owner was handed to Turn B cleanly.
+        assert not session.response_active
+        await session.close()
+
+    asyncio.run(scenario())
