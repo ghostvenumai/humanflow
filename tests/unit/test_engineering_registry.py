@@ -156,6 +156,23 @@ def test_worker_cannot_self_verify_and_high_risk_ready_requires_human_approval(
     with pytest.raises(PermissionError, match="human approval"):
         registry.transition("HF-900", TaskStatus.READY, actor=ActorRole.COORDINATOR)
 
+    with pytest.raises(PermissionError, match="human authority"):
+        registry.record_human_approval(
+            "HF-900",
+            actor=ActorRole.WORKER,
+            evidence_refs=("operator-message:2026-08-26",),
+        )
+    approved = registry.record_human_approval(
+        "HF-900",
+        actor=ActorRole.HUMAN,
+        evidence_refs=("operator-message:2026-08-26",),
+    )
+    assert approved.human_approved is True
+    ready = registry.transition(
+        "HF-900", TaskStatus.READY, actor=ActorRole.COORDINATOR
+    )
+    assert ready.status is TaskStatus.READY
+
 
 def test_initial_release_transition_requires_human_authority(tmp_path: Path) -> None:
     registry = TaskRegistry(tmp_path / "feature_list.json")

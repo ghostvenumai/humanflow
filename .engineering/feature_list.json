@@ -9,10 +9,12 @@
       "dependencies": [],
       "evidence_refs": [
         "human-validation:2026-08-26:appointment-grounding",
-        ".engineering/tasks/HF-APPT-20260826-01.json"
+        ".engineering/tasks/HF-APPT-20260826-01.json",
+        "operator-authorization:chat:2026-08-26:HF-APPT-20260826-01",
+        "operator-task-scope:max-two-candidates-one-retry"
       ],
       "human_approval_required": true,
-      "human_approved": false,
+      "human_approved": true,
       "passes": false,
       "priority": "P0",
       "problem_fingerprint": "failure:appointment-tool-result-grounding-sticky-unavailable",
@@ -36,7 +38,7 @@
       ],
       "risk": "high",
       "source": "problem_candidate:PC-8f60d63febf5",
-      "status": "triaged",
+      "status": "ready",
       "target_metrics": {
         "primary": "zero_recurrence_after_verified_fix",
         "transaction_truthfulness": "1.0",
@@ -44,7 +46,7 @@
       },
       "task_id": "HF-APPT-20260826-01",
       "title": "Ground availability follow-ups in authoritative SQLite results",
-      "updated_at_utc": "2026-08-26T08:57:38Z",
+      "updated_at_utc": "2026-08-26T09:13:00.949068Z",
       "verification": [
         [
           "python3",

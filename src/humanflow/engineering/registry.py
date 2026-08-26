@@ -278,6 +278,38 @@ class TaskRegistry:
                 task_id, target, actor=actor, evidence_refs=evidence_refs
             )
 
+    def record_human_approval(
+        self,
+        task_id: str,
+        *,
+        actor: ActorRole,
+        evidence_refs: tuple[str, ...],
+    ) -> EngineeringTaskRecord:
+        """Record operator approval without allowing a worker to self-authorize."""
+
+        if actor is not ActorRole.HUMAN:
+            raise PermissionError("human approval requires human authority")
+        if not evidence_refs or any(not reference.strip() for reference in evidence_refs):
+            raise ValueError("human approval requires non-empty evidence")
+        with self._lock:
+            current = self.get(task_id)
+            if not current.human_approval_required:
+                raise ValueError("task does not require human approval")
+            if current.status not in {
+                TaskStatus.PROPOSED,
+                TaskStatus.TRIAGED,
+                TaskStatus.BLOCKED,
+            }:
+                raise ValueError("human approval must be recorded before READY")
+            approved = replace(
+                current,
+                human_approved=True,
+                evidence_refs=tuple(dict.fromkeys((*current.evidence_refs, *evidence_refs))),
+                updated_at_utc=_timestamp(),
+            )
+            self._tasks[task_id] = approved
+            return approved
+
     def _transition_unlocked(
         self,
         task_id: str,
