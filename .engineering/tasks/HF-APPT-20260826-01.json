@@ -1,0 +1,96 @@
+{
+  "acceptance_tests": [
+    "An open availability question clears only the specific rejected-time constraint and queries the current appointment date/context.",
+    "A successful local SQLite lookup always produces a response grounded in its structured result.",
+    "A requested date with no slots remains unchanged and any nearby alternative is explicitly labeled with its full date and time.",
+    "An unavailable proposed time never creates a pending offer and cannot be booked by a later affirmation.",
+    "Only a complete AVAILABLE tool-backed pending offer may advance to create_appointment.",
+    "Existing appointment, temporal, Final Admission, realtime, Played Audio and Cost Ledger invariants remain green."
+  ],
+  "actual_behavior": [
+    "Follow-up availability questions repeated the previously rejected requested time or produced no tool call.",
+    "The no-tool path allowed a response claiming local availability could not be retrieved.",
+    "A later affirmation caused another lookup of an unavailable proposal instead of confirming only a valid offer."
+  ],
+  "authoritative_evidence": {
+    "before_patch_replay": {
+      "general_time_query_tool": null,
+      "initial_requested_date": "2026-09-09",
+      "initial_requested_time": "11:30",
+      "initial_result": "UNAVAILABLE",
+      "later_proposed_time": "12:00",
+      "later_result": "UNAVAILABLE",
+      "repeated_unavailable_time_queries": true
+    },
+    "browser_session": {
+      "appointment_state_updates_observed": true,
+      "availability_queries_observed": true,
+      "conversation_history_roles_valid": true,
+      "scribe_finals_accepted": true,
+      "tool_completed_observed": true,
+      "tool_started_observed": true
+    },
+    "evidence_ref": "human-validation:2026-08-26:appointment-grounding"
+  },
+  "expected_behavior": [
+    "A general availability question searches the active appointment context without the stale rejected preferred time.",
+    "The reply reports exact-date availability or explicitly dated nearby alternatives from SQLite.",
+    "Successful local demo lookups are never described as inaccessible live data.",
+    "Unavailable times never become pending offers or confirmation targets."
+  ],
+  "failure_class": "APPOINTMENT_TOOL_RESULT_GROUNDING",
+  "files_allowed": [
+    "src/humanflow/tools/appointment_coordinator.py",
+    "tests/unit/test_appointment_tool_result_grounding_candidate.py"
+  ],
+  "files_protected": [
+    ".engineering/tasks/HF-APPT-20260826-01.json",
+    "src/humanflow/runtime/appointment_state.py",
+    "src/humanflow/runtime/anthropic_provider.py",
+    "src/humanflow/runtime/temporal.py",
+    "src/humanflow/tools/sqlite_appointments.py",
+    "tests/golden/**",
+    "eval/golden/**",
+    "eval/engineering/**",
+    "tests/unit/test_appointment_state.py",
+    "tests/unit/test_appointment_transaction_adversarial.py",
+    "tests/unit/test_sqlite_appointment_tools.py",
+    "tests/unit/test_temporal_resolver.py",
+    "config/quality-gates.yaml",
+    "docs/METRICS.md",
+    "schemas/metric-definitions.json",
+    "sprint/**"
+  ],
+  "harness_gate": {
+    "external_agent_execution": "REQUIRED_OPERATOR_CONFIGURATION",
+    "hidden_acceptance": "REQUIRED_OPERATOR_CONFIGURATION",
+    "human_approval": "REQUIRED_BEFORE_READY",
+    "status": "FAIL_CLOSED_BEFORE_WORKER"
+  },
+  "problem_candidate_id": "PC-8f60d63febf5",
+  "protected_invariants": [
+    "everlast-72h-build remains at 798256e447a7d7cb116d2186035f4a85b29744e2.",
+    "The deterministic temporal resolver owns the requested ISO date and weekday.",
+    "SQLite tool results own availability and transaction truth.",
+    "A pending offer is atomic, AVAILABLE, tool-backed and appointment-scoped.",
+    "No booking occurs without explicit confirmation and successful SQLite commit.",
+    "Voice, Final Admission, barge-in, backchannel, Played Audio and Cost Ledger behavior is unchanged."
+  ],
+  "reproduction": {
+    "reference_date": "2026-08-26",
+    "steps": [
+      "Request an Orthopädie appointment for Wednesday in three weeks at 11:30.",
+      "Observe UNAVAILABLE for the exact requested time.",
+      "Ask which time or appointment time is free.",
+      "Propose 12:00 and observe UNAVAILABLE.",
+      "Ask again which time is actually free.",
+      "Affirm that 12:00 is acceptable although it was never offered as AVAILABLE."
+    ],
+    "timezone": "Europe/Berlin"
+  },
+  "risk_level": "HIGH",
+  "schema_version": 1,
+  "source": "REAL_BROWSER_HUMAN_VALIDATION",
+  "status": "TRIAGED_OPERATOR_CONFIGURATION_REQUIRED",
+  "task_id": "HF-APPT-20260826-01"
+}

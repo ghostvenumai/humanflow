@@ -1,4 +1,25 @@
 {
-  "problems": [],
+  "problems": [
+    {
+      "affected_component": "appointment",
+      "baseline_metric": null,
+      "candidate_id": "PC-8f60d63febf5",
+      "confidence": 0.98,
+      "current_metric": null,
+      "detector_type": "HIGH_SEVERITY",
+      "evidence_refs": [
+        "human-validation:2026-08-26:appointment-grounding"
+      ],
+      "fingerprint": "failure:appointment-tool-result-grounding-sticky-unavailable",
+      "first_seen": "2026-08-26T00:00:00Z",
+      "last_seen": "2026-08-26T00:00:00Z",
+      "proposed_target": "zero_recurrence_after_verified_fix",
+      "reproduction_hint": "Replay an unavailable requested time followed by a general availability query and an unavailable proposal.",
+      "sample_size": 1,
+      "severity": "high",
+      "status": "proposed",
+      "title": "Ground availability follow-ups in authoritative SQLite results"
+    }
+  ],
   "schema_version": 1
 }

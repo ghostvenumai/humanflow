@@ -1,4 +1,70 @@
 {
-  "features": [],
+  "features": [
+    {
+      "allowed_paths": [
+        "src/humanflow/tools/appointment_coordinator.py",
+        "tests/unit/test_appointment_tool_result_grounding_candidate.py"
+      ],
+      "created_at_utc": "2026-08-26T08:57:38Z",
+      "dependencies": [],
+      "evidence_refs": [
+        "human-validation:2026-08-26:appointment-grounding",
+        ".engineering/tasks/HF-APPT-20260826-01.json"
+      ],
+      "human_approval_required": true,
+      "human_approved": false,
+      "passes": false,
+      "priority": "P0",
+      "problem_fingerprint": "failure:appointment-tool-result-grounding-sticky-unavailable",
+      "protected_paths": [
+        ".engineering/tasks/HF-APPT-20260826-01.json",
+        "tests/golden/**",
+        "eval/golden/**",
+        "eval/engineering/**",
+        "config/quality-gates.yaml",
+        "docs/METRICS.md",
+        "schemas/metric-definitions.json",
+        "sprint/**",
+        "src/humanflow/runtime/appointment_state.py",
+        "src/humanflow/runtime/anthropic_provider.py",
+        "src/humanflow/runtime/temporal.py",
+        "src/humanflow/tools/sqlite_appointments.py",
+        "tests/unit/test_appointment_state.py",
+        "tests/unit/test_appointment_transaction_adversarial.py",
+        "tests/unit/test_sqlite_appointment_tools.py",
+        "tests/unit/test_temporal_resolver.py"
+      ],
+      "risk": "high",
+      "source": "problem_candidate:PC-8f60d63febf5",
+      "status": "triaged",
+      "target_metrics": {
+        "primary": "zero_recurrence_after_verified_fix",
+        "transaction_truthfulness": "1.0",
+        "unavailable_affirmation_booking_count": "0"
+      },
+      "task_id": "HF-APPT-20260826-01",
+      "title": "Ground availability follow-ups in authoritative SQLite results",
+      "updated_at_utc": "2026-08-26T08:57:38Z",
+      "verification": [
+        [
+          "python3",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/unit/test_appointment_tool_result_grounding_candidate.py"
+        ],
+        [
+          "python3",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/unit/test_appointment_state.py",
+          "tests/unit/test_appointment_transaction_adversarial.py",
+          "tests/unit/test_sqlite_appointment_tools.py",
+          "tests/unit/test_temporal_resolver.py"
+        ]
+      ]
+    }
+  ],
   "schema_version": 1
 }
