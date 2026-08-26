@@ -182,6 +182,35 @@ def _feed_pcm_episode(
     return monotonic_ns(), start_sequence + total_frames - 1
 
 
+def _feed_fragmented_pcm_episode(
+    session: RealtimeVoiceSession,
+    *,
+    voiced_frames: int = 8,
+    gap_frames: int = 3,
+    silence_frames: int = 10,
+    amplitude: int = 5_000,
+) -> tuple[int, int]:
+    split = voiced_frames // 2
+    pattern = (
+        [amplitude] * split
+        + [0] * gap_frames
+        + [amplitude] * (voiced_frames - split)
+        + [0] * silence_frames
+    )
+    base_ns = monotonic_ns() - len(pattern) * 20_000_000
+    for sequence, sample in enumerate(pattern):
+        session.receive_audio(
+            AudioFrame(
+                stream_id="browser-pcm-track",
+                sequence=sequence,
+                pcm16=struct.pack("<h", sample) * 320,
+                sample_rate_hz=16_000,
+                captured_ns=base_ns + sequence * 20_000_000,
+            )
+        )
+    return monotonic_ns(), len(pattern) - 1
+
+
 async def _wait_speaking(session: RealtimeVoiceSession) -> None:
     for _ in range(300):
         if session.state.value == "SPEAKING":
@@ -369,6 +398,113 @@ def test_streaming_final_requires_and_records_authoritative_pcm_episode() -> Non
         assert admission.payload["voiced_duration_ms"] == 200.0
         assert admission.payload["alignment_ms"] is not None
         assert reasoner.transcripts == ["Was ist fünfundzwanzig mal siebzehn?"]
+        await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_exact_real_mic_orthopaedie_final_recovers_and_invokes_reasoner_once() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        reasoner = RecordingReasoner("Welche Woche passt dir?")
+        session = RealtimeVoiceSession(
+            conversation_id="real-mic-borderline-orthopaedie",
+            sink=sink,
+            transcriber=NullInputTranscriber(),  # type: ignore[arg-type]
+            reasoner=reasoner,
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=5),
+            audio_output=TimedPcmOutput(quantum_ms=1),
+        )
+        await session.start()
+        final_ns, final_sequence = _feed_fragmented_pcm_episode(session)
+
+        await session.accept_user_transcript(
+            _streaming_update(
+                "Ich brauch 'n Termin für 'n Orthopäden.",
+                transcript_id="human-real-mic-orthopaedie",
+                timestamp_ns=final_ns,
+                audio_frame_sequence=final_sequence,
+            )
+        )
+        await session.wait_for_response()
+
+        assert reasoner.transcripts == ["Ich brauch 'n Termin für 'n Orthopäden."]
+        admission = next(
+            event
+            for event in sink.events
+            if event.event_type is EventType.FINAL_ADMISSION_ACCEPTED
+        )
+        assert admission.reason_code == "ACCEPTED_RECOVERED_ACOUSTIC"
+        assert admission.payload["evidence_class"] == "RECOVERED_ACOUSTIC"
+        assert admission.payload["pcm_speech_detected"] is True
+        assert admission.payload["self_speech_risk"] == "LOW"
+        assert admission.payload["decision"] == "ACCEPT"
+        assert not any(
+            event.event_type is EventType.FINAL_ADMISSION_REJECTED
+            for event in sink.events
+        )
+        await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_uncertain_final_reconciles_with_late_pcm_evidence_once() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        reasoner = RecordingReasoner("Welche Woche passt dir?")
+        session = RealtimeVoiceSession(
+            conversation_id="late-pcm-final-reconciliation",
+            sink=sink,
+            transcriber=NullInputTranscriber(),  # type: ignore[arg-type]
+            reasoner=reasoner,
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=5),
+            audio_output=TimedPcmOutput(quantum_ms=1),
+            final_admission_reconciliation_ms=60,
+        )
+        await session.start()
+        base_ns = monotonic_ns() - 300_000_000
+        for sequence in range(4):
+            session.receive_audio(
+                AudioFrame(
+                    stream_id="browser-pcm-track",
+                    sequence=sequence,
+                    pcm16=struct.pack("<h", 5_000) * 320,
+                    captured_ns=base_ns + sequence * 20_000_000,
+                )
+            )
+        update = _streaming_update(
+            "Ich brauch 'n Termin für 'n Orthopäden.",
+            transcript_id="final-before-local-evidence-complete",
+            timestamp_ns=base_ns + 80_000_000,
+            audio_frame_sequence=3,
+        )
+        admission_task = asyncio.create_task(session.accept_user_transcript(update))
+        await asyncio.sleep(0.01)
+        for sequence in range(4, 10):
+            session.receive_audio(
+                AudioFrame(
+                    stream_id="browser-pcm-track",
+                    sequence=sequence,
+                    pcm16=struct.pack("<h", 5_000) * 320,
+                    captured_ns=base_ns + sequence * 20_000_000,
+                )
+            )
+
+        await admission_task
+        await session.wait_for_response()
+
+        assert reasoner.transcripts == ["Ich brauch 'n Termin für 'n Orthopäden."]
+        accepted = [
+            event
+            for event in sink.events
+            if event.event_type is EventType.FINAL_ADMISSION_ACCEPTED
+        ]
+        assert len(accepted) == 1
+        assert accepted[0].reason_code == "ACCEPTED_RECOVERED_ACOUSTIC"
+        assert accepted[0].payload["initial_reason_code"] == (
+            "INSUFFICIENT_ACOUSTIC_EVIDENCE"
+        )
+        assert accepted[0].payload["reconciliation_delay_ms"] >= 50
         await session.close()
 
     asyncio.run(scenario())

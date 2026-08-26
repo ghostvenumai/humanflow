@@ -270,6 +270,103 @@ def test_final_without_pcm_episode_is_rejected(
     assert assessment.reason_code == expected_reason.value
 
 
+def test_borderline_real_orthopaedie_final_uses_combined_pcm_evidence() -> None:
+    gate = FinalTranscriptAdmissionGate()
+    _, final_ns, final_sequence = _feed_episode(
+        gate,
+        voiced_frames=8,
+        fragmented=True,
+    )
+    assessment = gate.assess_final(
+        _update(
+            "Ich brauch 'n Termin für 'n Orthopäden.",
+            transcript_id="real-borderline-orthopaedie-final",
+            timestamp_ns=final_ns,
+            audio_frame_sequence=final_sequence,
+        ),
+        assistant_playback_active=False,
+        self_speech=_no_self_speech(
+            "Ich brauch 'n Termin für 'n Orthopäden.", playback_active=False
+        ),
+    )
+
+    assert assessment.accepted is True
+    assert (
+        assessment.reason_code
+        == FinalAdmissionReason.ACCEPTED_RECOVERED_ACOUSTIC.value
+    )
+    assert assessment.voiced_duration_ms == 160.0
+    assert assessment.required_voiced_ms == 245.0
+    assert assessment.acoustic_span_ms == 220.0
+    assert assessment.evidence_class == "RECOVERED_ACOUSTIC"
+
+
+def test_low_volume_meaningful_final_uses_persistent_pcm_evidence() -> None:
+    gate = FinalTranscriptAdmissionGate()
+    sequence = 0
+    captured_ns = BASE_NS
+    for amplitude in (1_100, 1_100, 0, 0, 0, 1_100, 1_100):
+        gate.observe(
+            AudioFrame(
+                stream_id="browser-pcm-track",
+                sequence=sequence,
+                pcm16=struct.pack("<h", amplitude) * 320,
+                captured_ns=captured_ns,
+            )
+        )
+        sequence += 1
+        captured_ns += FRAME_NS
+
+    assessment = gate.assess_final(
+        _update(
+            "Ich brauche einen Orthopädentermin.",
+            transcript_id="low-volume-meaningful-final",
+            timestamp_ns=captured_ns,
+            audio_frame_sequence=sequence - 1,
+        ),
+        assistant_playback_active=False,
+        self_speech=_no_self_speech(
+            "Ich brauche einen Orthopädentermin.", playback_active=False
+        ),
+    )
+
+    assert assessment.accepted is True
+    assert (
+        assessment.reason_code
+        == FinalAdmissionReason.ACCEPTED_RECOVERED_ACOUSTIC.value
+    )
+    assert assessment.voiced_duration_ms == 80.0
+    assert assessment.acoustic_span_ms == 140.0
+
+
+def test_borderline_evidence_never_recovers_during_assistant_playback() -> None:
+    gate = FinalTranscriptAdmissionGate()
+    text = "Eine längere fremde Hintergrundstimme spricht im Zimmer."
+    _, final_ns, final_sequence = _feed_episode(
+        gate,
+        voiced_frames=8,
+        fragmented=True,
+    )
+    assessment = gate.assess_final(
+        _update(
+            text,
+            transcript_id="borderline-during-playback",
+            timestamp_ns=final_ns,
+            audio_frame_sequence=final_sequence,
+        ),
+        assistant_playback_active=True,
+        self_speech=_no_self_speech(
+            text, playback_active=True
+        ),
+    )
+
+    assert assessment.accepted is False
+    assert (
+        assessment.reason_code
+        == FinalAdmissionReason.INSUFFICIENT_ACOUSTIC_EVIDENCE.value
+    )
+
+
 def test_delayed_valid_final_remains_eligible_during_bounded_grace_window() -> None:
     gate = FinalTranscriptAdmissionGate()
     speech_end_ns, _, final_sequence = _feed_episode(gate, voiced_frames=25)

@@ -110,6 +110,7 @@ class RealtimeVoiceSession:
         appointment_tool_timeout_ms: float = 4_000.0,
         cost_observer: RuntimeCostObserver | None = None,
         soft_yield_recovery_delay_ms: float = 420.0,
+        final_admission_reconciliation_ms: float = 60.0,
         input_queue_size: int = 256,
         clock_ns: Callable[[], int] = monotonic_ns,
     ) -> None:
@@ -117,6 +118,8 @@ class RealtimeVoiceSession:
             raise ValueError("input_queue_size must be positive")
         if soft_yield_recovery_delay_ms < 0:
             raise ValueError("soft yield recovery delay must be non-negative")
+        if not 0 <= final_admission_reconciliation_ms <= 250:
+            raise ValueError("final admission reconciliation must be in [0, 250] ms")
         self.state_machine = ConversationStateMachine(
             conversation_id=conversation_id,
             sink=sink,
@@ -154,6 +157,7 @@ class RealtimeVoiceSession:
         self._stt_audio_seconds_since_commit = Decimal("0")
         self._stt_partials_since_commit = 0
         self._soft_yield_recovery_delay_ms = soft_yield_recovery_delay_ms
+        self._final_admission_reconciliation_ms = final_admission_reconciliation_ms
         self._input_queue: asyncio.Queue[AudioFrame | None] = asyncio.Queue(input_queue_size)
         self._clock_ns = clock_ns
         self._input_task: asyncio.Task[None] | None = None
@@ -437,6 +441,32 @@ class RealtimeVoiceSession:
                 assistant_playback_active=playback_active,
                 self_speech=assessment,
             )
+            if (
+                not final_admission.accepted
+                and final_admission.reason_code
+                == FinalAdmissionReason.INSUFFICIENT_ACOUSTIC_EVIDENCE.value
+                and not playback_active
+                and not assessment.candidate
+                and not assessment.suppress
+                and self._final_admission_reconciliation_ms > 0
+            ):
+                initial_reason = final_admission.reason_code
+                reconciliation_started_ns = self._clock_ns()
+                await asyncio.sleep(self._final_admission_reconciliation_ms / 1_000.0)
+                final_admission = self._final_admission_gate.assess_final(
+                    update,
+                    assistant_playback_active=playback_active,
+                    self_speech=assessment,
+                )
+                reconciliation_delay_ms = max(
+                    0.0,
+                    (self._clock_ns() - reconciliation_started_ns) / 1_000_000.0,
+                )
+                final_admission = replace(
+                    final_admission,
+                    initial_reason_code=initial_reason,
+                    reconciliation_delay_ms=round(reconciliation_delay_ms, 3),
+                )
             self._record_final_admission(
                 update=update,
                 assessment=final_admission,
@@ -2420,6 +2450,23 @@ class RealtimeVoiceSession:
                 "stream_id": update.provenance.stream_id,
                 "audio_capture_id": update.provenance.audio_capture_id,
                 "audio_frame_sequence": update.provenance.audio_frame_sequence,
+                "recognition_input_binding": (
+                    update.provenance.recognition_input_binding
+                ),
+                "provider_endpointed": update.signals.provider_endpointed,
+                "semantic_complete": update.signals.semantic_complete,
+                "pcm_speech_detected": assessment.speech_episode_id is not None,
+                "self_speech_risk": (
+                    "HIGH"
+                    if assessment.self_speech_candidate
+                    and assessment.reason_code
+                    == FinalAdmissionReason.SELF_SPEECH_MATCH.value
+                    else "MEDIUM"
+                    if assessment.self_speech_candidate
+                    else "LOW"
+                ),
+                "decision": "ACCEPT" if assessment.accepted else "SUPPRESS",
+                "decision_reason": assessment.reason_code,
                 **assessment.to_dict(),
             },
         )

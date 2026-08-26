@@ -18,6 +18,7 @@ from .transcript_events import normalize_transcript
 
 class FinalAdmissionReason(StrEnum):
     ACCEPTED = "ACCEPTED"
+    ACCEPTED_RECOVERED_ACOUSTIC = "ACCEPTED_RECOVERED_ACOUSTIC"
     NO_PCM_EPISODE = "NO_PCM_EPISODE"
     PCM_EPISODE_TOO_SHORT = "PCM_EPISODE_TOO_SHORT"
     FINAL_TOO_EARLY = "FINAL_TOO_EARLY"
@@ -111,6 +112,11 @@ class FinalAdmissionAssessment:
     last_frame_sequence: int | None
     final_frame_sequence: int | None
     required_voiced_ms: float | None
+    acoustic_span_ms: float | None
+    acoustic_evidence_ratio: float | None
+    evidence_class: str
+    initial_reason_code: str | None = None
+    reconciliation_delay_ms: float = 0.0
 
     @classmethod
     def rejected_without_episode(
@@ -141,6 +147,9 @@ class FinalAdmissionAssessment:
             last_frame_sequence=None,
             final_frame_sequence=final_frame_sequence,
             required_voiced_ms=None,
+            acoustic_span_ms=None,
+            acoustic_evidence_ratio=None,
+            evidence_class="SUPPRESSED",
         )
 
     def to_dict(self) -> dict[str, str | int | float | bool | None]:
@@ -164,6 +173,11 @@ class FinalAdmissionAssessment:
             "last_frame_sequence": self.last_frame_sequence,
             "final_frame_sequence": self.final_frame_sequence,
             "required_voiced_ms": self.required_voiced_ms,
+            "acoustic_span_ms": self.acoustic_span_ms,
+            "acoustic_evidence_ratio": self.acoustic_evidence_ratio,
+            "evidence_class": self.evidence_class,
+            "initial_reason_code": self.initial_reason_code,
+            "reconciliation_delay_ms": self.reconciliation_delay_ms,
         }
 
 
@@ -182,6 +196,8 @@ class FinalTranscriptAdmissionGate:
         noise_multiplier: float = 2.8,
         initial_noise_floor: float = 0.003,
         maximum_episodes: int = 32,
+        minimum_recovery_voiced_ms: float = 80.0,
+        recovery_span_ratio: float = 0.75,
     ) -> None:
         if (
             minimum_voiced_ms <= 0
@@ -197,6 +213,10 @@ class FinalTranscriptAdmissionGate:
             raise ValueError("speech evidence thresholds must be selective")
         if maximum_episodes < 1:
             raise ValueError("maximum episodes must be positive")
+        if minimum_recovery_voiced_ms < minimum_short_utterance_voiced_ms:
+            raise ValueError("recovery threshold must include valid speech evidence")
+        if not 0 < recovery_span_ratio <= 1:
+            raise ValueError("recovery span ratio must be in (0, 1]")
         self.minimum_voiced_ms = minimum_voiced_ms
         self.minimum_short_utterance_voiced_ms = minimum_short_utterance_voiced_ms
         self.release_silence_ms = release_silence_ms
@@ -204,6 +224,8 @@ class FinalTranscriptAdmissionGate:
         self.minimum_rms = minimum_rms
         self.minimum_peak = minimum_peak
         self.noise_multiplier = noise_multiplier
+        self.minimum_recovery_voiced_ms = minimum_recovery_voiced_ms
+        self.recovery_span_ratio = recovery_span_ratio
         self._noise_floor = initial_noise_floor
         self._episodes: deque[PcmSpeechEpisode] = deque(maxlen=maximum_episodes)
         self._active: PcmSpeechEpisode | None = None
@@ -328,7 +350,23 @@ class FinalTranscriptAdmissionGate:
                 final_frame_sequence=update.provenance.audio_frame_sequence,
                 required_voiced_ms=required_voiced_ms,
             )
-        if not episode.valid or episode.voiced_duration_ms < required_voiced_ms:
+        recovered_acoustic_evidence = (
+            episode.voiced_duration_ms < required_voiced_ms
+            and self._has_recoverable_user_evidence(
+                update=update,
+                episode=episode,
+                required_voiced_ms=required_voiced_ms,
+                assistant_playback_active=assistant_playback_active,
+                self_speech=self_speech,
+            )
+        )
+        if (
+            not episode.valid
+            or (
+                episode.voiced_duration_ms < required_voiced_ms
+                and not recovered_acoustic_evidence
+            )
+        ):
             return self._assessment(
                 accepted=False,
                 reason_code=FinalAdmissionReason.INSUFFICIENT_ACOUSTIC_EVIDENCE,
@@ -347,7 +385,11 @@ class FinalTranscriptAdmissionGate:
             self._silence_duration_ms = 0.0
         return self._assessment(
             accepted=True,
-            reason_code=FinalAdmissionReason.ACCEPTED,
+            reason_code=(
+                FinalAdmissionReason.ACCEPTED_RECOVERED_ACOUSTIC
+                if recovered_acoustic_evidence
+                else FinalAdmissionReason.ACCEPTED
+            ),
             episode=episode,
             final_ns=final_ns,
             assistant_playback_active=assistant_playback_active,
@@ -355,6 +397,42 @@ class FinalTranscriptAdmissionGate:
             final_frame_sequence=update.provenance.audio_frame_sequence,
             required_voiced_ms=required_voiced_ms,
         )
+
+    def _has_recoverable_user_evidence(
+        self,
+        *,
+        update: TranscriptUpdate,
+        episode: PcmSpeechEpisode,
+        required_voiced_ms: float,
+        assistant_playback_active: bool,
+        self_speech: SelfSpeechAssessment,
+    ) -> bool:
+        """Fuse independent evidence only for borderline, non-playback finals."""
+
+        if (
+            assistant_playback_active
+            or self_speech.candidate
+            or self_speech.suppress
+            or not episode.valid
+            or episode.voiced_duration_ms < self.minimum_recovery_voiced_ms
+            or update.provenance.recognition_input_binding
+            != "EXACT_GETUSERMEDIA_PCM16"
+            or update.provenance.audio_frame_sequence is None
+            or not update.signals.provider_endpointed
+            or not update.signals.semantic_complete
+            or not _is_meaningful_recovery_text(update.text)
+        ):
+            return False
+        acoustic_span_ms = max(
+            0.0,
+            (episode.speech_end_monotonic - episode.speech_start_monotonic)
+            / 1_000_000.0,
+        )
+        required_span_ms = max(
+            self.minimum_voiced_ms,
+            required_voiced_ms * self.recovery_span_ratio,
+        )
+        return acoustic_span_ms >= required_span_ms
 
     def _associate_episode(
         self, update: TranscriptUpdate
@@ -462,6 +540,26 @@ class FinalTranscriptAdmissionGate:
                 3,
             )
         )
+        acoustic_span_ms = (
+            None
+            if episode is None
+            else round(
+                max(
+                    0.0,
+                    (
+                        episode.speech_end_monotonic
+                        - episode.speech_start_monotonic
+                    )
+                    / 1_000_000.0,
+                ),
+                3,
+            )
+        )
+        acoustic_evidence_ratio = (
+            None
+            if episode is None or required_voiced_ms in {None, 0}
+            else round(episode.voiced_duration_ms / required_voiced_ms, 6)
+        )
         return FinalAdmissionAssessment(
             accepted=accepted,
             reason_code=str(reason_code),
@@ -494,7 +592,30 @@ class FinalTranscriptAdmissionGate:
             ),
             final_frame_sequence=final_frame_sequence,
             required_voiced_ms=required_voiced_ms,
+            acoustic_span_ms=acoustic_span_ms,
+            acoustic_evidence_ratio=acoustic_evidence_ratio,
+            evidence_class=(
+                "RECOVERED_ACOUSTIC"
+                if str(reason_code)
+                == FinalAdmissionReason.ACCEPTED_RECOVERED_ACOUSTIC.value
+                else "STRONG_ACOUSTIC"
+                if accepted
+                else "SUPPRESSED"
+            ),
         )
+
+
+_RECOVERY_FILLER_TOKENS = frozenset({"äh", "ähm", "hm", "mhm", "hmm", "also"})
+
+
+def _is_meaningful_recovery_text(text: str) -> bool:
+    tokens = normalize_transcript(text).split()
+    lexical_tokens = [token for token in tokens if token not in _RECOVERY_FILLER_TOKENS]
+    return (
+        len(tokens) >= 4
+        and len(lexical_tokens) >= 3
+        and len("".join(lexical_tokens)) >= 8
+    )
 
 
 def _pcm_levels(pcm16: bytes) -> tuple[float, float]:
