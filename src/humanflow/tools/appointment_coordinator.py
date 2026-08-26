@@ -54,6 +54,30 @@ _OPEN_AVAILABILITY_FOLLOWUP = re.compile(
     r"\bwann\s+(?:hast|hättest)\s+du(?:\s+etwas)?\s+frei\b",
     re.IGNORECASE,
 )
+# Natural German availability follow-ups that carry no new slot. These are only
+# honoured while an active, unbooked appointment with a date context is focused,
+# so the coordinator issues a grounded SQLite search instead of letting the
+# reasoner answer without a database_tool_result. The pattern is deliberately
+# narrow: it requires an agent-directed availability request ("wann/was/welche …
+# hast du … frei/sonst/Termin") or an explicit alternative-slot phrase, so that
+# unrelated utterances that merely contain "frei"/"verfügbar" ("Ich bin morgen
+# frei", "Ist der Parkplatz verfügbar?", "Was geht?") never trigger a search.
+# `\bfrei\b` is used rather than a prefix so weekday names like "Freitag" cannot
+# match.
+_AVAILABILITY_FOLLOWUP = re.compile(
+    r"\b(?:"
+    r"wann\s+(?:hast|hättest|habt|hättet)\s+(?:du|ihr)\b[^?.!]*\b(?:frei|verf[üu]gbar)\b|"
+    r"(?:was|welche[nrs]?)\s+(?:hast|hättest|habt|hättet)\s+(?:du|ihr)\b[^?.!]*"
+    r"\b(?:sonst|noch|frei|verf[üu]gbar|termin\w*|zeit\w*|slot\w*)\b|"
+    r"(?:hast|hättest|habt|hättet)\s+(?:du|ihr)\b[^?.!]*\b(?:sonst|noch|andere\w*)\b"
+    r"[^?.!]*\b(?:frei|verf[üu]gbar|termin\w*|zeit\w*|slot\w*)\b|"
+    r"(?:andere\w*|weitere\w*|sonstige\w*)\s+(?:zeit\w*|termin\w*|slot\w*|option\w*)\b|"
+    r"(?:sonst|noch)\s+(?:etwas|was|einen?|freie?)\b[^?.!]*"
+    r"\b(?:frei|verf[üu]gbar|termin\w*|zeit\w*|slot\w*)\b|"
+    r"welche\s+(?:zeit\w*|termine?|slots?)\b"
+    r")",
+    re.IGNORECASE,
+)
 _CONFIRMATION_TOKEN = re.compile(r"[^\wäöüß]+", re.IGNORECASE)
 _AFFIRMATIVE_TOKENS = frozenset(
     {
@@ -470,7 +494,18 @@ class AppointmentTransactionCoordinator:
         ):
             self._invalidate_all_pending_offers()
             return "list_appointments", {"include_cancelled": False}, None
-        if _AVAILABILITY_INTENT.search(transcript):
+        availability_followup = (
+            delta.appointment_id is None
+            and not delta.clarification_required
+            and focused_id is not None
+            and focused is not None
+            and focused_id not in self._persisted_ids
+            and _slot(focused, "date") is not None
+            and not _rejects_pending_offer(transcript)
+            and not _confirms_booking(transcript)
+            and _AVAILABILITY_FOLLOWUP.search(transcript) is not None
+        )
+        if _AVAILABILITY_INTENT.search(transcript) or availability_followup:
             plan = self._availability_plan(
                 transcript=transcript,
                 delta=delta,
