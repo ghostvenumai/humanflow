@@ -279,7 +279,7 @@ def test_unavailable_requested_time_is_not_booked_and_offers_nearest_slots(
     tmp_path: Path,
 ) -> None:
     async def scenario() -> None:
-        transcript = "Orthopädentermin Mittwoch in zwei Wochen um 12:30 Uhr."
+        transcript = "Orthopädentermin Mittwoch in einer Woche um 12:30 Uhr."
         tracker = _tracker()
         delta = tracker.apply_user_turn(transcript, source_turn="turn-1")
         provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
@@ -797,7 +797,7 @@ def test_unavailable_slot_never_prebooks_or_moves_requested_date(tmp_path: Path)
             today=lambda: date(2026, 8, 25),
             now=lambda: datetime(2026, 8, 25, 10, 0, tzinfo=UTC),
         )
-        transcript = "Orthopädentermin Mittwoch in drei Wochen um 11 Uhr."
+        transcript = "Orthopädentermin Mittwoch in zwei Wochen um 11 Uhr."
         delta = tracker.apply_user_turn(transcript, source_turn="turn-1")
         provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
         machine, _ = _machine()
@@ -1008,7 +1008,7 @@ def test_second_appointment_confirmation_consumes_atomic_cross_date_offer(
         assert first_booking.value["result_status"] == "BOOKED"
 
         second_request = (
-            "Ich bräuchte noch mal Orthopäden-Termin für Mittwoch in drei Wochen "
+            "Ich bräuchte noch mal Orthopäden-Termin für Mittwoch in zwei Wochen "
             "um 11 Uhr."
         )
         second_delta = tracker.apply_user_turn(second_request, source_turn="turn-3")
@@ -1225,7 +1225,7 @@ def test_list_intent_outranks_and_invalidates_pending_offer(
         assert first_booking.value["result_status"] == "BOOKED"
 
         second_request = (
-            "Ich bräuchte noch mal einen Orthopädentermin für Mittwoch in drei "
+            "Ich bräuchte noch mal einen Orthopädentermin für Mittwoch in zwei "
             "Wochen um 11 Uhr."
         )
         second = tracker.apply_user_turn(second_request, source_turn="turn-3")
@@ -1528,3 +1528,61 @@ def test_realtime_session_uses_persistent_tools_for_full_demo_flow(tmp_path: Pat
         await session.close()
 
     asyncio.run(scenario())
+
+
+def test_unavailable_corrected_date_is_acknowledged_in_reply() -> None:
+    # Regression: a corrected but unavailable date (no nearby slots) must still be
+    # named, so the tool result never erases the user's correction context.
+    context = {
+        "resolved_appointment_id_this_turn": "appointment_1",
+        "appointments": {
+            "appointment_1": {
+                "date": "2026-09-09",
+                "time": "11:30",
+                "purpose": "Orthopädie",
+                "status": "READY_TO_BOOK",
+            }
+        },
+        "database_tool_result": {
+            "tool_name": "search_availability",
+            "success": True,
+            "result": {
+                "success": True,
+                "result_status": "UNAVAILABLE",
+                "requested_time": "11:30",
+                "slots": [],
+                "alternative_slots": [],
+            },
+        },
+    }
+    reply = _authoritative_database_reply(context)
+    assert reply is not None
+    assert "9. September" in reply
+    assert "11:30 Uhr" in reply
+    assert "nicht frei" in reply
+
+
+def test_booking_conflict_reply_keeps_corrected_date() -> None:
+    context = {
+        "resolved_appointment_id_this_turn": "appointment_1",
+        "appointments": {
+            "appointment_1": {
+                "date": "2026-09-09",
+                "purpose": "Orthopädie",
+                "status": "READY_TO_BOOK",
+            }
+        },
+        "database_tool_result": {
+            "tool_name": "create_appointment",
+            "success": False,
+            "result": {
+                "success": False,
+                "result_status": "BOOKING_CONFLICT",
+                "error_code": "BOOKING_CONFLICT",
+            },
+        },
+    }
+    reply = _authoritative_database_reply(context)
+    assert reply is not None
+    assert "9. September" in reply
+    assert "nicht frei" in reply

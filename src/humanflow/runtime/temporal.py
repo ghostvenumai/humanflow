@@ -113,11 +113,12 @@ class GermanTemporalResolver:
     Product semantics are deliberately explicit:
 
     - ``nächsten Freitag`` means the next occurrence strictly after today.
+    - ``übernächsten Freitag`` is the occurrence one week after ``nächsten Freitag``.
     - ``nächste Woche Freitag`` means Friday in the next ISO calendar week.
     - ``Freitag in einer Woche`` is a one-week offset from this week's Friday.
-    - In the validated phrase ``Freitag in zwei Wochen``, the current partial week
-      counts as week one, so the result is also Friday in the next calendar week.
-      Higher counts advance by ``count - 1`` calendar weeks.
+    - ``Freitag in N Wochen`` is N full weeks ahead of this week's Friday, i.e.
+      exactly ``N * 7`` days from that weekday. The current partial week is never
+      counted as week one, so ``in zwei Wochen`` advances by two calendar weeks.
     - ``übernächste Woche`` always advances by two calendar weeks.
     """
 
@@ -197,12 +198,15 @@ class GermanTemporalResolver:
             in_weeks = _nearest_week_count(window, weekday_match.start() - window_start)
             if in_weeks is not None:
                 count, raw_count = in_weeks
-                week_offset = 1 if count <= 2 else count - 1
-                resolved = monday + timedelta(days=7 * week_offset + target_weekday)
+                # "<weekday> in N Wochen" is N full weeks ahead of the current ISO
+                # week's weekday, i.e. exactly N*7 days from that weekday. "in einer
+                # Woche" is one week, "in zwei Wochen" is two weeks, and so on. The
+                # current partial week is never silently counted as week one.
+                resolved = monday + timedelta(days=7 * count + target_weekday)
                 rule = (
                     "ONE_WEEK_OFFSET_FROM_CURRENT_WEEKDAY"
                     if count == 1
-                    else "NAMED_WEEK_COUNT_INCLUDES_CURRENT_PARTIAL_WEEK"
+                    else "NAMED_WEEK_COUNT_FULL_WEEKS_FROM_CURRENT_WEEKDAY"
                 )
                 rule = f"{rule}:{raw_count}"
                 confidence = 0.99
@@ -222,8 +226,15 @@ class GermanTemporalResolver:
                 if days_ahead == 0:
                     days_ahead = 7
                 resolved = reference + timedelta(days=days_ahead)
-                rule = "NEXT_WEEKDAY_OCCURRENCE_STRICTLY_AFTER_TODAY"
-                confidence = 0.96
+                if "übernächst" in window or "uebernaechst" in window:
+                    # "übernächsten <weekday>" is the occurrence after the next one,
+                    # i.e. one week beyond "nächsten <weekday>".
+                    resolved += timedelta(days=7)
+                    rule = "WEEK_AFTER_NEXT_WEEKDAY_OCCURRENCE"
+                    confidence = 0.97
+                else:
+                    rule = "NEXT_WEEKDAY_OCCURRENCE_STRICTLY_AFTER_TODAY"
+                    confidence = 0.96
 
         raw = _weekday_expression(utterance, weekday_match, window_start, window_end)
         result = self._result(resolved, raw, rule, confidence, existing_date)

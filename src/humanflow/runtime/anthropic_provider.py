@@ -394,6 +394,14 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
     result_status = result.get("result_status")
     if raw_outcome.get("success") is not True:
         if result_status == "BOOKING_CONFLICT":
+            requested_date = _authoritative_appointment_date(context)
+            if requested_date is not None:
+                # Keep the user's (possibly corrected) date in the reply instead of
+                # letting the failed tool result erase it.
+                return (
+                    f"Am {_spoken_full_date(requested_date)} ist der gewünschte "
+                    "Termin leider nicht frei."
+                )
             return "Der gewünschte Termin ist leider nicht frei."
         if result_status == "UNAVAILABLE":
             return "Diesen Termin finde ich nicht als aktive Buchung."
@@ -430,6 +438,17 @@ def _authoritative_database_reply(context: Mapping[str, object] | None) -> str |
                     for value in alternative_starts[:3]
                 ]
                 return f"{prefix} Ich hätte {_join_german(spoken)} etwas frei."
+            requested_date = _authoritative_appointment_date(context)
+            if requested_date is not None:
+                # Acknowledge the (possibly corrected) requested date before stating
+                # that nothing is free, so the tool result never silently drops it.
+                spoken_date = _spoken_full_date(requested_date)
+                if isinstance(requested_time, str):
+                    return (
+                        f"Am {spoken_date} ist {_spoken_clock(requested_time)} "
+                        "leider nicht frei."
+                    )
+                return f"Am {spoken_date} ist leider nichts frei."
             return prefix
         if not isinstance(slots, list) or not slots:
             return "Für diesen Tag ist in den Demo-Daten kein Termin frei."

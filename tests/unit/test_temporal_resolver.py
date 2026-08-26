@@ -33,13 +33,13 @@ MONDAY = datetime(2026, 8, 24, 10, 15, tzinfo=BERLIN)
         ),
         (
             "Freitag in zwei Wochen",
-            "2026-09-04",
-            "NAMED_WEEK_COUNT_INCLUDES_CURRENT_PARTIAL_WEEK",
+            "2026-09-11",
+            "NAMED_WEEK_COUNT_FULL_WEEKS_FROM_CURRENT_WEEKDAY",
         ),
         (
             "Donnerstag in zwei Wochen",
-            "2026-09-03",
-            "NAMED_WEEK_COUNT_INCLUDES_CURRENT_PARTIAL_WEEK",
+            "2026-09-10",
+            "NAMED_WEEK_COUNT_FULL_WEEKS_FROM_CURRENT_WEEKDAY",
         ),
         (
             "übernächste Woche Donnerstag",
@@ -86,7 +86,7 @@ def test_week_month_and_year_boundaries_are_calendar_based() -> None:
         "übermorgen", current_local_datetime=datetime(2025, 12, 31, 23, tzinfo=BERLIN)
     )
 
-    assert friday is not None and friday.resolved_iso_date == "2026-01-09"
+    assert friday is not None and friday.resolved_iso_date == "2026-01-16"
     assert monday is not None and monday.resolved_iso_date == "2026-08-31"
     assert after_tomorrow is not None
     assert after_tomorrow.resolved_iso_date == "2026-01-02"
@@ -117,7 +117,7 @@ def test_relative_correction_records_existing_state_provenance() -> None:
     )
 
     assert result is not None
-    assert result.resolved_iso_date == "2026-09-03"
+    assert result.resolved_iso_date == "2026-09-10"
     assert result.resolution_rule.endswith("CORRECTION_FROM_EXISTING_APPOINTMENT_DATE")
 
 
@@ -133,23 +133,23 @@ def test_authoritative_appointment_date_stores_full_temporal_provenance() -> Non
 
     date_slot = tracker.appointments["appointment_1"].date
     assert date_slot is not None
-    assert date_slot.value == "2026-09-03"
-    assert date_slot.resolved_iso_date == "2026-09-03"
+    assert date_slot.value == "2026-09-10"
+    assert date_slot.resolved_iso_date == "2026-09-10"
     assert date_slot.timezone == "Europe/Berlin"
     assert date_slot.raw_expression
     assert date_slot.resolution_rule is not None
     assert "CORRECTION_FROM_EXISTING_APPOINTMENT_DATE" in date_slot.resolution_rule
     context = tracker.reasoning_context(correction)
     assert context is not None
-    assert '"resolved_iso_date": "2026-09-03"' in context
+    assert '"resolved_iso_date": "2026-09-10"' in context
     assert "never calculate relative dates in the LLM" in context
 
 
 @pytest.mark.parametrize(
     ("utterance", "expected"),
     (
-        ("Mittwoch in zwei Wochen", "2026-09-02"),
-        ("Mittwoch in drei Wochen", "2026-09-09"),
+        ("Mittwoch in zwei Wochen", "2026-09-09"),
+        ("Mittwoch in drei Wochen", "2026-09-16"),
     ),
 )
 def test_spoken_weekday_is_invariant_for_relative_week_resolution(
@@ -240,3 +240,53 @@ def test_day_offset_is_resolved_from_authoritative_existing_appointment_date(
     assert result.resolved_iso_date == expected
     assert result.raw_expression == utterance
     assert result.resolution_rule.startswith("DAY_OFFSET_FROM_EXISTING_APPOINTMENT")
+
+
+# Regression: off-by-one-week in "<weekday> in N Wochen" and "übernächsten <weekday>".
+# Reference is Wednesday 2026-08-26 (the validated real-session date). The ISO week's
+# Monday is 2026-08-24.
+WEDNESDAY_REF = datetime(2026, 8, 26, 10, 0, tzinfo=BERLIN)
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected", "rule_prefix"),
+    (
+        ("diesen Mittwoch", "2026-08-26", "THIS_ISO_WEEKDAY"),
+        ("nächsten Mittwoch", "2026-09-02", "NEXT_WEEKDAY_OCCURRENCE_STRICTLY_AFTER_TODAY"),
+        ("übernächsten Mittwoch", "2026-09-09", "WEEK_AFTER_NEXT_WEEKDAY_OCCURRENCE"),
+        ("Mittwoch in einer Woche", "2026-09-02", "ONE_WEEK_OFFSET_FROM_CURRENT_WEEKDAY"),
+        (
+            "Mittwoch in zwei Wochen",
+            "2026-09-09",
+            "NAMED_WEEK_COUNT_FULL_WEEKS_FROM_CURRENT_WEEKDAY",
+        ),
+        (
+            "Mittwoch in drei Wochen",
+            "2026-09-16",
+            "NAMED_WEEK_COUNT_FULL_WEEKS_FROM_CURRENT_WEEKDAY",
+        ),
+        ("nächste Woche Mittwoch", "2026-09-02", "NEXT_ISO_CALENDAR_WEEK"),
+        ("übernächste Woche Mittwoch", "2026-09-09", "WEEK_AFTER_NEXT_CALENDAR_WEEK"),
+    ),
+)
+def test_relative_week_offsets_are_full_weeks_from_wednesday(
+    utterance: str, expected: str, rule_prefix: str
+) -> None:
+    result = GermanTemporalResolver().resolve(
+        utterance, current_local_datetime=WEDNESDAY_REF
+    )
+    assert result is not None
+    assert result.resolved_iso_date == expected, utterance
+    assert result.resolution_rule.startswith(rule_prefix), utterance
+    assert datetime.fromisoformat(result.resolved_iso_date).strftime("%A") == "Wednesday"
+
+
+def test_next_weekday_and_two_weeks_remain_distinct() -> None:
+    # The validated real-session bug collapsed these onto the same date.
+    resolver = GermanTemporalResolver()
+    naechsten = resolver.resolve("nächsten Mittwoch", current_local_datetime=WEDNESDAY_REF)
+    in_two = resolver.resolve("Mittwoch in zwei Wochen", current_local_datetime=WEDNESDAY_REF)
+    assert naechsten is not None and in_two is not None
+    assert naechsten.resolved_iso_date == "2026-09-02"
+    assert in_two.resolved_iso_date == "2026-09-09"
+    assert naechsten.resolved_iso_date != in_two.resolved_iso_date
