@@ -87,6 +87,15 @@ class _SoftYieldEpisode:
     backchannel_recovery_recorded: bool = False
 
 
+class _SpeechStreamError(Exception):
+    """A TTS stream/provider failure while acquiring or iterating speech audio.
+
+    Only this error class is eligible for the bounded pre-playback speech retry;
+    unrelated internal exceptions (chunk processing, ledger, telemetry, state
+    transitions) must never be reclassified as a transient speech failure.
+    """
+
+
 class RealtimeVoiceSession:
     """Owns live-call concurrency; providers never own conversational state."""
 
@@ -1759,164 +1768,211 @@ class RealtimeVoiceSession:
                             "origin": "ASSISTANT_TTS",
                         },
                     )
-                    stream = self._synthesizer.stream_speech(
-                        request, cancel_event=self._cancel_event
-                    )
-                    segment_audio_emitted = False
-                    segment_audio_seconds = Decimal("0")
-                    fallback_recorded = False
-                    actual_speech_provider = speech_provider.to_dict()
-                    try:
-                        stream_iterator = stream.__aiter__()
-                        while True:
-                            # Bound the pre-playback window: a synthesizer that never
-                            # yields a first audio chunk (stalled provider) must not
-                            # strand the response in THINKING. A timeout is converted
-                            # into the existing provider-failure recovery path.
-                            if first_audio:
-                                try:
-                                    chunk = await asyncio.wait_for(
-                                        stream_iterator.__anext__(),
-                                        timeout=self._tts_first_audio_timeout_s,
+                    for _tts_attempt in range(2):
+                        stream = self._synthesizer.stream_speech(
+                            request, cancel_event=self._cancel_event
+                        )
+                        segment_audio_emitted = False
+                        segment_audio_seconds = Decimal("0")
+                        fallback_recorded = False
+                        actual_speech_provider = speech_provider.to_dict()
+                        segment_speech_error: Exception | None = None
+                        try:
+                            stream_iterator = stream.__aiter__()
+                            while True:
+                                # Bound the pre-playback window: a synthesizer that never
+                                # yields a first audio chunk (stalled provider) must not
+                                # strand the response in THINKING. A timeout is converted
+                                # into the existing provider-failure recovery path.
+                                if first_audio:
+                                    try:
+                                        chunk = await asyncio.wait_for(
+                                            stream_iterator.__anext__(),
+                                            timeout=self._tts_first_audio_timeout_s,
+                                        )
+                                    except StopAsyncIteration:
+                                        break
+                                    except TimeoutError as first_audio_timeout:
+                                        raise _SpeechStreamError(
+                                            "tts_first_audio_timeout"
+                                        ) from first_audio_timeout
+                                    except Exception as stream_error:  # noqa: BLE001
+                                        # Only a genuine speech-stream/provider failure
+                                        # is retryable; tag it so unrelated internal
+                                        # exceptions cannot reach the retry handler.
+                                        raise _SpeechStreamError(
+                                            "tts_stream_failed"
+                                        ) from stream_error
+                                else:
+                                    try:
+                                        chunk = await stream_iterator.__anext__()
+                                    except StopAsyncIteration:
+                                        break
+                                self._raise_completed_playback_failure(playback_tasks)
+                                if self._cancel_event.is_set() or not self.state_machine.accept_result(
+                                    token, correlation_id=correlation_id
+                                ):
+                                    self._record_stale_chunk(
+                                        chunk=chunk,
+                                        response_id=response_id,
+                                        correlation_id=correlation_id,
                                     )
-                                except TimeoutError as first_audio_timeout:
-                                    raise RuntimeError(
-                                        "tts_first_audio_timeout"
-                                    ) from first_audio_timeout
-                                except StopAsyncIteration:
                                     break
-                            else:
-                                try:
-                                    chunk = await stream_iterator.__anext__()
-                                except StopAsyncIteration:
-                                    break
-                            self._raise_completed_playback_failure(playback_tasks)
-                            if self._cancel_event.is_set() or not self.state_machine.accept_result(
-                                token, correlation_id=correlation_id
-                            ):
-                                self._record_stale_chunk(
+                                await self._wait_for_playback_capacity(
+                                    playback_tasks, maximum_pending=2
+                                )
+                                if not self._accept_audio_chunk(
                                     chunk=chunk,
                                     response_id=response_id,
                                     correlation_id=correlation_id,
+                                ):
+                                    continue
+                                segment_audio_emitted = True
+                                actual_speech_provider = (
+                                    dict(chunk.provider)
+                                    if chunk.provider
+                                    else speech_provider.to_dict()
                                 )
-                                break
-                            await self._wait_for_playback_capacity(
-                                playback_tasks, maximum_pending=2
-                            )
-                            if not self._accept_audio_chunk(
-                                chunk=chunk,
-                                response_id=response_id,
-                                correlation_id=correlation_id,
-                            ):
-                                continue
-                            segment_audio_emitted = True
-                            actual_speech_provider = (
-                                dict(chunk.provider)
-                                if chunk.provider
-                                else speech_provider.to_dict()
-                            )
-                            if (
-                                not fallback_recorded
-                                and actual_speech_provider.get("provider")
-                                != speech_provider.provider
-                            ):
-                                fallback_recorded = True
-                                self.state_machine.record(
-                                    EventType.TTS_PROVIDER_FALLBACK,
-                                    correlation_id=correlation_id,
-                                    reason_code="primary_failed_before_audio",
-                                    payload={
-                                        "response_id": response_id,
-                                        "primary": speech_provider.to_dict(),
-                                        "active": actual_speech_provider,
-                                    },
-                                )
-                            audio_chunk_sequence = max(
-                                audio_chunk_sequence, chunk.frame.sequence + 1
-                            )
-                            segment_audio_seconds += Decimal(
-                                chunk.frame.samples_per_channel
-                            ) / Decimal(chunk.frame.sample_rate_hz)
-                            generated_ns = self._clock_ns()
-                            self.ledger.register_generated(chunk, generated_ns=generated_ns)
-                            self.ledger.mark_queued(
-                                chunk.chunk_id, queued_ns=self._clock_ns()
-                            )
-                            self._self_speech_guard.register_pending(
-                                chunk_id=chunk.chunk_id,
-                                response_id=response_id,
-                                text=chunk.semantic_text,
-                            )
-                            if self._cancel_event.is_set() or not self.state_machine.accept_result(
-                                token, correlation_id=correlation_id
-                            ):
-                                self.ledger.cancel_unplayed(
-                                    response_id=response_id,
-                                    cancelled_ns=self._clock_ns(),
-                                )
-                                break
-                            if first_audio:
-                                first_audio = False
-                                self.state_machine.record(
-                                    EventType.FIRST_AUDIO_CHUNK,
-                                    correlation_id=correlation_id,
-                                    reason_code="first_streaming_tts_pcm_ready",
-                                    payload={
-                                        "response_id": response_id,
-                                        "chunk_id": chunk.chunk_id,
-                                        "provider": actual_speech_provider,
-                                        "tts_request_to_first_audio_ms": max(
-                                            0.0,
-                                            (
-                                                generated_ns
-                                                - tts_request_started_ns
-                                            )
-                                            / 1_000_000.0,
-                                        ),
-                                    },
-                                )
-                                if self.state is ConversationState.THINKING:
-                                    self.state_machine.transition(
-                                        ConversationState.SPEAKING,
-                                        reason_code="playback_ready",
+                                if (
+                                    not fallback_recorded
+                                    and actual_speech_provider.get("provider")
+                                    != speech_provider.provider
+                                ):
+                                    fallback_recorded = True
+                                    self.state_machine.record(
+                                        EventType.TTS_PROVIDER_FALLBACK,
                                         correlation_id=correlation_id,
+                                        reason_code="primary_failed_before_audio",
+                                        payload={
+                                            "response_id": response_id,
+                                            "primary": speech_provider.to_dict(),
+                                            "active": actual_speech_provider,
+                                        },
                                     )
-
-                            self.state_machine.record(
-                                EventType.AUDIO_CHUNK_SCHEDULED,
-                                correlation_id=correlation_id,
-                                reason_code="single_owner_playback_schedule",
-                                payload=self._audio_chunk_payload(chunk),
-                            )
-                            playback_tasks.append(
-                                asyncio.create_task(
-                                    self._play_scheduled_chunk(
-                                        chunk=chunk,
-                                        generated_ns=generated_ns,
-                                        semantic_ready_ns=semantic_ready_ns,
-                                        tts_request_started_ns=tts_request_started_ns,
-                                        response_id=response_id,
-                                        correlation_id=correlation_id,
-                                    ),
-                                    name=f"humanflow-playback-{chunk.chunk_id}",
+                                audio_chunk_sequence = max(
+                                    audio_chunk_sequence, chunk.frame.sequence + 1
                                 )
+                                segment_audio_seconds += Decimal(
+                                    chunk.frame.samples_per_channel
+                                ) / Decimal(chunk.frame.sample_rate_hz)
+                                generated_ns = self._clock_ns()
+                                self.ledger.register_generated(chunk, generated_ns=generated_ns)
+                                self.ledger.mark_queued(
+                                    chunk.chunk_id, queued_ns=self._clock_ns()
+                                )
+                                self._self_speech_guard.register_pending(
+                                    chunk_id=chunk.chunk_id,
+                                    response_id=response_id,
+                                    text=chunk.semantic_text,
+                                )
+                                if self._cancel_event.is_set() or not self.state_machine.accept_result(
+                                    token, correlation_id=correlation_id
+                                ):
+                                    self.ledger.cancel_unplayed(
+                                        response_id=response_id,
+                                        cancelled_ns=self._clock_ns(),
+                                    )
+                                    break
+                                if first_audio:
+                                    first_audio = False
+                                    self.state_machine.record(
+                                        EventType.FIRST_AUDIO_CHUNK,
+                                        correlation_id=correlation_id,
+                                        reason_code="first_streaming_tts_pcm_ready",
+                                        payload={
+                                            "response_id": response_id,
+                                            "chunk_id": chunk.chunk_id,
+                                            "provider": actual_speech_provider,
+                                            "tts_request_to_first_audio_ms": max(
+                                                0.0,
+                                                (
+                                                    generated_ns
+                                                    - tts_request_started_ns
+                                                )
+                                                / 1_000_000.0,
+                                            ),
+                                        },
+                                    )
+                                    if self.state is ConversationState.THINKING:
+                                        self.state_machine.transition(
+                                            ConversationState.SPEAKING,
+                                            reason_code="playback_ready",
+                                            correlation_id=correlation_id,
+                                        )
+
+                                self.state_machine.record(
+                                    EventType.AUDIO_CHUNK_SCHEDULED,
+                                    correlation_id=correlation_id,
+                                    reason_code="single_owner_playback_schedule",
+                                    payload=self._audio_chunk_payload(chunk),
+                                )
+                                playback_tasks.append(
+                                    asyncio.create_task(
+                                        self._play_scheduled_chunk(
+                                            chunk=chunk,
+                                            generated_ns=generated_ns,
+                                            semantic_ready_ns=semantic_ready_ns,
+                                            tts_request_started_ns=tts_request_started_ns,
+                                            response_id=response_id,
+                                            correlation_id=correlation_id,
+                                        ),
+                                        name=f"humanflow-playback-{chunk.chunk_id}",
+                                    )
+                                )
+                        except _SpeechStreamError as speech_error:
+                            # Only tagged speech-stream failures are retry-eligible.
+                            # Any other internal exception propagates unchanged to the
+                            # normal response-pipeline recovery.
+                            if self._cancel_event.is_set():
+                                raise
+                            segment_speech_error = speech_error
+                        finally:
+                            close_stream = getattr(stream, "aclose", None)
+                            if close_stream is not None:
+                                await close_stream()
+                        if segment_speech_error is None:
+                            self._record_tts_cost(
+                                token=token,
+                                turn_id=user_transcript_id,
+                                response_id=response_id,
+                                segment_id=segment_id,
+                                submitted_characters=len(spoken_text),
+                                generated_audio_seconds=segment_audio_seconds,
+                                actual_provider=actual_speech_provider,
+                                fallback=fallback_recorded,
+                                cancelled=self._cancel_event.is_set(),
                             )
-                    finally:
-                        close_stream = getattr(stream, "aclose", None)
-                        if close_stream is not None:
-                            await close_stream()
-                    self._record_tts_cost(
-                        token=token,
-                        turn_id=user_transcript_id,
-                        response_id=response_id,
-                        segment_id=segment_id,
-                        submitted_characters=len(spoken_text),
-                        generated_audio_seconds=segment_audio_seconds,
-                        actual_provider=actual_speech_provider,
-                        fallback=fallback_recorded,
-                        cancelled=self._cancel_event.is_set(),
-                    )
-                    if not segment_audio_emitted and not self._cancel_event.is_set():
+                        if segment_speech_error is None and (
+                            segment_audio_emitted or self._cancel_event.is_set()
+                        ):
+                            break
+                        if (
+                            first_audio
+                            and not self._cancel_event.is_set()
+                            and _tts_attempt == 0
+                        ):
+                            # Pre-playback speech failure: no audio has been played yet, so
+                            # retry the SAME segment once with a fresh TTS stream. The
+                            # appointment tool and reasoner are never re-run.
+                            self.state_machine.record(
+                                EventType.TTS_SPEECH_RETRY,
+                                correlation_id=correlation_id,
+                                reason_code="pre_playback_tts_failure_retry_same_text",
+                                payload={
+                                    "response_id": response_id,
+                                    "segment_id": segment_id,
+                                    "attempt": _tts_attempt + 1,
+                                    "provider": speech_provider.to_dict(),
+                                    "error_class": (
+                                        type(segment_speech_error).__name__
+                                        if segment_speech_error is not None
+                                        else "tts_provider_returned_no_chunks"
+                                    ),
+                                },
+                            )
+                            continue
+                        if segment_speech_error is not None:
+                            raise segment_speech_error
                         raise RuntimeError("tts_provider_returned_no_chunks")
                     if self._cancel_event.is_set():
                         break

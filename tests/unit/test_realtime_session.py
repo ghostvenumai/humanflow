@@ -511,15 +511,19 @@ class _StallThenSpeakSynthesizer:
 
     def __init__(self) -> None:
         self._delegate = ToneSpeechSynthesizer(chunk_duration_ms=10)
-        self._stalled = False
+        self._stalled_response_id: str | None = None
 
     @property
     def provider_info(self):
         return self._delegate.provider_info
 
     async def stream_speech(self, request, *, cancel_event):
-        if not self._stalled:
-            self._stalled = True
+        # Stall every attempt of the first response (so the pre-playback speech
+        # retry also stalls and the response deterministically recovers); later
+        # responses speak normally.
+        if self._stalled_response_id is None:
+            self._stalled_response_id = request.response_id
+        if request.response_id == self._stalled_response_id:
             if not cancel_event.is_set():
                 await cancel_event.wait()  # stall: never yields first audio
             return
@@ -615,6 +619,102 @@ def test_new_turn_during_pre_playback_stall_is_served_not_lost() -> None:
         )
         # No stranded generation; the owner was handed to Turn B cleanly.
         assert not session.response_active
+        await session.close()
+
+    asyncio.run(scenario())
+
+
+class _FailFirstThenSpeakSynthesizer:
+    """First TTS attempt raises before any audio; the retry speaks normally."""
+
+    def __init__(self) -> None:
+        self._delegate = ToneSpeechSynthesizer(chunk_duration_ms=10)
+        self.calls = 0
+        self._failed = False
+
+    @property
+    def provider_info(self):
+        return self._delegate.provider_info
+
+    async def stream_speech(self, request, *, cancel_event):
+        self.calls += 1
+        if not self._failed:
+            self._failed = True
+            raise RuntimeError("elevenlabs_stream_disconnected")
+            yield  # pragma: no cover
+        async for chunk in self._delegate.stream_speech(
+            request, cancel_event=cancel_event
+        ):
+            yield chunk
+
+
+def test_pre_playback_tts_failure_retries_same_response_without_rerunning_reasoner() -> None:
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        reasoner = WordReasoner()
+        synth = _FailFirstThenSpeakSynthesizer()
+        session = RealtimeVoiceSession(
+            conversation_id="pre-playback-tts-retry",
+            sink=sink,
+            transcriber=CountingTranscriber(),
+            reasoner=reasoner,
+            synthesizer=synth,
+            audio_output=TimedPcmOutput(quantum_ms=1),
+            tts_first_audio_timeout_ms=6_000.0,
+        )
+        await session.start()
+        await session.submit_transcript(_complete("Welche Termine hast du frei?"))
+        await _wait_for_state(session, ConversationState.SPEAKING)
+        await session.wait_for_response()
+        assert session.state is ConversationState.LISTENING
+
+        names = [event.event_type.name for event in sink.events]
+        # The transient failure was retried exactly once and the turn was answered.
+        assert names.count("TTS_SPEECH_RETRY") == 1
+        assert "FIRST_AUDIO_CHUNK" in names
+        assert "AGENT_AUDIO_COMPLETED" in names
+        # No provider-failure recovery: the retry succeeded.
+        assert "RECOVERY_COMPLETED" not in names
+        # The reasoner (and therefore the appointment tool) ran exactly once: a speech
+        # retry must never re-run the LLM or duplicate tool side effects.
+        assert len(reasoner.transcripts) == 1
+        assert synth.calls >= 2
+        await session.close()
+
+    asyncio.run(scenario())
+
+
+def test_internal_non_tts_exception_before_first_audio_is_not_retried() -> None:
+    # Adversarial: an internal (non speech-stream) exception raised during chunk
+    # processing before first audible audio must propagate to the normal response
+    # recovery and must NEVER be reclassified as a transient TTS failure.
+    from humanflow.runtime.self_speech import SelfSpeechGuard
+
+    class _RaisingSelfSpeechGuard(SelfSpeechGuard):
+        def register_pending(self, *, chunk_id: str, response_id: str, text: str) -> None:
+            raise RuntimeError("internal_non_tts_bug")
+
+    async def scenario() -> None:
+        sink = InMemoryTelemetrySink()
+        session = RealtimeVoiceSession(
+            conversation_id="internal-error-no-retry",
+            sink=sink,
+            transcriber=CountingTranscriber(),
+            reasoner=WordReasoner(),
+            synthesizer=ToneSpeechSynthesizer(chunk_duration_ms=10),
+            audio_output=TimedPcmOutput(quantum_ms=1),
+            self_speech_guard=_RaisingSelfSpeechGuard(),
+        )
+        await session.start()
+        await session.submit_transcript(_complete())
+        await asyncio.wait_for(session.wait_for_response(), timeout=2.0)
+        assert session.state is ConversationState.LISTENING
+
+        names = [event.event_type.name for event in sink.events]
+        # The internal error went to normal recovery, not the speech retry path.
+        assert names.count("TTS_SPEECH_RETRY") == 0
+        assert "RECOVERY_COMPLETED" in names
+        assert "FIRST_AUDIO_CHUNK" not in names
         await session.close()
 
     asyncio.run(scenario())
