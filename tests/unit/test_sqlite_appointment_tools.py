@@ -1586,3 +1586,205 @@ def test_booking_conflict_reply_keeps_corrected_date() -> None:
     assert reply is not None
     assert "9. September" in reply
     assert "nicht frei" in reply
+
+
+def _sticky_followup_query(
+    tmp_path: Path, followup: str
+) -> tuple[str | None, str | None, str | None, list[str]]:
+    """Drive Orthopädie + an unavailable 'übermorgen' (2026-08-28), then one generic
+    or same-date follow-up; return (tool, query_start, query_end, slots)."""
+
+    async def scenario() -> tuple[str | None, str | None, str | None, list[str]]:
+        tracker = AppointmentStateTracker(
+            today=lambda: date(2026, 8, 26),
+            now=lambda: datetime(2026, 8, 26, 10, 0, tzinfo=UTC),
+        )
+        provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+        machine, _ = _machine()
+        coordinator = AppointmentTransactionCoordinator(
+            conversation_id=f"sticky-{len(followup)}",
+            state_machine=machine,
+            provider=provider,
+            today=lambda: date(2026, 8, 26),
+        )
+
+        async def say(text: str, turn: str):
+            delta = tracker.apply_user_turn(text, source_turn=turn)
+            return await coordinator.execute(
+                transcript=text,
+                delta=delta,
+                tracker=tracker,
+                correlation_id=turn,
+                source_turn=turn,
+                parent_token=machine.issue_operation(kind="response"),
+            )
+
+        await say("Ich bräuchte 'n Termin im Orthopäden.", "turn-1")
+        _, unavailable = await say("übermorgen?", "turn-2")
+        assert unavailable is not None
+        assert unavailable.value["result_status"] == "UNAVAILABLE"
+        assert unavailable.value["query_start_date"] == "2026-08-28"
+
+        _, outcome = await say(followup, "turn-3")
+        if outcome is None:
+            return None, None, None, []
+        return (
+            outcome.tool_name,
+            outcome.value.get("query_start_date"),
+            outcome.value.get("query_end_date"),
+            [slot["start_datetime"] for slot in outcome.value.get("slots", [])],
+        )
+
+    return asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "followup",
+    (
+        "Hast du freie Termine?",
+        "Welcher Termin ist frei?",
+        "Wann hast du etwas frei?",
+        "Was wäre denn verfügbar?",
+        "Wann könnte ich kommen?",
+        "Gibt es Alternativen?",
+    ),
+)
+def test_generic_followup_broadens_past_failed_date(
+    tmp_path: Path, followup: str
+) -> None:
+    tool, start, end, slots = _sticky_followup_query(tmp_path, followup)
+    assert tool == "search_availability"
+    # Broadened beyond the single failed date, and grounded in real demo slots.
+    assert (start, end) == ("2026-08-28", "2026-09-18")
+    assert slots, "a grounded alternative slot must be offered"
+    assert slots[0] == "2026-09-02T11:30:00+02:00"
+    assert all(s[:10] != "2026-08-28" for s in slots)
+
+
+@pytest.mark.parametrize(
+    "followup",
+    (
+        "Was hast du an dem Tag frei?",
+        "Welche Uhrzeiten hast du da?",
+    ),
+)
+def test_date_qualified_followup_keeps_failed_date(
+    tmp_path: Path, followup: str
+) -> None:
+    tool, start, end, _slots = _sticky_followup_query(tmp_path, followup)
+    assert tool == "search_availability"
+    # Explicit reference to the current day keeps the same-date search.
+    assert (start, end) == ("2026-08-28", "2026-08-28")
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    (
+        "Was geht eigentlich mit meiner Versicherung?",
+        "Ist der Parkplatz verfügbar?",
+        "Was geht?",
+    ),
+)
+def test_unrelated_followup_does_not_search(tmp_path: Path, utterance: str) -> None:
+    tool, _start, _end, _slots = _sticky_followup_query(tmp_path, utterance)
+    assert tool is None
+
+
+def _issue_a_followup(
+    tmp_path: Path, followup: str
+) -> tuple[str | None, list[str], set[str]]:
+    """Orthopädie 2026-08-27 at 11:00 (unavailable), then one follow-up.
+
+    Returns (tool_name, slot_start_datetimes, appointment_types_of_slots)."""
+
+    async def scenario() -> tuple[str | None, list[str], set[str]]:
+        tracker = AppointmentStateTracker(
+            today=lambda: date(2026, 8, 26),
+            now=lambda: datetime(2026, 8, 26, 10, 0, tzinfo=UTC),
+        )
+        provider = SQLiteAppointmentToolProvider(tmp_path / "appointments.sqlite3")
+        machine, _ = _machine()
+        coordinator = AppointmentTransactionCoordinator(
+            conversation_id=f"issue-a-{len(followup)}",
+            state_machine=machine,
+            provider=provider,
+            today=lambda: date(2026, 8, 26),
+        )
+
+        async def say(text: str, turn: str):
+            delta = tracker.apply_user_turn(text, source_turn=turn)
+            return await coordinator.execute(
+                transcript=text,
+                delta=delta,
+                tracker=tracker,
+                correlation_id=turn,
+                source_turn=turn,
+                parent_token=machine.issue_operation(kind="response"),
+            )
+
+        await say("Ich bräuchte einen Orthopädentermin.", "t1")
+        await say("Am 27. August.", "t2")
+        _, unavailable = await say("Gegen 11 Uhr.", "t3")
+        assert unavailable is not None
+        assert unavailable.value["result_status"] == "UNAVAILABLE"
+
+        _, outcome = await say(followup, "t4")
+        if outcome is None:
+            return None, [], set()
+        if outcome.tool_name == "list_appointments":
+            return "list_appointments", [], set()
+        slots = outcome.value.get("slots", [])
+        return (
+            outcome.tool_name,
+            [s["start_datetime"] for s in slots],
+            {s.get("appointment_type") for s in slots},
+        )
+
+    return asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "followup",
+    (
+        "Welche Termine wären noch frei gewesen?",
+        "Was wäre sonst noch frei?",
+        "Welche anderen Uhrzeiten gibt es?",
+        "Welche anderen Orthopädie-Termine gibt es?",
+    ),
+)
+def test_availability_followup_preserves_type_and_never_lists_all(
+    tmp_path: Path, followup: str
+) -> None:
+    tool, slots, types = _issue_a_followup(tmp_path, followup)
+    # Must be a grounded, type-preserving availability search — never a list dump.
+    assert tool == "search_availability"
+    assert slots, "a grounded Orthopädie alternative must be offered"
+    # The search horizon spans a date with Friseur availability (2026-09-02),
+    # so a leak would show. It must only ever return Orthopädie.
+    assert types == {"Orthopädie"}
+    assert "Friseur" not in types
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    (
+        "Welche Termine habe ich?",
+        "Welche Friseurtermine habe ich?",
+    ),
+)
+def test_booked_list_question_lists_and_does_not_inherit_type(
+    tmp_path: Path, utterance: str
+) -> None:
+    tool, _slots, _types = _issue_a_followup(tmp_path, utterance)
+    # A booked-appointment question stays a list; it never becomes an Orthopädie
+    # availability search.
+    assert tool == "list_appointments"
+
+
+def test_unrelated_question_does_not_trigger_appointment_search(
+    tmp_path: Path,
+) -> None:
+    tool, _slots, _types = _issue_a_followup(
+        tmp_path, "Was geht eigentlich mit meiner Versicherung?"
+    )
+    assert tool is None

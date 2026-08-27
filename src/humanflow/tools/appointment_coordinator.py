@@ -36,8 +36,8 @@ _AVAILABILITY_INTENT = re.compile(
     re.IGNORECASE,
 )
 _BOOKED_LIST_INTENT = re.compile(
-    r"\b(?:welche\s+termine\s+(?:habe|hab)\s+ich|"
-    r"welchen\s+termin\s+(?:habe|hab)\s+ich|was\s+habe\s+ich\s+gebucht|"
+    r"\b(?:welche\s+\w*termine?\s+(?:habe|hab)\s+ich|"
+    r"welchen\s+\w*termin\s+(?:habe|hab)\s+ich|was\s+habe\s+ich\s+gebucht|"
     r"zeig(?:e)?\s+mir\s+meine\s+termine|meine\s+termine|alle\s+termine)\b",
     re.IGNORECASE,
 )
@@ -74,8 +74,36 @@ _AVAILABILITY_FOLLOWUP = re.compile(
     r"(?:andere\w*|weitere\w*|sonstige\w*)\s+(?:zeit\w*|termin\w*|slot\w*|option\w*)\b|"
     r"(?:sonst|noch)\s+(?:etwas|was|einen?|freie?)\b[^?.!]*"
     r"\b(?:frei|verf[üu]gbar|termin\w*|zeit\w*|slot\w*)\b|"
-    r"welche\s+(?:zeit\w*|termine?|slots?)\b"
+    r"welche\s+(?:zeit\w*|uhrzeit\w*|termine?|slots?)\b|"
+    r"welche[nrs]?\s+termin\w*\b[^?.!]*\b(?:frei|verf[üu]gbar)\b|"
+    # Generic agent-directed availability questions ("Was wäre verfügbar?",
+    # "Wann könnte ich kommen?", "Gibt es Alternativen?"). These stay narrow so
+    # unrelated phrases ("Ist der Parkplatz verfügbar?", "Was geht?") never match.
+    r"was\s+(?:wäre|ist|gäbe\s+es|gibt\s+es|hätte\s+es)\b[^?.!]*\b(?:frei|verf[üu]gbar)\b|"
+    r"wann\s+(?:könnte|kann|dürfte|darf|ginge\s+es|geht\s+es|wäre\s+es)\b"
+    r"[^?.!]*\b(?:kommen|termin\w*|frei|verf[üu]gbar|möglich|zeit\w*)\b|"
+    r"gibt\s+es\b[^?.!]*\b(?:alternativ\w*|andere\w*|frei|freie|verf[üu]gbar|"
+    r"termin\w*|zeit\w*|slot\w*)\b|"
+    # "andere/weitere Uhrzeiten/Termine", "welche anderen ...-Termine"
+    r"(?:andere\w*|weitere\w*|sonstige\w*)\b[^?.!]{0,25}"
+    r"\b(?:uhrzeit\w*|zeit\w*|termin\w*|slot\w*|option\w*)\b|"
+    r"welche[nrs]?\b[^?.!]{0,25}\b(?:andere\w*|weitere\w*|sonstige\w*)\b[^?.!]{0,25}"
+    r"\b(?:uhrzeit\w*|termin\w*|zeit\w*|slot\w*)\b"
     r")",
+    re.IGNORECASE,
+)
+# A follow-up that explicitly refers back to the currently focused date/day keeps
+# the same-date search; anything else broadens past a failed date.
+_SAME_DATE_REFERENCE = re.compile(
+    r"\b(?:"
+    r"an\s+(?:dem|diesem|demselben|dem\s+selben|dem\s+gleichen)\s+tag|"
+    r"am\s+(?:selben|gleichen)\s+tag|"
+    r"an\s+diesem\s+(?:datum|termin)|"
+    r"da|dort|"
+    r"um\s+diese\s+(?:zeit|uhrzeit)|"
+    r"am\s+\d{1,2}\.|"
+    r"am\s+(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonnabend|sonntag)"
+    r")\b",
     re.IGNORECASE,
 )
 _CONFIRMATION_TOKEN = re.compile(r"[^\wäöüß]+", re.IGNORECASE)
@@ -489,13 +517,28 @@ class AppointmentTransactionCoordinator:
             self._finish_pending_offer(focused_id, terminal_status)
             if rejected_pending_offer and not has_slot_correction:
                 return None
-        if delta.resolution_reason == "multi_appointment_overview" or _is_booked_list_intent(
-            transcript, tracker=tracker
+        # "Welche Termine habe ich?" lists booked appointments. But an availability
+        # question ("Welche Termine wären noch frei gewesen?") must not be treated as
+        # a booked-appointment overview: it stays a grounded, type-preserving
+        # availability search rather than dumping the whole appointment list.
+        is_booked_list = _is_booked_list_intent(transcript, tracker=tracker)
+        asks_availability = bool(
+            _AVAILABILITY_INTENT.search(transcript)
+            or _AVAILABILITY_FOLLOWUP.search(transcript)
+        )
+        if is_booked_list or (
+            delta.resolution_reason == "multi_appointment_overview"
+            and not asks_availability
         ):
             self._invalidate_all_pending_offers()
             return "list_appointments", {"include_cancelled": False}, None
+        # A generic availability follow-up carries no NEW date/time slot. It may
+        # still focus the existing appointment (delta.appointment_id set), so route
+        # it here whenever no new slot was provided instead of falling through to the
+        # same-date search path.
+        carries_new_slot = bool({"date", "time"}.intersection(delta.updated_slots))
         availability_followup = (
-            delta.appointment_id is None
+            not carries_new_slot
             and not delta.clarification_required
             and focused_id is not None
             and focused is not None
@@ -505,7 +548,20 @@ class AppointmentTransactionCoordinator:
             and not _confirms_booking(transcript)
             and _AVAILABILITY_FOLLOWUP.search(transcript) is not None
         )
-        if _AVAILABILITY_INTENT.search(transcript) or availability_followup:
+        # An availability question that the tracker classified as a multi-appointment
+        # overview (clearing the focus) still resolves to a grounded, type-preserving
+        # search via the fallback appointment instead of an unfiltered list dump.
+        overview_availability = (
+            asks_availability
+            and delta.resolution_reason == "multi_appointment_overview"
+            and not _confirms_booking(transcript)
+            and self._fallback_availability_appointment_id(tracker) is not None
+        )
+        if (
+            _AVAILABILITY_INTENT.search(transcript)
+            or availability_followup
+            or overview_availability
+        ):
             plan = self._availability_plan(
                 transcript=transcript,
                 delta=delta,
@@ -585,6 +641,26 @@ class AppointmentTransactionCoordinator:
             )
         return None
 
+    def _fallback_availability_appointment_id(
+        self, tracker: AppointmentStateTracker
+    ) -> str | None:
+        """Most recent open appointment to scope a broad availability question to.
+
+        Used only when the tracker cleared the focus for a multi-appointment
+        overview so the search still preserves the relevant appointment_type.
+        """
+
+        candidate: str | None = None
+        for appointment_id, appointment in tracker.appointments.items():
+            if appointment_id in self._persisted_ids:
+                continue
+            if _slot(appointment, "status") == AppointmentActionState.CANCELLED.value:
+                continue
+            if _appointment_type(appointment) is None:
+                continue
+            candidate = appointment_id
+        return candidate
+
     def _availability_plan(
         self,
         *,
@@ -592,14 +668,21 @@ class AppointmentTransactionCoordinator:
         delta: AppointmentStateDelta,
         tracker: AppointmentStateTracker,
     ) -> tuple[str, dict[str, Any], str | None]:
-        local_id = delta.appointment_id or tracker.active_focus_appointment_id
+        local_id = (
+            delta.appointment_id
+            or tracker.active_focus_appointment_id
+            or self._fallback_availability_appointment_id(tracker)
+        )
         appointment = tracker.appointments.get(local_id) if local_id is not None else None
         date_value = _slot(appointment, "date") if appointment is not None else None
         start_date = date_value or self._today().isoformat()
+        # After a date-specific availability failure, a generic follow-up must
+        # broaden past the failed date to the next grounded alternatives. A
+        # follow-up that explicitly refers back to that date/day stays same-date.
         broaden_to_next_slot = bool(
             local_id is not None
-            and _OPEN_AVAILABILITY_FOLLOWUP.search(transcript)
             and _was_last_search_unavailable(self._last_tool_results.get(local_id))
+            and not _SAME_DATE_REFERENCE.search(transcript)
         )
         end_date = (
             (date.fromisoformat(start_date) + timedelta(days=21)).isoformat()
@@ -611,6 +694,8 @@ class AppointmentTransactionCoordinator:
             "end_date": end_date,
         }
         if broaden_to_next_slot:
+            # Bounded: offer the single next grounded alternative (atomically
+            # bookable), never the whole database.
             arguments["max_results"] = 1
         if appointment is not None:
             optional = {
