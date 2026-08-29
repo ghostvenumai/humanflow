@@ -122,6 +122,15 @@ Pre-playback-TTS-Stalls verloren gehen. Er wurde reproduziert, getestet und beho
 Produktionscode um; Runtime-Anomalien werden unter menschlich gegateter Prüfung in
 Engineering-Tasks überführt.)
 
+Die Evidenz dieses Prozesses liegt im Repo:
+[`.engineering/problems.json`](.engineering/problems.json) (erkannte Probleme),
+[`.engineering/tasks/`](.engineering/tasks/) (Task-Definitionen mit
+Akzeptanzkriterien), [`.engineering/evidence.jsonl`](.engineering/evidence.jsonl)
+(Evidenz-Log) sowie [`docs/engineering-harness/`](docs/engineering-harness/) (Audit
+und Validierung). Jeder Fix in der Commit-History geht auf ein reproduziertes Problem
+zurück, nicht auf Refactoring-Rauschen — nachvollziehbar an den `fix:`-Commits und
+ihren begleitenden Regressionstests.
+
 ## Tech-Stack
 
 Python 3.12 · FastAPI · Anthropic Messages API (Claude) · ElevenLabs Scribe (STT) ·
