@@ -153,7 +153,8 @@ Diese beiden Stände werden getrennt gehalten und nicht vermischt.
 - **Keine** Produktions-Telephony-/PSTN-Zertifizierung und **keine**
   Produktions-SLA-Aussage.
 - Latenzwerte im Repo sind als lokal/simuliert gekennzeichnet und sind keine
-  Real-Call-Latenzmetriken.
+  Real-Call-Latenzmetriken. Zielwerte pro Pipelinestufe:
+  [docs/LATENCY_BUDGET.md](docs/LATENCY_BUDGET.md).
 - Die Natürlichkeit der Stimme und die Verständlichkeit jeder Antwort bleiben eine
   menschliche Bewertung.
 - Der WebSocket-Endpoint `/ws` akzeptiert Verbindungen ohne Origin-Prüfung und ohne
