@@ -147,6 +147,10 @@ Diese beiden Stände werden getrennt gehalten und nicht vermischt.
   Real-Call-Latenzmetriken.
 - Die Natürlichkeit der Stimme und die Verständlichkeit jeder Antwort bleiben eine
   menschliche Bewertung.
+- Der WebSocket-Endpoint `/ws` akzeptiert Verbindungen ohne Origin-Prüfung und ohne
+  Session-Authentifizierung (`websocket_session` → `await websocket.accept()`). Für
+  den lokal gebundenen Demo-Betrieb (127.0.0.1) ist das unkritisch; für eine
+  exponierte Umgebung ist der Endpoint in dieser Form nicht geeignet.
 
 ### Fail-Closed-Gates
 
