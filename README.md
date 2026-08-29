@@ -167,6 +167,23 @@ statt ein Gespräch zu simulieren. Die folgenden Gates stammen aus dem Code
 | `/ws` ohne echte Provider (`close 1011`, `real_reasoning_provider_unavailable`) | Keine WebSocket-Session ohne vollständige Pipeline | Konfigurierte Provider (siehe oben) |
 | `/ws` bei belegtem Playback (`close 1008`, `another_browser_session_owns_playback`) | Playback ist Single-Owner (Barge-in-/Ledger-Integrität) | Die andere Browser-Session muss die Wiedergabe freigeben |
 
+## Bekannte Strukturschuld
+
+`src/humanflow/runtime/session.py` umfasst 2.786 Zeilen; die zentrale Methode
+`_run_response` allein rund 566. Sie enthält den Reasoner-Stream-Loop, darin die
+Prosody-Segment-Schleife, darin die TTS-Versuchs-Schleife und den Chunk-Consume-Loop
+— mehrere ineinander verschachtelte Schleifen samt `try`/`except`/`finally` für
+Cancellation und Recovery.
+
+Das ist eine bewusste Entscheidung unter Zeitdruck: Die Iterationsgeschwindigkeit lag
+in der Runtime-Schicht, während Domain-Modell, Ledger und State Machine sauber
+getrennt gehalten wurden.
+
+Der geplante nächste Schritt ist, die TTS-Segment-Schleife samt Retry-Behandlung in
+eine eigene Einheit (etwa `_SpeechSegmentRunner`) zu extrahieren; die bestehende
+Testsuite deckt diesen Umbau ab. Dieser Umbau ist ausdrücklich **nicht** Teil des
+eingefrorenen Stands.
+
 ## Demo starten
 
 ```bash
