@@ -148,6 +148,21 @@ Diese beiden Stände werden getrennt gehalten und nicht vermischt.
 - Die Natürlichkeit der Stimme und die Verständlichkeit jeder Antwort bleiben eine
   menschliche Bewertung.
 
+### Fail-Closed-Gates
+
+Mehrere Zustände sind bewusst geschlossen: ohne echte Provider bricht der Dienst ab,
+statt ein Gespräch zu simulieren. Die folgenden Gates stammen aus dem Code
+(`src/humanflow/web/app.py`):
+
+| Gate | Warum geschlossen | Was zum Öffnen fehlt |
+|---|---|---|
+| Server-Start ohne Credentials (`lifespan` wirft `RuntimeError`) | Kein Fake-Gespräch statt echter Pipeline | `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` in `runtime.env` |
+| Reasoning-Provider ≠ `anthropic` (`blocker: unsupported reasoning provider`) | Nur der Anthropic-Reasoner ist implementiert | `HUMANFLOW_REASONING_PROVIDER=anthropic` (Default) |
+| STT ohne Key (`blocker`, Status `MISSING_API_KEY`) | Kein Browser-STT-Fallback im Produktionspfad | `ELEVENLABS_STT_API_KEY` (oder `ELEVENLABS_API_KEY` mit STT-Scope) |
+| TTS ohne Key/Voice (`blocker: missing TTS configuration`) | Echte Stimme erforderlich; ungültige Credentials scheitern closed | `ELEVENLABS_API_KEY` und `ELEVENLABS_VOICE_ID` |
+| `/ws` ohne echte Provider (`close 1011`, `real_reasoning_provider_unavailable`) | Keine WebSocket-Session ohne vollständige Pipeline | Konfigurierte Provider (siehe oben) |
+| `/ws` bei belegtem Playback (`close 1008`, `another_browser_session_owns_playback`) | Playback ist Single-Owner (Barge-in-/Ledger-Integrität) | Die andere Browser-Session muss die Wiedergabe freigeben |
+
 ## Demo starten
 
 ```bash
