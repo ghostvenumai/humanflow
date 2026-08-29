@@ -17,6 +17,32 @@ aktive TTS-Provider und Provenienz/Telemetrie pro Turn.*
 
 ---
 
+## Zeitrahmen
+
+Dieses Projekt entstand im Zeitfenster der Everlast Developer Challenge: drei Tage
+Kernentwicklung plus ein Konsolidierungstag. Die Spanne ist über `git log`
+nachprüfbar — der erste Commit datiert auf 2026-08-23 17:08, die Runtime- und
+Feature-Arbeit lief bis 2026-08-26.
+
+Commits pro Entwicklungstag:
+
+| Tag | Commits |
+|---|---|
+| 2026-08-23 | 39 |
+| 2026-08-24 | 42 |
+| 2026-08-25 | 27 |
+| 2026-08-26 | 9 |
+
+Der Großteil der Substanz — 81 der 117 Commits dieser vier Tage — fiel auf die
+ersten beiden Tage; danach Konsolidierung und Absicherung. Die Commits ab dem
+2026-08-27 betreffen Rahmung, Dokumentation und CI, nicht die Runtime.
+
+Selbst nachvollziehbar mit:
+
+```bash
+git log --format=%ci | cut -d' ' -f1 | sort | uniq -c
+```
+
 ## Was es kann
 
 - Natürliches **deutsches Multi-Turn**-Sprachgespräch.
