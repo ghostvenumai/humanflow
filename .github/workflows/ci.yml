@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The demo extra pulls fastapi, which three test modules import at collection
+      # time (test_browser_transport, test_engineering_registry,
+      # test_live_reasoning_provider). Without it, pytest cannot even collect.
+      - name: Install project and test tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[demo,eval]'
+          python -m pip install pytest ruff
+
+      # Blocking: the full suite runs entirely against deterministic test adapters,
+      # with no network access to provider APIs and no secrets.
+      - name: Run tests
+        run: python -m pytest -q
+
+      # Non-blocking for now: the current lint state is unknown, and a repo-wide
+      # reformat is deliberately out of scope. The output is reported in the log;
+      # this can be made blocking later.
+      - name: Lint (ruff, non-blocking)
+        continue-on-error: true
+        run: ruff check .

@@ -1,3 +1,5 @@
+[![CI](https://github.com/ghostvenumai/humanflow/actions/workflows/ci.yml/badge.svg)](https://github.com/ghostvenumai/humanflow/actions/workflows/ci.yml)
+
 # HumanFlow
 
 **Ein deutscher Echtzeit-Voice-Agent mit Fokus auf den schwierigen Teil von
